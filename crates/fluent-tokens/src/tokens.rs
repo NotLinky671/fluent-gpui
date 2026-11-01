@@ -123,6 +123,11 @@ pub struct ColorTokens {
     pub subtle_background: Hsla,
     pub subtle_background_hover: Hsla,
     pub subtle_background_pressed: Hsla,
+    pub neutral_foreground_2_hover: Hsla,
+    pub neutral_foreground_2_pressed: Hsla,
+    pub neutral_foreground_2_brand_hover: Hsla,
+    pub neutral_foreground_2_brand_pressed: Hsla,
+    pub subtle_background_selected: Hsla,
 }
 
 impl ColorTokens {
@@ -170,6 +175,11 @@ impl ColorTokens {
             subtle_background: transparent_black(),
             subtle_background_hover: hex(0xf5f5f5),
             subtle_background_pressed: hex(0xe0e0e0),
+            neutral_foreground_2_hover: hex(0x242424),
+            neutral_foreground_2_pressed: hex(0x242424),
+            neutral_foreground_2_brand_hover: brand.stop(80),
+            neutral_foreground_2_brand_pressed: brand.stop(70),
+            subtle_background_selected: hex(0xebebeb),
         }
     }
 
@@ -217,6 +227,11 @@ impl ColorTokens {
             subtle_background: transparent_black(),
             subtle_background_hover: hex(0x383838),
             subtle_background_pressed: hex(0x2e2e2e),
+            neutral_foreground_2_hover: hex(0xffffff),
+            neutral_foreground_2_pressed: hex(0xffffff),
+            neutral_foreground_2_brand_hover: brand.stop(100),
+            neutral_foreground_2_brand_pressed: brand.stop(90),
+            subtle_background_selected: hex(0x333333),
         }
     }
 }
