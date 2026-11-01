@@ -45,6 +45,12 @@ jobs:
       - name: Docs
         run: cargo doc --workspace --no-deps
 
+      # License allow list, duplicate bans, RustSec advisories (T-013).
+      - name: Dependency policy
+        run: |
+          cargo install cargo-deny --locked --version 0.20.2
+          cargo deny check
+
       # Generated code must match its snapshot (plan/02-architecture.md §14).
       - name: Tokens in sync
         run: cargo xtask gen-tokens --check
