@@ -18,7 +18,8 @@
 //! `Cargo.toml`: two different gpui crates have incompatible types.
 
 pub use fluent_components::{
-    Button, FluentIcon, FluentRoot, Icon, IconStyle, InputAppearance, TextInput,
+    Button, FluentIcon, FluentRoot, Icon, IconStyle, InputAppearance, TextInput, Textarea,
+    TextareaAppearance,
 };
 pub use fluent_core::spec::ControlSize;
 pub use fluent_core::spec::button::{ButtonAppearance, ButtonShape, IconPosition};

@@ -6,6 +6,7 @@
 
 pub mod button;
 pub mod input;
+pub mod textarea;
 
 /// Shared control sizes, mirroring Fluent's `size` prop.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

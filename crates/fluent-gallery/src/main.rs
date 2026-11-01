@@ -10,11 +10,11 @@ use fluent_ui::gpui::{
     App, Bounds, ClickEvent, Context, Hsla, Render, StatefulInteractiveElement, Subscription,
     TitlebarOptions, Window, WindowBounds, WindowOptions, div, px, size,
 };
-use fluent_ui::gpui_base::input::InputState;
+use fluent_ui::gpui_base::input::{InputState, TextareaState};
 use fluent_ui::prelude::*;
 use fluent_ui::{
     Appearance, Button, ButtonAppearance, ButtonShape, ControlSize, FluentIcon, FluentRoot,
-    FluentTheme, FontMode, InputAppearance, TextInput,
+    FluentTheme, FontMode, InputAppearance, TextInput, Textarea, TextareaAppearance,
 };
 
 const APPEARANCES: [ButtonAppearance; 5] = [
@@ -50,6 +50,7 @@ struct Gallery {
     appearance: Appearance,
     clicks: usize,
     inputs: Vec<gpui::Entity<InputState>>,
+    textareas: Vec<gpui::Entity<TextareaState>>,
     /// Keeps the OS appearance observer alive for the window's lifetime.
     _appearance_sub: Option<Subscription>,
 }
@@ -75,10 +76,19 @@ impl Gallery {
             state.focus(window, cx);
         });
 
+        let textareas: Vec<_> = (0..11)
+            .map(|index| {
+                cx.new(|cx| {
+                    TextareaState::new(window, cx).placeholder(format!("Multi-line {index}"))
+                })
+            })
+            .collect();
+
         Self {
             appearance: FluentTheme::global(cx).appearance(),
             clicks: 0,
             inputs,
+            textareas,
             _appearance_sub: sub,
         }
     }
@@ -295,6 +305,66 @@ impl Render for Gallery {
                 ),
             );
         input_matrix = input_matrix.child(input_extras);
+        let mut textarea_matrix = div().flex().flex_col().gap(px(12.)).p(px(16.));
+        let textarea_appearances = [
+            TextareaAppearance::Outline,
+            TextareaAppearance::FilledDarker,
+            TextareaAppearance::FilledLighter,
+        ];
+        let mut textarea_index = 0usize;
+        for appearance in textarea_appearances {
+            let mut row = div().flex().items_start().gap(px(12.)).child(
+                div()
+                    .w(px(96.))
+                    .pt(px(8.))
+                    .text_color(t.color.neutral_foreground_3)
+                    .child(match appearance {
+                        TextareaAppearance::Outline => "outline",
+                        TextareaAppearance::Filled => "filled",
+                        TextareaAppearance::FilledDarker => "filled-darker",
+                        TextareaAppearance::FilledLighter => "filled-lighter",
+                    }),
+            );
+            for size in SIZES {
+                row = row.child(
+                    div().w(px(220.)).child(
+                        Textarea::new(&self.textareas[textarea_index])
+                            .appearance(appearance)
+                            .size(size),
+                    ),
+                );
+                textarea_index += 1;
+            }
+            textarea_matrix = textarea_matrix.child(row);
+        }
+        textarea_matrix = textarea_matrix.child(
+            div()
+                .flex()
+                .items_start()
+                .gap(px(12.))
+                .child(
+                    div()
+                        .w(px(96.))
+                        .pt(px(8.))
+                        .text_color(t.color.neutral_foreground_3)
+                        .child("states"),
+                )
+                .child(
+                    div().w(px(220.)).child(
+                        Textarea::new(&self.textareas[9])
+                            .disabled(true)
+                            .size(ControlSize::Medium),
+                    ),
+                )
+                .child(
+                    div().w(px(220.)).child(
+                        Textarea::new(&self.textareas[10])
+                            .invalid(true)
+                            .size(ControlSize::Medium),
+                    ),
+                ),
+        );
+
         let header = div()
             .flex()
             .items_center()
@@ -372,6 +442,7 @@ impl Render for Gallery {
                 .overflow_y_scroll()
                 .child(matrix)
                 .child(input_matrix)
+                .child(textarea_matrix)
                 .child(
                     div()
                         .p(px(16.))
