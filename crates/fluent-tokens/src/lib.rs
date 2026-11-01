@@ -8,6 +8,7 @@
 //! This crate owns values only. It performs no theming and no rendering.
 
 mod brand;
+#[rustfmt::skip]
 mod generated;
 
 pub use brand::BrandVariants;

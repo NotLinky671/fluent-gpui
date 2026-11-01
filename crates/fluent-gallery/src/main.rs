@@ -7,8 +7,8 @@
 use std::time::Duration;
 
 use fluent_ui::gpui::{
-    div, px, size, App, Bounds, ClickEvent, Context, Hsla, Render, StatefulInteractiveElement,
-    Subscription, TitlebarOptions, Window, WindowBounds, WindowOptions,
+    App, Bounds, ClickEvent, Context, Hsla, Render, StatefulInteractiveElement, Subscription,
+    TitlebarOptions, Window, WindowBounds, WindowOptions, div, px, size,
 };
 use fluent_ui::prelude::*;
 use fluent_ui::{
@@ -71,7 +71,9 @@ impl Gallery {
 
     fn apply(&mut self, appearance: Appearance, cx: &mut Context<Self>) {
         self.appearance = appearance;
-        FluentTheme::global(cx).with_appearance(appearance).install(cx);
+        FluentTheme::global(cx)
+            .with_appearance(appearance)
+            .install(cx);
         cx.notify();
     }
 
@@ -155,7 +157,11 @@ impl Render for Gallery {
                 .text_color(t.color.neutral_foreground_3)
                 .child("shape"),
         );
-        for shape in [ButtonShape::Rounded, ButtonShape::Circular, ButtonShape::Square] {
+        for shape in [
+            ButtonShape::Rounded,
+            ButtonShape::Circular,
+            ButtonShape::Square,
+        ] {
             shapes = shapes.child(
                 Button::new(("shape", index))
                     .shape(shape)
@@ -197,7 +203,11 @@ impl Render for Gallery {
                 .child("Options"),
         );
         index += 1;
-        for icon in [FluentIcon::Add, FluentIcon::MoreHorizontal, FluentIcon::Dismiss] {
+        for icon in [
+            FluentIcon::Add,
+            FluentIcon::MoreHorizontal,
+            FluentIcon::Dismiss,
+        ] {
             icon_row = icon_row.child(
                 Button::new(("icon-only", index))
                     .appearance(ButtonAppearance::Subtle)
@@ -249,7 +259,9 @@ impl Render for Gallery {
                     .border_1()
                     .border_color(t.color.neutral_stroke_1)
                     .cursor_pointer()
-                    .on_click(cx.listener(|this, _, _, cx| this.apply(Appearance::HighContrast, cx)))
+                    .on_click(
+                        cx.listener(|this, _, _, cx| this.apply(Appearance::HighContrast, cx)),
+                    )
                     .child("HC"),
             )
             .child(
@@ -277,27 +289,23 @@ impl Render for Gallery {
                     )),
             );
 
-        FluentRoot::new()
-            .flex()
-            .flex_col()
-            .child(header)
-            .child(
-                div()
-                    .id("matrix-scroll")
-                    .flex_1()
-                    .overflow_y_scroll()
-                    .child(matrix)
-                    .child(
-                        div()
-                            .p(px(16.))
-                            .flex()
-                            .gap(px(8.))
-                            .child(swatch(t.color.brand_background))
-                            .child(swatch(t.color.neutral_background_1_hover))
-                            .child(swatch(t.color.neutral_stroke_accessible))
-                            .child(swatch(t.color.stroke_focus_2)),
-                    ),
-            )
+        FluentRoot::new().flex().flex_col().child(header).child(
+            div()
+                .id("matrix-scroll")
+                .flex_1()
+                .overflow_y_scroll()
+                .child(matrix)
+                .child(
+                    div()
+                        .p(px(16.))
+                        .flex()
+                        .gap(px(8.))
+                        .child(swatch(t.color.brand_background))
+                        .child(swatch(t.color.neutral_background_1_hover))
+                        .child(swatch(t.color.neutral_stroke_accessible))
+                        .child(swatch(t.color.stroke_focus_2)),
+                ),
+        )
     }
 }
 
@@ -336,9 +344,8 @@ fn main() {
             cx.spawn(async move |cx| {
                 // Give the first frames (layout, text shaping, SVG parse) time.
                 executor.timer(Duration::from_millis(1200)).await;
-                let captured = cx.update(|cx| {
-                    window.update(cx, |_, window, _| window.render_to_image())
-                });
+                let captured =
+                    cx.update(|cx| window.update(cx, |_, window, _| window.render_to_image()));
                 match captured {
                     Ok(Ok(image)) => match image.save(&path) {
                         Ok(()) => eprintln!("screenshot written to {}", path.display()),

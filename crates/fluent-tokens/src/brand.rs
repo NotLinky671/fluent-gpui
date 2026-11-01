@@ -27,7 +27,7 @@ impl BrandVariants {
     /// Panics when `stop` is outside the ramp or not a multiple of 10.
     pub fn stop(&self, stop: u16) -> Hsla {
         assert!(
-            (10..=160).contains(&stop) && stop % 10 == 0,
+            (10..=160).contains(&stop) && stop.is_multiple_of(10),
             "brand stop must be 10..=160 in steps of 10, got {stop}"
         );
         Hsla::from(rgba((self.stops[((stop - 10) / 10) as usize] << 8) | 0xff))

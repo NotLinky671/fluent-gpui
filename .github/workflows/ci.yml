@@ -1,0 +1,67 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  check:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      # gpui-pre needs X11/Wayland, fontconfig and a Vulkan loader on Linux.
+      - name: Linux system dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libxkbcommon-dev libwayland-dev libx11-xcb-dev libxcb1-dev \
+            libfontconfig1-dev libfreetype6-dev libvulkan-dev
+
+      - name: Formatting
+        run: cargo fmt --all --check
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Tests
+        run: cargo test --workspace
+
+      - name: Docs
+        run: cargo doc --workspace --no-deps
+
+      # Generated code must match its snapshot (plan/02-architecture.md §14).
+      - name: Tokens in sync
+        run: cargo xtask gen-tokens --check
+
+      - name: Icons in sync
+        run: cargo xtask gen-icons --check
+
+      - name: Task index in sync
+        run: cargo xtask tasks --check
+
+      # Screenshots are scratch: only committed pixel baselines may be tracked.
+      - name: No stray images
+        shell: bash
+        run: |
+          stray=$(git ls-files | grep -Ei '\.(png|jpe?g|webp)$' | grep -v '^tests/baselines/' || true)
+          if [ -n "$stray" ]; then
+            echo "::error::tracked images outside tests/baselines:"
+            echo "$stray"
+            exit 1
+          fi

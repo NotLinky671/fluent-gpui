@@ -9,6 +9,7 @@
 //! Only icons the components actually use are embedded; add more by editing
 //! `scripts/snapshot-icons.mjs` and re-running the generator.
 
+#[rustfmt::skip]
 mod generated;
 
 pub use generated::FluentIcon;

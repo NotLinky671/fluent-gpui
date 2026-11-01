@@ -4,17 +4,20 @@
 //! from `gpui_base::Button`. Every visual value comes from
 //! [`fluent_core::spec::button::resolve`], so this file contains no colours.
 
-use fluent_icons::FluentIcon;
 use crate::icon::Icon;
-use fluent_core::spec::ControlSize;
-use fluent_core::spec::button::{self, ButtonAppearance, ButtonProps, ButtonShape, IconPosition};
-use fluent_theme::FluentTheme;
+use fluent_core::gpui_compat::StyledExt as _;
 use fluent_core::gpui_compat::{
     AnyElement, App, BoxShadow, ClickEvent, ElementId, InteractiveElement, IntoElement,
     ParentElement, RenderOnce, SharedString, StatefulInteractiveElement, StyleRefinement, Styled,
     Window, point, px,
 };
-use fluent_core::gpui_compat::StyledExt as _;
+use fluent_core::spec::ControlSize;
+use fluent_core::spec::button::{self, ButtonAppearance, ButtonProps, ButtonShape, IconPosition};
+use fluent_icons::FluentIcon;
+use fluent_theme::FluentTheme;
+
+/// Click handler shape, matching `gpui_base::Button::on_click`.
+pub type ClickHandler = Box<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;
 
 /// A Fluent 2 button.
 ///
@@ -33,7 +36,7 @@ pub struct Button {
     children: Vec<AnyElement>,
     style: StyleRefinement,
     icon: Option<FluentIcon>,
-    on_click: Option<Box<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>>,
+    on_click: Option<ClickHandler>,
     a11y_label: Option<SharedString>,
     theme: Option<FluentTheme>,
 }
@@ -217,7 +220,9 @@ impl RenderOnce for Button {
         }
         // Icon placement follows the spec's padding rules; the icon inherits
         // the button's text colour, so hover/pressed tint it automatically.
-        let icon = self.icon.map(|icon| Icon::new(icon).size(m.icon_size).color(rest.foreground));
+        let icon = self
+            .icon
+            .map(|icon| Icon::new(icon).size(m.icon_size).color(rest.foreground));
         if matches!(self.props.icon, Some(IconPosition::Before)) {
             if let Some(icon) = icon {
                 el = el.child(icon);

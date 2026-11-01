@@ -4,11 +4,11 @@
 //! surface colour, foreground and UI font once, at the top of its tree.
 //! [`FluentRoot`] does exactly that and nothing else.
 
+use fluent_core::gpui_compat::StyledExt as _;
 use fluent_core::gpui_compat::{
     AnyElement, App, IntoElement, ParentElement, RenderOnce, StyleRefinement, Styled, Window, div,
     px,
 };
-use fluent_core::gpui_compat::StyledExt as _;
 use fluent_theme::FluentTheme;
 
 /// Applies the theme's background, foreground and font family to a subtree.

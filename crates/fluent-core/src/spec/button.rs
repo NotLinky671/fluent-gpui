@@ -6,9 +6,9 @@
 
 use std::time::Duration;
 
+use crate::gpui_compat::{FontWeight, Hsla, Pixels, px};
 use fluent_theme::FluentTheme;
 use fluent_tokens::CubicBezier;
-use crate::gpui_compat::{FontWeight, Hsla, Pixels, px};
 
 use crate::spec::ControlSize;
 
@@ -126,7 +126,11 @@ pub fn resolve(theme: &FluentTheme, props: &ButtonProps) -> ButtonSpec {
     let (rest, hover, pressed) = match props.appearance {
         // Secondary is Fluent's base style: filled neutral surface + border.
         ButtonAppearance::Secondary => (
-            colors(c.neutral_background_1, c.neutral_foreground_1, c.neutral_stroke_1),
+            colors(
+                c.neutral_background_1,
+                c.neutral_foreground_1,
+                c.neutral_stroke_1,
+            ),
             colors(
                 c.neutral_background_1_hover,
                 c.neutral_foreground_1_hover,
@@ -140,7 +144,11 @@ pub fn resolve(theme: &FluentTheme, props: &ButtonProps) -> ButtonSpec {
         ),
         // Outline keeps the border but drops the fill.
         ButtonAppearance::Outline => (
-            colors(c.transparent_background, c.neutral_foreground_1, c.neutral_stroke_1),
+            colors(
+                c.transparent_background,
+                c.neutral_foreground_1,
+                c.neutral_stroke_1,
+            ),
             colors(
                 c.transparent_background,
                 c.neutral_foreground_1_hover,
@@ -153,7 +161,11 @@ pub fn resolve(theme: &FluentTheme, props: &ButtonProps) -> ButtonSpec {
             ),
         ),
         ButtonAppearance::Primary => (
-            colors(c.brand_background, c.neutral_foreground_on_brand, transparent),
+            colors(
+                c.brand_background,
+                c.neutral_foreground_on_brand,
+                transparent,
+            ),
             colors(
                 c.brand_background_hover,
                 c.neutral_foreground_on_brand,
@@ -179,7 +191,11 @@ pub fn resolve(theme: &FluentTheme, props: &ButtonProps) -> ButtonSpec {
             ),
         ),
         ButtonAppearance::Transparent => (
-            colors(c.transparent_background, c.neutral_foreground_2, transparent),
+            colors(
+                c.transparent_background,
+                c.neutral_foreground_2,
+                transparent,
+            ),
             colors(
                 c.transparent_background,
                 c.neutral_foreground_2_brand_hover,
@@ -365,7 +381,10 @@ mod tests {
         assert_eq!(spec.rest.foreground, t.color.neutral_foreground_1);
         assert_eq!(spec.rest.border, t.color.neutral_stroke_1);
         assert_eq!(spec.hover.background, t.color.neutral_background_1_hover);
-        assert_eq!(spec.pressed.background, t.color.neutral_background_1_pressed);
+        assert_eq!(
+            spec.pressed.background,
+            t.color.neutral_background_1_pressed
+        );
         assert_eq!(spec.hover.border, t.color.neutral_stroke_1_hover);
     }
 
@@ -398,10 +417,7 @@ mod tests {
 
         assert_eq!(subtle.rest, transparent.rest);
         assert_eq!(subtle.hover.background, t.color.subtle_background_hover);
-        assert_eq!(
-            transparent.hover.background,
-            t.color.transparent_background
-        );
+        assert_eq!(transparent.hover.background, t.color.transparent_background);
         assert_eq!(subtle.hover.foreground, t.color.neutral_foreground_2_hover);
         assert_eq!(
             transparent.hover.foreground,
@@ -599,7 +615,10 @@ mod tests {
     #[test]
     fn dark_theme_resolves_dark_tokens() {
         let t = Tokens::web_dark();
-        let spec = resolve(&FluentTheme::web_dark(), &props(ButtonAppearance::Secondary));
+        let spec = resolve(
+            &FluentTheme::web_dark(),
+            &props(ButtonAppearance::Secondary),
+        );
         assert_eq!(spec.rest.background, t.color.neutral_background_1);
         assert_eq!(spec.rest.background, Hsla::from(rgba(0x292929ff)));
         assert_eq!(spec.focus.inner_ring_color, t.color.stroke_focus_2);
