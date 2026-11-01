@@ -8,6 +8,7 @@ pub mod field;
 pub mod icon;
 pub mod input;
 pub mod root;
+pub mod selection;
 pub mod textarea;
 
 pub use button::Button;
@@ -20,4 +21,5 @@ pub use fluent_icons::{FluentIcon, IconStyle};
 pub use icon::Icon;
 pub use input::TextInput;
 pub use root::FluentRoot;
+pub use selection::{Checkbox, Radio};
 pub use textarea::Textarea;

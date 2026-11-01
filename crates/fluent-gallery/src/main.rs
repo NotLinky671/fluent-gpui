@@ -13,9 +13,9 @@ use fluent_ui::gpui::{
 use fluent_ui::gpui_base::input::{InputState, TextareaState};
 use fluent_ui::prelude::*;
 use fluent_ui::{
-    Appearance, Button, ButtonAppearance, ButtonShape, ControlSize, Field, FluentIcon, FluentRoot,
-    FluentTheme, FontMode, InputAppearance, TextInput, Textarea, TextareaAppearance,
-    ValidationMessage,
+    Appearance, Button, ButtonAppearance, ButtonShape, Checkbox, ControlSize, Field, FluentIcon,
+    FluentRoot, FluentTheme, FontMode, InputAppearance, Radio, TextInput, Textarea,
+    TextareaAppearance, ValidationMessage,
 };
 
 const APPEARANCES: [ButtonAppearance; 5] = [
@@ -52,6 +52,9 @@ struct Gallery {
     clicks: usize,
     inputs: Vec<gpui::Entity<InputState>>,
     textareas: Vec<gpui::Entity<TextareaState>>,
+    checkbox_a: bool,
+    checkbox_b: bool,
+    radio_choice: usize,
     /// Keeps the OS appearance observer alive for the window's lifetime.
     _appearance_sub: Option<Subscription>,
 }
@@ -90,6 +93,9 @@ impl Gallery {
             clicks: 0,
             inputs,
             textareas,
+            checkbox_a: true,
+            checkbox_b: false,
+            radio_choice: 1,
             _appearance_sub: sub,
         }
     }
@@ -475,6 +481,60 @@ impl Render for Gallery {
                     )),
             );
 
+        let selection_section = div()
+            .flex()
+            .flex_col()
+            .gap(px(12.))
+            .p(px(16.))
+            .child(
+                Checkbox::new("cb-a")
+                    .checked(self.checkbox_a)
+                    .label("Send me product updates")
+                    .on_change(cx.listener(|this, value, _, cx| {
+                        this.checkbox_a = *value;
+                        cx.notify();
+                    })),
+            )
+            .child(
+                Checkbox::new("cb-b")
+                    .checked(self.checkbox_b)
+                    .label("Unchecked by default")
+                    .on_change(cx.listener(|this, value, _, cx| {
+                        this.checkbox_b = *value;
+                        cx.notify();
+                    })),
+            )
+            .child(
+                Checkbox::new("cb-c")
+                    .checked(true)
+                    .disabled(true)
+                    .label("Disabled and checked"),
+            )
+            .child(
+                Radio::new("radio-0")
+                    .checked(self.radio_choice == 0)
+                    .label("Option A")
+                    .on_change(cx.listener(|this, _, _, cx| {
+                        this.radio_choice = 0;
+                        cx.notify();
+                    })),
+            )
+            .child(
+                Radio::new("radio-1")
+                    .checked(self.radio_choice == 1)
+                    .label("Option B (selected)")
+                    .on_change(cx.listener(|this, _, _, cx| {
+                        this.radio_choice = 1;
+                        cx.notify();
+                    })),
+            )
+            .child(
+                Radio::new("radio-2")
+                    .checked(false)
+                    .disabled(true)
+                    .label("Option C (disabled)"),
+            );
+
         // `FLUENT_GALLERY_SECTION` narrows the gallery to one section; useful for
         // screenshots and pixel baselines that would otherwise be below the fold.
         let want = |name: &str| match std::env::var("FLUENT_GALLERY_SECTION") {
@@ -493,6 +553,9 @@ impl Render for Gallery {
         }
         if want("fields") {
             sections.push(field_section.into_any_element());
+        }
+        if want("selection") {
+            sections.push(selection_section.into_any_element());
         }
         FluentRoot::new().flex().flex_col().child(header).child(
             div()
