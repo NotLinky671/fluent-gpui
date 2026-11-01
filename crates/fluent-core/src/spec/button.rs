@@ -606,6 +606,28 @@ mod tests {
     }
 
     #[test]
+    fn computed_height_matches_fluent_control_heights() {
+        // Fluent control heights: small 24, medium 32, large 40.
+        // height = padding_y * 2 + line_height + border * 2
+        for (size, expected) in [
+            (ControlSize::Small, 24.0f32),
+            (ControlSize::Medium, 32.0f32),
+            (ControlSize::Large, 40.0f32),
+        ] {
+            let m = resolve(
+                &theme(),
+                &ButtonProps {
+                    size,
+                    ..Default::default()
+                },
+            )
+            .metrics;
+            let height = m.padding_y * 2.0 + m.line_height + m.border_width * 2.0;
+            assert_eq!(height, px(expected), "control height for {size:?}");
+        }
+    }
+
+    #[test]
     fn transition_uses_faster_and_easy_ease() {
         let t = Tokens::web_light();
         let m = resolve(&theme(), &ButtonProps::default()).metrics;
