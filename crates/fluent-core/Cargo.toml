@@ -1,0 +1,14 @@
+[package]
+name = "fluent-core"
+description = "Style resolution, focus ring, typography and motion primitives for Fluent GPUI."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+gpui.workspace = true
+gpui-base.workspace = true
+fluent-tokens.workspace = true
+fluent-theme.workspace = true
+fluent-icons.workspace = true

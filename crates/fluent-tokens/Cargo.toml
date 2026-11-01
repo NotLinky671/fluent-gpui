@@ -1,0 +1,10 @@
+[package]
+name = "fluent-tokens"
+description = "Fluent 2 design tokens for Rust: generated from @fluentui/tokens."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+gpui.workspace = true

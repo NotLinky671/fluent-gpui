@@ -1,0 +1,10 @@
+[package]
+name = "fluent-icons"
+description = "Fluent System Icons assets for GPUI."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+gpui.workspace = true
