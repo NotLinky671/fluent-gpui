@@ -5,9 +5,11 @@
 
 pub mod button;
 pub mod icon;
+pub mod root;
 
 pub use button::Button;
 pub use icon::Icon;
+pub use root::FluentRoot;
 pub use fluent_icons::{FluentIcon, IconStyle};
 pub use fluent_core::spec::ControlSize;
 pub use fluent_core::spec::button::{ButtonAppearance, ButtonShape, IconPosition};

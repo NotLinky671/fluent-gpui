@@ -20,9 +20,9 @@
 pub use gpui;
 pub use gpui_base;
 pub use gpui_platform;
-pub use fluent_theme::{Appearance, FluentTheme};
+pub use fluent_theme::{Appearance, FluentTheme, FontMode};
 pub use fluent_tokens::Tokens;
-pub use fluent_components::{Button, FluentIcon, Icon, IconStyle};
+pub use fluent_components::{Button, FluentIcon, FluentRoot, Icon, IconStyle};
 pub use fluent_core::spec::ControlSize;
 pub use fluent_core::spec::button::{ButtonAppearance, ButtonShape, IconPosition};
 

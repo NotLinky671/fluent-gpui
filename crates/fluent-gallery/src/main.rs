@@ -1,17 +1,19 @@
 //! Component gallery: the manual review surface for `fluent-ui`.
 //!
-//! Set `FLUENT_GALLERY_SMOKE=1` to open the window and quit automatically;
-//! this is what CI uses to prove the application boots.
+//! - `FLUENT_GALLERY_SMOKE=1` opens the window and quits, for CI boot checks.
+//! - `FLUENT_GALLERY_SCREENSHOT=<path>` (with `--features screenshot`) writes a
+//!   PNG of the first frame.
 
 use std::time::Duration;
 
 use fluent_ui::gpui::{
-    div, px, size, App, Bounds, ClickEvent, Context, Hsla, Render, StatefulInteractiveElement, TitlebarOptions, Window,
-    WindowBounds, WindowOptions,
+    div, px, size, App, Bounds, ClickEvent, Context, Hsla, Render, StatefulInteractiveElement,
+    Subscription, TitlebarOptions, Window, WindowBounds, WindowOptions,
 };
 use fluent_ui::prelude::*;
 use fluent_ui::{
-    Appearance, Button, ButtonAppearance, ButtonShape, ControlSize, FluentIcon, FluentTheme,
+    Appearance, Button, ButtonAppearance, ButtonShape, ControlSize, FluentIcon, FluentRoot,
+    FluentTheme, FontMode,
 };
 
 const APPEARANCES: [ButtonAppearance; 5] = [
@@ -42,23 +44,44 @@ fn size_name(size: ControlSize) -> &'static str {
     }
 }
 
-/// Root view: theme switcher plus the button matrix.
+/// Root view: theme switcher, font mode, and the button matrix.
 struct Gallery {
     appearance: Appearance,
     clicks: usize,
+    /// Keeps the OS appearance observer alive for the window's lifetime.
+    _appearance_sub: Option<Subscription>,
 }
 
 impl Gallery {
-    fn new() -> Self {
+    fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
+        // A forced appearance (screenshots, CI baselines) must not be
+        // overwritten by the OS observer, which fires immediately.
+        let forced = std::env::var_os("FLUENT_GALLERY_APPEARANCE").is_some();
+        let sub = if forced {
+            None
+        } else {
+            Some(FluentTheme::follow_system(window))
+        };
         Self {
-            appearance: Appearance::Light,
+            appearance: FluentTheme::global(cx).appearance(),
             clicks: 0,
+            _appearance_sub: sub,
         }
     }
 
     fn apply(&mut self, appearance: Appearance, cx: &mut Context<Self>) {
         self.appearance = appearance;
-        FluentTheme::for_appearance(appearance).install(cx);
+        FluentTheme::global(cx).with_appearance(appearance).install(cx);
+        cx.notify();
+    }
+
+    fn toggle_font(&mut self, cx: &mut Context<Self>) {
+        let current = FluentTheme::global(cx);
+        let next = match current.font_mode() {
+            FontMode::SegoeCompat => FontMode::System,
+            _ => FontMode::SegoeCompat,
+        };
+        current.with_font_mode(next).install(cx);
         cx.notify();
     }
 }
@@ -108,7 +131,6 @@ impl Render for Gallery {
             matrix = matrix.child(row);
         }
 
-        // Disabled + shapes + icon-only, so the matrix covers every variant.
         let mut extra = div().flex().items_center().gap(px(12.)).child(
             div()
                 .w(px(96.))
@@ -187,56 +209,78 @@ impl Render for Gallery {
         }
         matrix = matrix.child(icon_row);
 
-        div()
-            .size_full()
-            .bg(t.color.neutral_background_1)
-            .text_color(t.color.neutral_foreground_1)
-            .text_size(px(14.))
+        let header = div()
             .flex()
-            .flex_col()
+            .items_center()
+            .gap(px(8.))
+            .p(px(16.))
+            .border_b_1()
+            .border_color(t.color.neutral_stroke_1)
             .child(
                 div()
-                    .flex()
-                    .items_center()
-                    .gap(px(8.))
-                    .p(px(16.))
-                    .border_b_1()
+                    .id("theme-light")
+                    .px(px(12.))
+                    .py(px(5.))
+                    .rounded(px(4.))
+                    .border_1()
                     .border_color(t.color.neutral_stroke_1)
-                    .child(
-                        div()
-                            .id("theme-light")
-                            .px(px(12.))
-                            .py(px(5.))
-                            .rounded(px(4.))
-                            .border_1()
-                            .border_color(t.color.neutral_stroke_1)
-                            .cursor_pointer()
-                            .on_click(cx.listener(|this, _, _, cx| this.apply(Appearance::Light, cx)))
-                            .child("Light"),
-                    )
-                    .child(
-                        div()
-                            .id("theme-dark")
-                            .px(px(12.))
-                            .py(px(5.))
-                            .rounded(px(4.))
-                            .border_1()
-                            .border_color(t.color.neutral_stroke_1)
-                            .cursor_pointer()
-                            .on_click(cx.listener(|this, _, _, cx| this.apply(Appearance::Dark, cx)))
-                            .child("Dark"),
-                    )
-                    .child(
-                        div()
-                            .ml(px(8.))
-                            .text_color(t.color.neutral_foreground_3)
-                            .child(format!(
-                                "appearance: {:?}   clicks: {}",
-                                theme.appearance(),
-                                self.clicks
-                            )),
-                    ),
+                    .cursor_pointer()
+                    .on_click(cx.listener(|this, _, _, cx| this.apply(Appearance::Light, cx)))
+                    .child("Light"),
             )
+            .child(
+                div()
+                    .id("theme-dark")
+                    .px(px(12.))
+                    .py(px(5.))
+                    .rounded(px(4.))
+                    .border_1()
+                    .border_color(t.color.neutral_stroke_1)
+                    .cursor_pointer()
+                    .on_click(cx.listener(|this, _, _, cx| this.apply(Appearance::Dark, cx)))
+                    .child("Dark"),
+            )
+            .child(
+                div()
+                    .id("theme-hc")
+                    .px(px(12.))
+                    .py(px(5.))
+                    .rounded(px(4.))
+                    .border_1()
+                    .border_color(t.color.neutral_stroke_1)
+                    .cursor_pointer()
+                    .on_click(cx.listener(|this, _, _, cx| this.apply(Appearance::HighContrast, cx)))
+                    .child("HC"),
+            )
+            .child(
+                div()
+                    .id("font-mode")
+                    .px(px(12.))
+                    .py(px(5.))
+                    .rounded(px(4.))
+                    .border_1()
+                    .border_color(t.color.neutral_stroke_1)
+                    .cursor_pointer()
+                    .on_click(cx.listener(|this, _, _, cx| this.toggle_font(cx)))
+                    .child("Font"),
+            )
+            .child(
+                div()
+                    .ml(px(8.))
+                    .text_color(t.color.neutral_foreground_3)
+                    .child(format!(
+                        "appearance: {:?}   clicks: {}   font: {} ({:?})",
+                        theme.appearance(),
+                        self.clicks,
+                        theme.font_family(),
+                        theme.font_mode()
+                    )),
+            );
+
+        FluentRoot::new()
+            .flex()
+            .flex_col()
+            .child(header)
             .child(
                 div()
                     .id("matrix-scroll")
@@ -261,18 +305,27 @@ fn main() {
     fluent_ui::application().run(|cx: &mut App| {
         fluent_ui::init(cx);
 
+        if let Some(value) = std::env::var_os("FLUENT_GALLERY_APPEARANCE") {
+            let appearance = match value.to_string_lossy().to_ascii_lowercase().as_str() {
+                "dark" => Appearance::Dark,
+                "hc" | "high-contrast" => Appearance::HighContrast,
+                _ => Appearance::Light,
+            };
+            FluentTheme::for_appearance(appearance).install(cx);
+        }
+
         let bounds = Bounds::centered(None, size(px(900.), px(640.)), cx);
         let window = cx
             .open_window(
-            WindowOptions {
-                window_bounds: Some(WindowBounds::Windowed(bounds)),
-                titlebar: Some(TitlebarOptions {
-                    title: Some("Fluent Gallery".into()),
+                WindowOptions {
+                    window_bounds: Some(WindowBounds::Windowed(bounds)),
+                    titlebar: Some(TitlebarOptions {
+                        title: Some("Fluent Gallery".into()),
+                        ..Default::default()
+                    }),
                     ..Default::default()
-                }),
-                ..Default::default()
-            },
-                |_window, cx| cx.new(|_| Gallery::new()),
+                },
+                |window, cx| cx.new(|cx| Gallery::new(window, cx)),
             )
             .expect("failed to open window");
 
@@ -298,6 +351,8 @@ fn main() {
             })
             .detach();
         }
+        #[cfg(not(feature = "screenshot"))]
+        let _ = &window;
 
         if std::env::var_os("FLUENT_GALLERY_SMOKE").is_some() {
             let executor = cx.background_executor().clone();
