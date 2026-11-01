@@ -19,7 +19,7 @@
 
 pub use fluent_components::{
     Button, Checkbox, Field, FluentIcon, FluentRoot, Icon, IconStyle, InputAppearance, Label,
-    Radio, TextInput, Textarea, TextareaAppearance, ValidationMessage,
+    Radio, Switch, TextInput, Textarea, TextareaAppearance, ValidationMessage,
 };
 pub use fluent_core::spec::ControlSize;
 pub use fluent_core::spec::button::{ButtonAppearance, ButtonShape, IconPosition};

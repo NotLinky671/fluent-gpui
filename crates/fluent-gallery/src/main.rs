@@ -14,7 +14,7 @@ use fluent_ui::gpui_base::input::{InputState, TextareaState};
 use fluent_ui::prelude::*;
 use fluent_ui::{
     Appearance, Button, ButtonAppearance, ButtonShape, Checkbox, ControlSize, Field, FluentIcon,
-    FluentRoot, FluentTheme, FontMode, InputAppearance, Radio, TextInput, Textarea,
+    FluentRoot, FluentTheme, FontMode, InputAppearance, Radio, Switch, TextInput, Textarea,
     TextareaAppearance, ValidationMessage,
 };
 
@@ -55,6 +55,8 @@ struct Gallery {
     checkbox_a: bool,
     checkbox_b: bool,
     radio_choice: usize,
+    switch_a: bool,
+    switch_b: bool,
     /// Keeps the OS appearance observer alive for the window's lifetime.
     _appearance_sub: Option<Subscription>,
 }
@@ -96,6 +98,8 @@ impl Gallery {
             checkbox_a: true,
             checkbox_b: false,
             radio_choice: 1,
+            switch_a: true,
+            switch_b: false,
             _appearance_sub: sub,
         }
     }
@@ -535,6 +539,42 @@ impl Render for Gallery {
                     .label("Option C (disabled)"),
             );
 
+        let switch_section = div()
+            .flex()
+            .flex_col()
+            .gap(px(12.))
+            .p(px(16.))
+            .child(
+                Switch::new("sw-a")
+                    .checked(self.switch_a)
+                    .label("Enable notifications")
+                    .on_change(cx.listener(|this, value, _, cx| {
+                        this.switch_a = *value;
+                        cx.notify();
+                    })),
+            )
+            .child(
+                Switch::new("sw-b")
+                    .checked(self.switch_b)
+                    .label("Compact mode")
+                    .on_change(cx.listener(|this, value, _, cx| {
+                        this.switch_b = *value;
+                        cx.notify();
+                    })),
+            )
+            .child(
+                Switch::new("sw-small")
+                    .size(ControlSize::Small)
+                    .checked(true)
+                    .label("Small switch"),
+            )
+            .child(
+                Switch::new("sw-disabled")
+                    .checked(true)
+                    .disabled(true)
+                    .label("Disabled switch"),
+            );
+
         // `FLUENT_GALLERY_SECTION` narrows the gallery to one section; useful for
         // screenshots and pixel baselines that would otherwise be below the fold.
         let want = |name: &str| match std::env::var("FLUENT_GALLERY_SECTION") {
@@ -556,6 +596,9 @@ impl Render for Gallery {
         }
         if want("selection") {
             sections.push(selection_section.into_any_element());
+        }
+        if want("switch") {
+            sections.push(switch_section.into_any_element());
         }
         FluentRoot::new().flex().flex_col().child(header).child(
             div()

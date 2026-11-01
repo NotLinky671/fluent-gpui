@@ -9,6 +9,7 @@ pub mod icon;
 pub mod input;
 pub mod root;
 pub mod selection;
+pub mod switch;
 pub mod textarea;
 
 pub use button::Button;
@@ -22,4 +23,5 @@ pub use icon::Icon;
 pub use input::TextInput;
 pub use root::FluentRoot;
 pub use selection::{Checkbox, Radio};
+pub use switch::Switch;
 pub use textarea::Textarea;

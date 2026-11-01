@@ -8,6 +8,7 @@ pub mod button;
 pub mod field;
 pub mod input;
 pub mod selection;
+pub mod switch;
 pub mod textarea;
 
 /// Shared control sizes, mirroring Fluent's `size` prop.
