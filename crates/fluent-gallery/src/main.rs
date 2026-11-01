@@ -7,14 +7,15 @@
 use std::time::Duration;
 
 use fluent_ui::gpui::{
-    App, Bounds, ClickEvent, Context, Hsla, Render, StatefulInteractiveElement, Subscription,
-    TitlebarOptions, Window, WindowBounds, WindowOptions, div, px, size,
+    AnyElement, App, Bounds, ClickEvent, Context, Hsla, Render, StatefulInteractiveElement,
+    Subscription, TitlebarOptions, Window, WindowBounds, WindowOptions, div, px, size,
 };
 use fluent_ui::gpui_base::input::{InputState, TextareaState};
 use fluent_ui::prelude::*;
 use fluent_ui::{
-    Appearance, Button, ButtonAppearance, ButtonShape, ControlSize, FluentIcon, FluentRoot,
+    Appearance, Button, ButtonAppearance, ButtonShape, ControlSize, Field, FluentIcon, FluentRoot,
     FluentTheme, FontMode, InputAppearance, TextInput, Textarea, TextareaAppearance,
+    ValidationMessage,
 };
 
 const APPEARANCES: [ButtonAppearance; 5] = [
@@ -365,6 +366,45 @@ impl Render for Gallery {
                 ),
         );
 
+        let field_section = div()
+            .flex()
+            .flex_col()
+            .gap(px(16.))
+            .p(px(16.))
+            .child(
+                div().w(px(300.)).child(
+                    Field::new("Display name")
+                        .required(true)
+                        .hint("Shown to other people.")
+                        .child(TextInput::new(&self.inputs[15])),
+                ),
+            )
+            .child(
+                div().w(px(300.)).child(
+                    Field::new("Email")
+                        .required(true)
+                        .validation_message(ValidationMessage::Error(
+                            "Enter a valid email address".into(),
+                        ))
+                        .child(TextInput::new(&self.inputs[16]).invalid(true)),
+                ),
+            )
+            .child(
+                div().w(px(460.)).child(
+                    Field::new("Storage")
+                        .horizontal()
+                        .hint("Used across all workspaces.")
+                        .child(TextInput::new(&self.inputs[17])),
+                ),
+            )
+            .child(
+                div().w(px(300.)).child(
+                    Field::new("Disabled field")
+                        .disabled(true)
+                        .child(TextInput::new(&self.inputs[2]).disabled(true)),
+                ),
+            );
+
         let header = div()
             .flex()
             .items_center()
@@ -435,14 +475,31 @@ impl Render for Gallery {
                     )),
             );
 
+        // `FLUENT_GALLERY_SECTION` narrows the gallery to one section; useful for
+        // screenshots and pixel baselines that would otherwise be below the fold.
+        let want = |name: &str| match std::env::var("FLUENT_GALLERY_SECTION") {
+            Ok(value) => value == name,
+            Err(_) => true,
+        };
+        let mut sections: Vec<AnyElement> = Vec::new();
+        if want("buttons") {
+            sections.push(matrix.into_any_element());
+        }
+        if want("inputs") {
+            sections.push(input_matrix.into_any_element());
+        }
+        if want("textareas") {
+            sections.push(textarea_matrix.into_any_element());
+        }
+        if want("fields") {
+            sections.push(field_section.into_any_element());
+        }
         FluentRoot::new().flex().flex_col().child(header).child(
             div()
                 .id("matrix-scroll")
                 .flex_1()
                 .overflow_y_scroll()
-                .child(matrix)
-                .child(input_matrix)
-                .child(textarea_matrix)
+                .children(sections)
                 .child(
                     div()
                         .p(px(16.))
