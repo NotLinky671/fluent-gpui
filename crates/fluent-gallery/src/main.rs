@@ -262,7 +262,8 @@ fn main() {
         fluent_ui::init(cx);
 
         let bounds = Bounds::centered(None, size(px(900.), px(640.)), cx);
-        cx.open_window(
+        let window = cx
+            .open_window(
             WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
                 titlebar: Some(TitlebarOptions {
@@ -271,9 +272,32 @@ fn main() {
                 }),
                 ..Default::default()
             },
-            |_window, cx| cx.new(|_| Gallery::new()),
-        )
-        .expect("failed to open window");
+                |_window, cx| cx.new(|_| Gallery::new()),
+            )
+            .expect("failed to open window");
+
+        #[cfg(feature = "screenshot")]
+        if let Some(path) = std::env::var_os("FLUENT_GALLERY_SCREENSHOT") {
+            let path = std::path::PathBuf::from(path);
+            let executor = cx.background_executor().clone();
+            cx.spawn(async move |cx| {
+                // Give the first frames (layout, text shaping, SVG parse) time.
+                executor.timer(Duration::from_millis(1200)).await;
+                let captured = cx.update(|cx| {
+                    window.update(cx, |_, window, _| window.render_to_image())
+                });
+                match captured {
+                    Ok(Ok(image)) => match image.save(&path) {
+                        Ok(()) => eprintln!("screenshot written to {}", path.display()),
+                        Err(error) => eprintln!("screenshot save failed: {error}"),
+                    },
+                    Ok(Err(error)) => eprintln!("render_to_image failed: {error:#}"),
+                    Err(error) => eprintln!("window.update failed: {error:#}"),
+                }
+                cx.update(|cx| cx.quit());
+            })
+            .detach();
+        }
 
         if std::env::var_os("FLUENT_GALLERY_SMOKE").is_some() {
             let executor = cx.background_executor().clone();

@@ -10,5 +10,13 @@ publish = false
 name = "fluent-gallery"
 path = "src/main.rs"
 
+[features]
+# Enables `window.render_to_image()` for screenshots. Pulls in gpui's
+# test-support, so it stays off by default.
+screenshot = ["gpui/test-support", "gpui_platform/test-support"]
+
 [dependencies]
 fluent-ui.workspace = true
+gpui.workspace = true
+gpui_platform.workspace = true
+image = { version = "0.25", default-features = false, features = ["png"] }

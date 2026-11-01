@@ -217,7 +217,7 @@ impl RenderOnce for Button {
         }
         // Icon placement follows the spec's padding rules; the icon inherits
         // the button's text colour, so hover/pressed tint it automatically.
-        let icon = self.icon.map(|icon| Icon::new(icon).size(m.icon_size));
+        let icon = self.icon.map(|icon| Icon::new(icon).size(m.icon_size).color(rest.foreground));
         if matches!(self.props.icon, Some(IconPosition::Before)) {
             if let Some(icon) = icon {
                 el = el.child(icon);
