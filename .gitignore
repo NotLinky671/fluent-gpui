@@ -5,3 +5,8 @@ Thumbs.db
 .idea/
 .vscode/
 *.log
+
+# Scratch screenshots from the gallery's screenshot feature.
+# Committed pixel baselines live under tests/baselines/ instead.
+/screenshots/
+/*.png
