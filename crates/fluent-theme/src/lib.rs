@@ -51,8 +51,8 @@ impl FluentTheme {
     /// A theme generated from a custom brand ramp, like `createLightTheme(brand)`.
     pub fn custom(brand: BrandVariants, appearance: Appearance) -> Self {
         let tokens = match appearance {
-            Appearance::Light => Tokens::light(&brand),
-            _ => Tokens::dark(&brand),
+            Appearance::Light => Tokens::web_light_with(&brand),
+            _ => Tokens::web_dark_with(&brand),
         };
         Self::new(tokens, appearance, brand)
     }

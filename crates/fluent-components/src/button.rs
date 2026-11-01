@@ -7,11 +7,12 @@
 use fluent_core::spec::ControlSize;
 use fluent_core::spec::button::{self, ButtonAppearance, ButtonProps, ButtonShape, IconPosition};
 use fluent_theme::FluentTheme;
-use gpui::{
-    AnyElement, App, BoxShadow, ClickEvent, ElementId, InteractiveElement, IntoElement, ParentElement,
-    RenderOnce, SharedString, StatefulInteractiveElement, StyleRefinement, Styled, Window, point, px,
+use fluent_core::gpui_compat::{
+    AnyElement, App, BoxShadow, ClickEvent, ElementId, InteractiveElement, IntoElement,
+    ParentElement, RenderOnce, SharedString, StatefulInteractiveElement, StyleRefinement, Styled,
+    Window, point, px,
 };
-use gpui_base::StyledExt as _;
+use fluent_core::gpui_compat::StyledExt as _;
 
 /// A Fluent 2 button.
 ///

@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use fluent_theme::FluentTheme;
 use fluent_tokens::CubicBezier;
-use gpui::{FontWeight, Hsla, Pixels, px};
+use crate::gpui_compat::{FontWeight, Hsla, Pixels, px};
 
 use crate::spec::ControlSize;
 
@@ -343,8 +343,8 @@ fn resolve_metrics(theme: &FluentTheme, props: &ButtonProps) -> ButtonMetrics {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::gpui_compat::rgba;
     use fluent_tokens::Tokens;
-    use gpui::px;
 
     fn theme() -> FluentTheme {
         FluentTheme::web_light()
@@ -601,7 +601,7 @@ mod tests {
         let t = Tokens::web_dark();
         let spec = resolve(&FluentTheme::web_dark(), &props(ButtonAppearance::Secondary));
         assert_eq!(spec.rest.background, t.color.neutral_background_1);
-        assert_eq!(spec.rest.background, gpui::Hsla::from(gpui::rgba(0x292929ff)));
+        assert_eq!(spec.rest.background, Hsla::from(rgba(0x292929ff)));
         assert_eq!(spec.focus.inner_ring_color, t.color.stroke_focus_2);
     }
 

@@ -1,3 +1,609 @@
+//! Code generation for fluent-gpui.
+//!
+//! `cargo xtask gen-tokens [--check]`
+//!
+//! Reads `vendor/tokens.json` (produced by `scripts/snapshot-tokens.mjs` from
+//! a pinned `@fluentui/tokens`) and writes
+//! `crates/fluent-tokens/src/generated.rs`. With `--check` it regenerates into
+//! memory and fails when the file on disk differs, which is what CI runs.
+
+use std::collections::BTreeMap;
+use std::fmt::Write as _;
+use std::path::PathBuf;
+
+const SOURCE: &str = "vendor/tokens.json";
+const OUTPUT: &str = "crates/fluent-tokens/src/generated.rs";
+
 fn main() {
-    println!("xtask: gen-tokens / gen-icons / tasks arrive in T-009 / T-010 / T-012");
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let check = args.iter().any(|a| a == "--check");
+    match args.first().map(String::as_str) {
+        Some("gen-tokens") => {
+            if let Err(error) = gen_tokens(check) {
+                eprintln!("gen-tokens failed: {error}");
+                std::process::exit(1);
+            }
+        }
+        _ => {
+            eprintln!("usage: cargo xtask gen-tokens [--check]");
+            std::process::exit(2);
+        }
+    }
+}
+
+fn gen_tokens(check: bool) -> Result<(), Box<dyn std::error::Error>> {
+    let root = workspace_root();
+    let raw = std::fs::read_to_string(root.join(SOURCE))?;
+    let snapshot: serde_json::Value = serde_json::from_str(&raw)?;
+    let generated = render(&snapshot)?;
+
+    let out = root.join(OUTPUT);
+    if check {
+        let current = std::fs::read_to_string(&out).unwrap_or_default();
+        if current != generated {
+            eprintln!("{OUTPUT} is out of date; run `cargo xtask gen-tokens`");
+            std::process::exit(1);
+        }
+        println!("{OUTPUT} is up to date");
+        return Ok(());
+    }
+
+    std::fs::write(&out, &generated)?;
+    println!("wrote {OUTPUT} ({} bytes)", generated.len());
+    Ok(())
+}
+
+fn workspace_root() -> PathBuf {
+    // xtask runs from the workspace root via the cargo alias.
+    std::env::current_dir().expect("cwd")
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum Group {
+    Color,
+    FontSize,
+    LineHeight,
+    FontWeight,
+    FontFamily,
+    SpacingHorizontal,
+    SpacingVertical,
+    Radius,
+    StrokeWidth,
+    Duration,
+    Curve,
+    Shadow,
+}
+
+impl Group {
+    fn of(token: &str) -> Option<(Group, &str)> {
+        const PREFIXES: &[(&str, Group)] = &[
+            ("color", Group::Color),
+            ("fontSize", Group::FontSize),
+            ("lineHeight", Group::LineHeight),
+            ("fontWeight", Group::FontWeight),
+            ("fontFamily", Group::FontFamily),
+            ("spacingHorizontal", Group::SpacingHorizontal),
+            ("spacingVertical", Group::SpacingVertical),
+            ("borderRadius", Group::Radius),
+            ("strokeWidth", Group::StrokeWidth),
+            ("duration", Group::Duration),
+            ("curve", Group::Curve),
+            ("shadow", Group::Shadow),
+        ];
+        PREFIXES
+            .iter()
+            .find_map(|(prefix, group)| token.strip_prefix(prefix).map(|rest| (*group, rest)))
+    }
+
+    fn struct_name(self) -> &'static str {
+        match self {
+            Group::Color => "ColorTokens",
+            Group::FontSize => "FontSizeTokens",
+            Group::LineHeight => "LineHeightTokens",
+            Group::FontWeight => "FontWeightTokens",
+            Group::FontFamily => "FontFamilyTokens",
+            Group::SpacingHorizontal | Group::SpacingVertical => "SpacingScale",
+            Group::Radius => "RadiusTokens",
+            Group::StrokeWidth => "StrokeWidthTokens",
+            Group::Duration => "DurationTokens",
+            Group::Curve => "CurveTokens",
+            Group::Shadow => "ShadowTokens",
+        }
+    }
+
+    /// `SharedString` and `BoxShadow` are not `Copy`, so those groups are not.
+    fn is_copy(self) -> bool {
+        !matches!(self, Group::FontFamily | Group::Shadow)
+    }
+
+    fn rust_type(self) -> &'static str {
+        match self {
+            Group::Color => "Hsla",
+            Group::FontWeight => "FontWeight",
+            Group::FontFamily => "SharedString",
+            Group::Duration => "Duration",
+            Group::Curve => "CubicBezier",
+            Group::Shadow => "[BoxShadow; 2]",
+            _ => "Pixels",
+        }
+    }
+}
+
+fn field_name(group: Group, rest: &str) -> String {
+    match group {
+        // shadow2 -> s2, shadow2Brand -> s2_brand
+        Group::Shadow => {
+            let (number, brand) = match rest.strip_suffix("Brand") {
+                Some(number) => (number, true),
+                None => (rest, false),
+            };
+            if brand {
+                format!("s{number}_brand")
+            } else {
+                format!("s{number}")
+            }
+        }
+        _ => {
+            let snake = snake_case(rest);
+            if snake.starts_with(|c: char| c.is_ascii_digit()) {
+                format!("r{snake}")
+            } else {
+                snake
+            }
+        }
+    }
+}
+
+fn snake_case(input: &str) -> String {
+    let chars: Vec<char> = input.chars().collect();
+    let mut out = String::with_capacity(input.len() + 4);
+    for (i, &ch) in chars.iter().enumerate() {
+        if ch.is_ascii_uppercase() {
+            let prev = i.checked_sub(1).map(|j| chars[j]);
+            let next = chars.get(i + 1).copied();
+            let boundary = match prev {
+                Some(p) if p.is_ascii_lowercase() || p.is_ascii_digit() => true,
+                Some(p) if p.is_ascii_uppercase() => {
+                    next.is_some_and(|n| n.is_ascii_lowercase())
+                }
+                _ => false,
+            };
+            if boundary {
+                out.push('_');
+            }
+            out.push(ch.to_ascii_lowercase());
+        } else if ch.is_ascii_digit() {
+            let prev = i.checked_sub(1).map(|j| chars[j]);
+            if prev.is_some_and(|p| p.is_ascii_alphabetic()) {
+                out.push('_');
+            }
+            out.push(ch);
+        } else {
+            out.push(ch);
+        }
+    }
+    out
+}
+
+/// Field layout of `Tokens`, in declaration order.
+const TOKENS_FIELDS: &[(&str, &str)] = &[
+    ("color", "ColorTokens"),
+    ("font_size", "FontSizeTokens"),
+    ("line_height", "LineHeightTokens"),
+    ("font_weight", "FontWeightTokens"),
+    ("font_family", "FontFamilyTokens"),
+    ("spacing", "SpacingTokens"),
+    ("radius", "RadiusTokens"),
+    ("stroke_width", "StrokeWidthTokens"),
+    ("duration", "DurationTokens"),
+    ("curve", "CurveTokens"),
+    ("shadow", "ShadowTokens"),
+];
+
+fn render(snapshot: &serde_json::Value) -> Result<String, Box<dyn std::error::Error>> {
+    let source = snapshot["source"].as_str().unwrap_or("unknown");
+    let themes = snapshot["themes"].as_object().ok_or("missing themes")?;
+    let brands = snapshot["brands"].as_object().ok_or("missing brands")?;
+    let names: Vec<String> = snapshot["tokenNames"]
+        .as_array()
+        .ok_or("missing tokenNames")?
+        .iter()
+        .map(|v| v.as_str().unwrap_or_default().to_string())
+        .collect();
+
+    let mut by_group: BTreeMap<Group, Vec<(String, String)>> = BTreeMap::new();
+    for name in &names {
+        let (group, rest) = Group::of(name).ok_or_else(|| format!("unclassified token {name}"))?;
+        by_group
+            .entry(group)
+            .or_default()
+            .push((field_name(group, rest), name.clone()));
+    }
+
+    // Horizontal and vertical spacing must expose identical field names; the
+    // generator would otherwise emit two different SpacingScale shapes.
+    let horizontal: Vec<String> = by_group[&Group::SpacingHorizontal]
+        .iter()
+        .map(|(field, _)| field.clone())
+        .collect();
+    let vertical: Vec<String> = by_group[&Group::SpacingVertical]
+        .iter()
+        .map(|(field, _)| field.clone())
+        .collect();
+    if horizontal != vertical {
+        return Err("spacingHorizontal and spacingVertical field names differ".into());
+    }
+
+    let mut out = String::new();
+    writeln!(out, "// @generated by `cargo xtask gen-tokens` from {SOURCE} ({source}).")?;
+    writeln!(out, "// Do not edit by hand: run the generator instead.")?;
+    writeln!(out)?;
+    writeln!(out, "use std::time::Duration;")?;
+    writeln!(out)?;
+    writeln!(
+        out,
+        "use gpui::{{BoxShadow, FontWeight, Hsla, Pixels, SharedString, point, px, rgba, transparent_black}};"
+    )?;
+    writeln!(out)?;
+    writeln!(out, "use crate::{{BrandVariants, CubicBezier}};")?;
+    writeln!(out)?;
+    writeln!(out, "/// Number of Fluent tokens in this snapshot.")?;
+    writeln!(out, "pub const TOKEN_COUNT: usize = {};", names.len())?;
+    writeln!(out)?;
+
+    // Tokens
+    writeln!(out, "/// All Fluent tokens for one appearance.")?;
+    writeln!(out, "#[derive(Clone, Debug, PartialEq)]")?;
+    writeln!(out, "pub struct Tokens {{")?;
+    for (field, struct_name) in TOKENS_FIELDS {
+        writeln!(out, "    pub {field}: {struct_name},")?;
+    }
+    writeln!(out, "}}")?;
+    writeln!(out)?;
+
+    // SpacingTokens wraps two identical scales.
+    writeln!(out, "/// `spacingHorizontal*` and `spacingVertical*`.")?;
+    writeln!(out, "#[derive(Clone, Copy, Debug, PartialEq)]")?;
+    writeln!(out, "pub struct SpacingTokens {{")?;
+    writeln!(out, "    pub horizontal: SpacingScale,")?;
+    writeln!(out, "    pub vertical: SpacingScale,")?;
+    writeln!(out, "}}")?;
+    writeln!(out)?;
+
+    // one struct per remaining group
+    for group in [
+        Group::Color,
+        Group::FontSize,
+        Group::LineHeight,
+        Group::FontWeight,
+        Group::FontFamily,
+        Group::Radius,
+        Group::StrokeWidth,
+        Group::Duration,
+        Group::Curve,
+        Group::Shadow,
+    ] {
+        let fields = by_group
+            .get(&group)
+            .ok_or_else(|| format!("no fields for {:?}", group.struct_name()))?;
+        let derives = if group.is_copy() {
+            "#[derive(Clone, Copy, Debug, PartialEq)]"
+        } else {
+            "#[derive(Clone, Debug, PartialEq)]"
+        };
+        writeln!(out, "{derives}")?;
+        writeln!(out, "pub struct {} {{", group.struct_name())?;
+        for (field, _) in fields {
+            writeln!(out, "    pub {field}: {},", group.rust_type())?;
+        }
+        writeln!(out, "}}")?;
+        writeln!(out)?;
+    }
+
+    // SpacingScale (shared shape)
+    writeln!(out, "#[derive(Clone, Copy, Debug, PartialEq)]")?;
+    writeln!(out, "pub struct SpacingScale {{")?;
+    for field in &horizontal {
+        writeln!(out, "    pub {field}: Pixels,")?;
+    }
+    writeln!(out, "}}")?;
+    writeln!(out)?;
+
+    // constructors
+    writeln!(out, "impl Tokens {{")?;
+    for (theme_key, fn_name, ramp) in [
+        ("webLight", "web_light", Some("WEB")),
+        ("webDark", "web_dark", Some("WEB")),
+        ("teamsLight", "teams_light", Some("TEAMS")),
+        ("teamsDark", "teams_dark", Some("TEAMS")),
+        ("webHighContrast", "high_contrast", None),
+    ] {
+        let theme = themes
+            .get(theme_key)
+            .ok_or_else(|| format!("missing theme {theme_key}"))?
+            .as_object()
+            .ok_or("theme is not an object")?;
+        let brand_map = brands
+            .get(theme_key)
+            .and_then(|v| v.as_object())
+            .cloned()
+            .unwrap_or_default();
+
+        writeln!(out, "    /// Fluent `{theme_key}` theme.")?;
+        match ramp {
+            Some(ramp) => {
+                writeln!(out, "    pub fn {fn_name}_with(brand: &BrandVariants) -> Self {{")?;
+                writeln!(out, "        Self {{")?;
+                for (field, struct_name) in TOKENS_FIELDS {
+                    writeln!(out, "            {field}: {struct_name} {{")?;
+                    match *struct_name {
+                        "SpacingTokens" => {
+                            writeln!(out, "                horizontal: SpacingScale {{")?;
+                            emit_values(&mut out, &by_group[&Group::SpacingHorizontal], theme, &brand_map, Group::SpacingHorizontal)?;
+                            writeln!(out, "                }},")?;
+                            writeln!(out, "                vertical: SpacingScale {{")?;
+                            emit_values(&mut out, &by_group[&Group::SpacingVertical], theme, &brand_map, Group::SpacingVertical)?;
+                            writeln!(out, "                }},")?;
+                        }
+                        other => {
+                            let group = group_of_struct(other);
+                            emit_values(&mut out, &by_group[&group], theme, &brand_map, group)?;
+                        }
+                    }
+                    writeln!(out, "            }},")?;
+                }
+                writeln!(out, "        }}")?;
+                writeln!(out, "    }}")?;
+                writeln!(out)?;
+                writeln!(out, "    /// Fluent `{theme_key}` theme on the built-in ramp.")?;
+                writeln!(out, "    pub fn {fn_name}() -> Self {{")?;
+                writeln!(out, "        Self::{fn_name}_with(&BrandVariants::{ramp})")?;
+                writeln!(out, "    }}")?;
+            }
+            None => {
+                writeln!(out, "    pub fn {fn_name}() -> Self {{")?;
+                writeln!(out, "        Self {{")?;
+                for (field, struct_name) in TOKENS_FIELDS {
+                    writeln!(out, "            {field}: {struct_name} {{")?;
+                    match *struct_name {
+                        "SpacingTokens" => {
+                            writeln!(out, "                horizontal: SpacingScale {{")?;
+                            emit_values(&mut out, &by_group[&Group::SpacingHorizontal], theme, &brand_map, Group::SpacingHorizontal)?;
+                            writeln!(out, "                }},")?;
+                            writeln!(out, "                vertical: SpacingScale {{")?;
+                            emit_values(&mut out, &by_group[&Group::SpacingVertical], theme, &brand_map, Group::SpacingVertical)?;
+                            writeln!(out, "                }},")?;
+                        }
+                        other => {
+                            let group = group_of_struct(other);
+                            emit_values(&mut out, &by_group[&group], theme, &brand_map, group)?;
+                        }
+                    }
+                    writeln!(out, "            }},")?;
+                }
+                writeln!(out, "        }}")?;
+                writeln!(out, "    }}")?;
+            }
+        }
+        writeln!(out)?;
+    }
+    writeln!(out, "}}")?;
+
+    writeln!(out)?;
+    writeln!(out, "fn hex(value: u32) -> Hsla {{")?;
+    writeln!(out, "    Hsla::from(rgba((value << 8) | 0xff))")?;
+    writeln!(out, "}}")?;
+    writeln!(out)?;
+    writeln!(out, "fn layer(x: f32, y: f32, blur: f32, color: Hsla) -> BoxShadow {{")?;
+    writeln!(out, "    BoxShadow {{")?;
+    writeln!(out, "        color,")?;
+    writeln!(out, "        offset: point(px(x), px(y)),")?;
+    writeln!(out, "        blur_radius: px(blur),")?;
+    writeln!(out, "        spread_radius: px(0.),")?;
+    writeln!(out, "        inset: false,")?;
+    writeln!(out, "    }}")?;
+    writeln!(out, "}}")?;
+
+    Ok(out)
+}
+
+fn emit_values(
+    out: &mut String,
+    fields: &[(String, String)],
+    theme: &serde_json::Map<String, serde_json::Value>,
+    brands: &serde_json::Map<String, serde_json::Value>,
+    group: Group,
+) -> Result<(), Box<dyn std::error::Error>> {
+    for (field, token) in fields {
+        let value = theme
+            .get(token)
+            .ok_or_else(|| format!("theme missing {token}"))?;
+        let expr = if let Some(stop) = brands.get(token) {
+            format!("brand.stop({})", stop.as_u64().unwrap_or(0))
+        } else {
+            value_expr(group, value)?
+        };
+        writeln!(out, "                    {field}: {expr},")?;
+    }
+    Ok(())
+}
+
+fn group_of_struct(struct_name: &str) -> Group {
+    match struct_name {
+        "ColorTokens" => Group::Color,
+        "FontSizeTokens" => Group::FontSize,
+        "LineHeightTokens" => Group::LineHeight,
+        "FontWeightTokens" => Group::FontWeight,
+        "FontFamilyTokens" => Group::FontFamily,
+        "RadiusTokens" => Group::Radius,
+        "StrokeWidthTokens" => Group::StrokeWidth,
+        "DurationTokens" => Group::Duration,
+        "CurveTokens" => Group::Curve,
+        "ShadowTokens" => Group::Shadow,
+        other => panic!("unknown struct {other}"),
+    }
+}
+fn value_expr(group: Group, value: &serde_json::Value) -> Result<String, Box<dyn std::error::Error>> {
+    match group {
+        Group::Color => color_expr(value.as_str().ok_or("color is not a string")?),
+        Group::FontWeight => {
+            let weight = value.as_f64().ok_or("weight is not a number")?;
+            let name = match weight as u32 {
+                400 => "NORMAL",
+                500 => "MEDIUM",
+                600 => "SEMIBOLD",
+                700 => "BOLD",
+                other => return Err(format!("unknown font weight {other}").into()),
+            };
+            Ok(format!("FontWeight::{name}"))
+        }
+        Group::FontFamily => {
+            let family = value.as_str().ok_or("family is not a string")?;
+            Ok(format!("SharedString::from({family:?})"))
+        }
+        Group::Duration => {
+            let ms = value
+                .as_str()
+                .and_then(|s| s.strip_suffix("ms"))
+                .and_then(|s| s.parse::<u64>().ok())
+                .ok_or_else(|| format!("bad duration {value}"))?;
+            Ok(format!("Duration::from_millis({ms})"))
+        }
+        Group::Curve => {
+            let text = value.as_str().ok_or("curve is not a string")?;
+            let inner = text
+                .strip_prefix("cubic-bezier(")
+                .and_then(|s| s.strip_suffix(')'))
+                .ok_or_else(|| format!("bad curve {text}"))?;
+            let nums: Vec<f32> = inner
+                .split(',')
+                .map(|part| part.trim().parse::<f32>())
+                .collect::<Result<_, _>>()?;
+            if nums.len() != 4 {
+                return Err(format!("curve needs 4 points: {text}").into());
+            }
+            Ok(format!(
+                "CubicBezier::new({}, {}, {}, {})",
+                num(nums[0]),
+                num(nums[1]),
+                num(nums[2]),
+                num(nums[3])
+            ))
+        }
+        Group::Shadow => {
+            let text = value.as_str().ok_or("shadow is not a string")?;
+            let layers = split_shadow_layers(text)?;
+            if layers.len() != 2 {
+                return Err(format!("expected 2 shadow layers, got {}: {text}", layers.len()).into());
+            }
+            let mut exprs = Vec::new();
+            for layer in layers {
+                exprs.push(shadow_layer_expr(&layer)?);
+            }
+            Ok(format!("[{}, {}]", exprs[0], exprs[1]))
+        }
+        _ => {
+            let text = value.as_str().ok_or("length is not a string")?;
+            let number = text
+                .strip_suffix("px")
+                .unwrap_or(text)
+                .parse::<f32>()
+                .map_err(|_| format!("bad length {text}"))?;
+            Ok(format!("px({})", num(number)))
+        }
+    }
+}
+
+fn color_expr(text: &str) -> Result<String, Box<dyn std::error::Error>> {
+    let text = text.trim();
+    if text == "transparent" {
+        return Ok("transparent_black()".to_string());
+    }
+    if let Some(hex) = text.strip_prefix('#') {
+        return match hex.len() {
+            6 => Ok(format!("hex(0x{})", hex.to_ascii_lowercase())),
+            8 => Ok(format!("Hsla::from(rgba(0x{}))", hex.to_ascii_lowercase())),
+            _ => Err(format!("bad hex color {text}").into()),
+        };
+    }
+    if let Some(inner) = text
+        .strip_prefix("rgba(")
+        .and_then(|s| s.strip_suffix(')'))
+    {
+        let parts: Vec<&str> = inner.split(',').map(str::trim).collect();
+        if parts.len() != 4 {
+            return Err(format!("bad rgba {text}").into());
+        }
+        let r: u8 = parts[0].parse()?;
+        let g: u8 = parts[1].parse()?;
+        let b: u8 = parts[2].parse()?;
+        let a: f32 = parts[3].parse()?;
+        return Ok(format!(
+            "Hsla::from(rgba(0x{r:02x}{g:02x}{b:02x}ff)).alpha({})",
+            num(a)
+        ));
+    }
+    if let Some(inner) = text
+        .strip_prefix("rgb(")
+        .and_then(|s| s.strip_suffix(')'))
+    {
+        let parts: Vec<&str> = inner.split(',').map(str::trim).collect();
+        if parts.len() != 3 {
+            return Err(format!("bad rgb {text}").into());
+        }
+        let r: u8 = parts[0].parse()?;
+        let g: u8 = parts[1].parse()?;
+        let b: u8 = parts[2].parse()?;
+        return Ok(format!("hex(0x{r:02x}{g:02x}{b:02x})"));
+    }
+    Err(format!("unhandled color {text}").into())
+}
+
+fn split_shadow_layers(text: &str) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+    let mut layers = Vec::new();
+    let mut depth = 0usize;
+    let mut current = String::new();
+    for ch in text.chars() {
+        match ch {
+            '(' => depth += 1,
+            ')' => depth = depth.saturating_sub(1),
+            ',' if depth == 0 => {
+                layers.push(std::mem::take(&mut current));
+                continue;
+            }
+            _ => {}
+        }
+        current.push(ch);
+    }
+    layers.push(current);
+    Ok(layers
+        .into_iter()
+        .map(|layer| layer.trim().to_string())
+        .filter(|layer| !layer.is_empty())
+        .collect())
+}
+
+fn shadow_layer_expr(layer: &str) -> Result<String, Box<dyn std::error::Error>> {
+    // "0 1px 2px rgba(0,0,0,0.14)"
+    let mut parts = layer.splitn(4, ' ');
+    let x: f32 = parts.next().ok_or("shadow x")?.trim_end_matches("px").parse()?;
+    let y: f32 = parts.next().ok_or("shadow y")?.trim_end_matches("px").parse()?;
+    let blur: f32 = parts.next().ok_or("shadow blur")?.trim_end_matches("px").parse()?;
+    let color = parts.next().ok_or("shadow color")?;
+    Ok(format!(
+        "layer({}, {}, {}, {})",
+        num(x),
+        num(y),
+        num(blur),
+        color_expr(color)?
+    ))
+}
+
+/// Formats a float without a trailing `.0` when it is integral.
+fn num(value: f32) -> String {
+    if (value - value.round()).abs() < f32::EPSILON {
+        format!("{:.1}", value)
+    } else {
+        format!("{value}")
+    }
 }

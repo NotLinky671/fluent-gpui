@@ -48,6 +48,6 @@ pub fn application() -> gpui::Application {
 /// Later milestones extend this with assets, key bindings and system
 /// appearance tracking.
 pub fn init(cx: &mut gpui::App) {
-    gpui_base::init(cx);
+    fluent_core::gpui_compat::init_base(cx);
     fluent_theme::init(cx);
 }
