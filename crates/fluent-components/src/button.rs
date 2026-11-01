@@ -8,16 +8,20 @@ use fluent_core::spec::ControlSize;
 use fluent_core::spec::button::{self, ButtonAppearance, ButtonProps, ButtonShape, IconPosition};
 use fluent_theme::FluentTheme;
 use gpui::{
-    AnyElement, App, ClickEvent, ElementId, InteractiveElement, IntoElement, ParentElement,
-    RenderOnce, SharedString, StatefulInteractiveElement, StyleRefinement, Styled, Window,
+    AnyElement, App, BoxShadow, ClickEvent, ElementId, InteractiveElement, IntoElement, ParentElement,
+    RenderOnce, SharedString, StatefulInteractiveElement, StyleRefinement, Styled, Window, point, px,
 };
 use gpui_base::StyledExt as _;
 
 /// A Fluent 2 button.
 ///
 /// ```
-/// # use fluent_components::Button;
-/// Button::new("save").appearance(fluent_components::ButtonAppearance::Primary).child("Save");
+/// use fluent_components::{Button, ButtonAppearance};
+/// use gpui::ParentElement as _;
+///
+/// Button::new("save")
+///     .appearance(ButtonAppearance::Primary)
+///     .child("Save");
 /// ```
 #[derive(IntoElement)]
 pub struct Button {
@@ -163,6 +167,33 @@ impl RenderOnce for Button {
                         .text_color(pressed.foreground)
                         .border_color(pressed.border)
                 });
+        }
+
+        // Fluent's button focus indicator is inset: the border turns focus
+        // colour and a 1px ring is drawn just inside it (plus a 2px on-brand
+        // ring for the primary appearance). Inset shadows keep layout intact,
+        // so the control's bounds never change when focus arrives.
+        let focus = spec.focus;
+        if !is_disabled {
+            el = el.focus_visible(move |s| {
+                let mut shadows = vec![BoxShadow {
+                    color: focus.inner_ring_color,
+                    offset: point(px(0.), px(0.)),
+                    blur_radius: px(0.),
+                    spread_radius: focus.inner_ring_width,
+                    inset: true,
+                }];
+                if let Some(color) = focus.outer_ring_color {
+                    shadows.push(BoxShadow {
+                        color,
+                        offset: point(px(0.), px(0.)),
+                        blur_radius: px(0.),
+                        spread_radius: focus.outer_ring_width,
+                        inset: true,
+                    });
+                }
+                s.border_color(focus.border_color).shadow(shadows)
+            });
         }
 
         if let Some(label) = self.a11y_label {

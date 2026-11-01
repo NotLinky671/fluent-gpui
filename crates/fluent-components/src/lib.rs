@@ -6,3 +6,5 @@
 pub mod button;
 
 pub use button::Button;
+pub use fluent_core::spec::ControlSize;
+pub use fluent_core::spec::button::{ButtonAppearance, ButtonShape, IconPosition};
