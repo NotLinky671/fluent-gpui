@@ -10,10 +10,11 @@ use fluent_ui::gpui::{
     App, Bounds, ClickEvent, Context, Hsla, Render, StatefulInteractiveElement, Subscription,
     TitlebarOptions, Window, WindowBounds, WindowOptions, div, px, size,
 };
+use fluent_ui::gpui_base::input::InputState;
 use fluent_ui::prelude::*;
 use fluent_ui::{
     Appearance, Button, ButtonAppearance, ButtonShape, ControlSize, FluentIcon, FluentRoot,
-    FluentTheme, FontMode,
+    FluentTheme, FontMode, InputAppearance, TextInput,
 };
 
 const APPEARANCES: [ButtonAppearance; 5] = [
@@ -48,6 +49,7 @@ fn size_name(size: ControlSize) -> &'static str {
 struct Gallery {
     appearance: Appearance,
     clicks: usize,
+    inputs: Vec<gpui::Entity<InputState>>,
     /// Keeps the OS appearance observer alive for the window's lifetime.
     _appearance_sub: Option<Subscription>,
 }
@@ -62,9 +64,21 @@ impl Gallery {
         } else {
             Some(FluentTheme::follow_system(window))
         };
+        // 4 appearances x 3 sizes, plus disabled / invalid / slotted fields.
+        let inputs: Vec<_> = (0..18)
+            .map(|index| {
+                cx.new(|cx| InputState::new(window, cx).placeholder(format!("Placeholder {index}")))
+            })
+            .collect();
+        inputs[0].update(cx, |state, cx| {
+            state.set_value("Hello 世界", window, cx);
+            state.focus(window, cx);
+        });
+
         Self {
             appearance: FluentTheme::global(cx).appearance(),
             clicks: 0,
+            inputs,
             _appearance_sub: sub,
         }
     }
@@ -219,6 +233,68 @@ impl Render for Gallery {
         }
         matrix = matrix.child(icon_row);
 
+        let mut input_matrix = div().flex().flex_col().gap(px(12.)).p(px(16.));
+        let input_appearances = [
+            InputAppearance::Outline,
+            InputAppearance::Underline,
+            InputAppearance::FilledDarker,
+            InputAppearance::FilledLighter,
+        ];
+        let mut input_index = 0usize;
+        for appearance in input_appearances {
+            let mut row = div().flex().items_center().gap(px(12.)).child(
+                div()
+                    .w(px(96.))
+                    .text_color(t.color.neutral_foreground_3)
+                    .child(match appearance {
+                        InputAppearance::Outline => "outline",
+                        InputAppearance::Underline => "underline",
+                        InputAppearance::FilledDarker => "filled-darker",
+                        InputAppearance::FilledLighter => "filled-lighter",
+                    }),
+            );
+            for size in SIZES {
+                row = row.child(
+                    div().w(px(220.)).child(
+                        TextInput::new(&self.inputs[input_index])
+                            .appearance(appearance)
+                            .size(size),
+                    ),
+                );
+                input_index += 1;
+            }
+            input_matrix = input_matrix.child(row);
+        }
+
+        let mut input_extras = div().flex().items_center().gap(px(12.)).child(
+            div()
+                .w(px(96.))
+                .text_color(t.color.neutral_foreground_3)
+                .child("states"),
+        );
+        input_extras = input_extras
+            .child(
+                div().w(px(220.)).child(
+                    TextInput::new(&self.inputs[12])
+                        .disabled(true)
+                        .size(ControlSize::Medium),
+                ),
+            )
+            .child(
+                div().w(px(220.)).child(
+                    TextInput::new(&self.inputs[13])
+                        .invalid(true)
+                        .size(ControlSize::Medium),
+                ),
+            )
+            .child(
+                div().w(px(220.)).child(
+                    TextInput::new(&self.inputs[14])
+                        .content_before(fluent_ui::Icon::new(FluentIcon::Search).size(px(16.)))
+                        .size(ControlSize::Medium),
+                ),
+            );
+        input_matrix = input_matrix.child(input_extras);
         let header = div()
             .flex()
             .items_center()
@@ -295,6 +371,7 @@ impl Render for Gallery {
                 .flex_1()
                 .overflow_y_scroll()
                 .child(matrix)
+                .child(input_matrix)
                 .child(
                     div()
                         .p(px(16.))
@@ -322,7 +399,14 @@ fn main() {
             FluentTheme::for_appearance(appearance).install(cx);
         }
 
-        let bounds = Bounds::centered(None, size(px(900.), px(640.)), cx);
+        let (width, height) = std::env::var("FLUENT_GALLERY_SIZE")
+            .ok()
+            .and_then(|value| {
+                let (w, h) = value.split_once('x')?;
+                Some((w.trim().parse::<f32>().ok()?, h.trim().parse::<f32>().ok()?))
+            })
+            .unwrap_or((900.0, 640.0));
+        let bounds = Bounds::centered(None, size(px(width), px(height)), cx);
         let window = cx
             .open_window(
                 WindowOptions {

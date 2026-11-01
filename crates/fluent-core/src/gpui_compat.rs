@@ -12,9 +12,10 @@
 //!   quirk, so the next bump knows what to re-check.
 
 pub use gpui::{
-    AnyElement, App, Application, BoxShadow, ClickEvent, Context, ElementId, FontWeight, Global,
-    Hsla, InteractiveElement, IntoElement, ParentElement, Pixels, Render, RenderOnce, SharedString,
-    StatefulInteractiveElement, StyleRefinement, Styled, Window, div, point, px, rgba, svg,
+    AnyElement, App, Application, BoxShadow, ClickEvent, Context, ElementId, Entity, FontWeight,
+    Global, Hsla, InteractiveElement, IntoElement, MouseButton, ParentElement, Pixels, Render,
+    RenderOnce, SharedString, StatefulInteractiveElement, StyleRefinement, Styled, WeakEntity,
+    Window, div, point, px, rgba, svg,
 };
 pub use gpui_base::StyledExt;
 

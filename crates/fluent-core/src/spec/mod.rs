@@ -5,6 +5,7 @@
 //! render layer only applies them.
 
 pub mod button;
+pub mod input;
 
 /// Shared control sizes, mirroring Fluent's `size` prop.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
