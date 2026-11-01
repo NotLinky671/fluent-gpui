@@ -4,6 +4,8 @@
 //! from `gpui_base::Button`. Every visual value comes from
 //! [`fluent_core::spec::button::resolve`], so this file contains no colours.
 
+use fluent_icons::FluentIcon;
+use crate::icon::Icon;
 use fluent_core::spec::ControlSize;
 use fluent_core::spec::button::{self, ButtonAppearance, ButtonProps, ButtonShape, IconPosition};
 use fluent_theme::FluentTheme;
@@ -30,6 +32,7 @@ pub struct Button {
     props: ButtonProps,
     children: Vec<AnyElement>,
     style: StyleRefinement,
+    icon: Option<FluentIcon>,
     on_click: Option<Box<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>>,
     a11y_label: Option<SharedString>,
     theme: Option<FluentTheme>,
@@ -44,6 +47,7 @@ impl Button {
             props: ButtonProps::default(),
             children: Vec::new(),
             style: StyleRefinement::default(),
+            icon: None,
             on_click: None,
             a11y_label: None,
             theme: None,
@@ -75,9 +79,17 @@ impl Button {
         self
     }
 
-    /// Reserves an icon slot; the icon element itself arrives with T-010.
-    pub fn icon(mut self, position: IconPosition) -> Self {
-        self.props.icon = Some(position);
+    /// Places an icon before the label.
+    pub fn icon(mut self, icon: FluentIcon) -> Self {
+        self.icon = Some(icon);
+        self.props.icon = Some(IconPosition::Before);
+        self
+    }
+
+    /// Places an icon after the label.
+    pub fn icon_after(mut self, icon: FluentIcon) -> Self {
+        self.icon = Some(icon);
+        self.props.icon = Some(IconPosition::After);
         self
     }
 
@@ -203,8 +215,23 @@ impl RenderOnce for Button {
         if let Some(handler) = self.on_click {
             el = el.on_click(handler);
         }
-        for child in self.children {
-            el = el.child(child);
+        // Icon placement follows the spec's padding rules; the icon inherits
+        // the button's text colour, so hover/pressed tint it automatically.
+        let icon = self.icon.map(|icon| Icon::new(icon).size(m.icon_size));
+        if matches!(self.props.icon, Some(IconPosition::Before)) {
+            if let Some(icon) = icon {
+                el = el.child(icon);
+            }
+            for child in self.children {
+                el = el.child(child);
+            }
+        } else {
+            for child in self.children {
+                el = el.child(child);
+            }
+            if let Some(icon) = icon {
+                el = el.child(icon);
+            }
         }
 
         el

@@ -10,7 +10,9 @@ use fluent_ui::gpui::{
     WindowBounds, WindowOptions,
 };
 use fluent_ui::prelude::*;
-use fluent_ui::{Appearance, Button, ButtonAppearance, ButtonShape, ControlSize, FluentTheme};
+use fluent_ui::{
+    Appearance, Button, ButtonAppearance, ButtonShape, ControlSize, FluentIcon, FluentTheme,
+};
 
 const APPEARANCES: [ButtonAppearance; 5] = [
     ButtonAppearance::Secondary,
@@ -145,6 +147,45 @@ impl Render for Gallery {
             index += 1;
         }
         matrix = matrix.child(shapes);
+
+        let mut icon_row = div().flex().items_center().gap(px(12.)).child(
+            div()
+                .w(px(96.))
+                .text_color(t.color.neutral_foreground_3)
+                .child("icon"),
+        );
+        for (icon, label) in [
+            (FluentIcon::Add, "Add"),
+            (FluentIcon::Search, "Search"),
+            (FluentIcon::Settings, "Settings"),
+        ] {
+            icon_row = icon_row.child(
+                Button::new(("icon", index))
+                    .icon(icon)
+                    .on_click(handler())
+                    .child(label),
+            );
+            index += 1;
+        }
+        icon_row = icon_row.child(
+            Button::new(("icon", index))
+                .appearance(ButtonAppearance::Primary)
+                .icon_after(FluentIcon::ChevronDown)
+                .on_click(handler())
+                .child("Options"),
+        );
+        index += 1;
+        for icon in [FluentIcon::Add, FluentIcon::MoreHorizontal, FluentIcon::Dismiss] {
+            icon_row = icon_row.child(
+                Button::new(("icon-only", index))
+                    .appearance(ButtonAppearance::Subtle)
+                    .icon(icon)
+                    .icon_only()
+                    .on_click(handler()),
+            );
+            index += 1;
+        }
+        matrix = matrix.child(icon_row);
 
         div()
             .size_full()

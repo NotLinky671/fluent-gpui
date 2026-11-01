@@ -4,7 +4,10 @@
 //! every color, radius and size comes from `fluent_core::spec`.
 
 pub mod button;
+pub mod icon;
 
 pub use button::Button;
+pub use icon::Icon;
+pub use fluent_icons::{FluentIcon, IconStyle};
 pub use fluent_core::spec::ControlSize;
 pub use fluent_core::spec::button::{ButtonAppearance, ButtonShape, IconPosition};
