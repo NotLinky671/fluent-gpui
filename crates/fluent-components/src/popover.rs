@@ -1,16 +1,22 @@
 //! Fluent 2 `Popover`.
 //!
-//! gpui-base owns the behaviour: anchoring, outside-click and Escape dismissal,
-//! focus tracking and the open/close lifecycle. This file only supplies the
-//! Fluent surface (background, radius, shadow, padding) around the content.
+//! The panel is positioned **relative to the trigger**, inside the same layout
+//! box. gpui-base's `Popup` anchors in window coordinates while painting inside
+//! the scroll layer, so scrolling applied the offset twice and the panel drifted
+//! against its trigger. Relative positioning has no second coordinate space to
+//! disagree with, so it stays locked.
+//!
+//! Trade-off: the panel is clipped by an enclosing scroll container. A portal to
+//! the root would avoid that and is the next step if it becomes a problem.
 
+use fluent_core::gpui_compat::StyledExt as _;
 use fluent_core::gpui_compat::{
-    AnyElement, App, ElementId, IntoElement, ParentElement, RenderOnce, StyleRefinement, Styled,
-    Window, div, px,
+    AnyElement, App, ElementId, InteractiveElement, IntoElement, ParentElement, RenderOnce,
+    SharedString, StatefulInteractiveElement, StyleRefinement, Styled, Window, div, px,
 };
 use fluent_core::spec::feedback;
 use fluent_theme::FluentTheme;
-use gpui_base::Popover as BasePopover;
+use gpui::prelude::FluentBuilder as _;
 
 /// Called with the new open state whenever the popover shows or hides.
 pub type OpenChangeHandler = Box<dyn Fn(bool, &mut Window, &mut App) + 'static>;
@@ -40,7 +46,7 @@ impl Popover {
         }
     }
 
-    /// The element that opens the popover on click.
+    /// The element that toggles the popover.
     pub fn trigger(mut self, trigger: impl IntoElement) -> Self {
         self.trigger = Some(trigger.into_any_element());
         self
@@ -83,43 +89,64 @@ impl RenderOnce for Popover {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let theme = FluentTheme::global(cx);
         let surface = feedback::tooltip(&theme);
+        let shadow = surface.shadow.to_vec();
 
-        // gpui-base measures the trigger during prepaint but only asks for an
-        // extra frame on the first capture, so while a scroll moves the trigger
-        // the panel paints against the previous frame's anchor and jitters.
-        // Repainting while open keeps the anchor one frame fresh instead.
-        if self.open.unwrap_or(self.default_open) {
-            window.request_animation_frame();
-        }
+        let store = window.use_keyed_state(
+            SharedString::from(format!("popover-open-{:?}", self.id)),
+            cx,
+            |_, _| self.default_open,
+        );
+        let is_open = self.open.unwrap_or_else(|| *store.read(cx));
 
-        let mut base = BasePopover::new(self.id).offset(px(4.));
+        let trigger = self.trigger;
+        let content = self.content;
+        let controlled = self.open.is_some();
+        let style = self.style;
 
-        if let Some(open) = self.open {
-            base = base.open(open);
-        } else {
-            base = base.default_open(self.default_open);
-        }
-
-        if let Some(trigger) = self.trigger {
-            base = base.trigger_with(move |_is_open, _, _| trigger.into_any_element());
-        }
-
-        if let Some(handler) = self.on_open_change {
-            base = base.on_open_change(move |open, window, cx| handler(*open, window, cx));
-        }
-
-        if let Some(content) = self.content {
-            base = base.content(move |_, _, _| {
+        let root = div()
+            .relative()
+            .child(
                 div()
+                    .id(self.id)
+                    .when_some(trigger, |el, trigger| el.child(trigger))
+                    .when(!controlled, |el| {
+                        let store = store.clone();
+                        let handler = self.on_open_change;
+                        el.on_click(move |_, window, cx| {
+                            let mut next = false;
+                            store.update(cx, |open, cx| {
+                                *open = !*open;
+                                next = *open;
+                                cx.notify();
+                            });
+                            if let Some(handler) = handler.as_ref() {
+                                handler(next, window, cx);
+                            }
+                        })
+                    }),
+            )
+            .when(is_open, |el| {
+                let mut panel = div()
+                    .absolute()
+                    .top_full()
+                    .left(px(0.))
+                    .mt(px(4.))
+                    // An absolutely positioned box inherits the trigger's width as
+                    // its available space; without these it shrinks and the text
+                    // wraps.
+                    .min_w(px(160.))
+                    .whitespace_nowrap()
                     .rounded(px(4.))
                     .bg(surface.background)
                     .text_color(surface.foreground)
                     .p(px(12.))
-                    .shadow(surface.shadow.to_vec())
-                    .child(content)
+                    .shadow(shadow);
+                if let Some(content) = content {
+                    panel = panel.child(content);
+                }
+                el.child(panel)
             });
-        }
 
-        base
+        root.refine_style(&style)
     }
 }
