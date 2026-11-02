@@ -17,8 +17,9 @@ use fluent_ui::prelude::*;
 use fluent_ui::{
     Appearance, Avatar, AvatarSize, Badge, BadgeAppearance, BadgeSize, Button, ButtonAppearance,
     ButtonShape, Checkbox, ControlSize, Divider, Field, FluentIcon, FluentRoot, FluentTheme,
-    FontMode, InputAppearance, Link, Popover, ProgressAppearance, ProgressBar, Radio, Switch,
-    TextInput, Textarea, TextareaAppearance, TooltipSurface, ValidationMessage,
+    FontMode, InputAppearance, Link, Menu, MenuHeader, MenuItem, MenuSeparator, Popover,
+    ProgressAppearance, ProgressBar, Radio, Switch, TextInput, Textarea, TextareaAppearance,
+    TooltipSurface, ValidationMessage,
 };
 
 const APPEARANCES: [ButtonAppearance; 5] = [
@@ -646,6 +647,15 @@ impl Render for Gallery {
                             .default_open(true)
                             .trigger(Button::new("popover-trigger").child("Open popover"))
                             .content("Popover content"),
+                    )
+                    .child(
+                        Menu::new()
+                            .child(MenuHeader::new("Actions"))
+                            .child(MenuItem::new("menu-edit", "Edit"))
+                            .child(MenuItem::new("menu-dup", "Duplicate"))
+                            .child(MenuSeparator)
+                            .child(MenuItem::new("menu-arch", "Archive").disabled(true))
+                            .child(MenuItem::new("menu-del", "Delete").danger(true)),
                     ),
             );
 
