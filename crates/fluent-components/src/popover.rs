@@ -16,7 +16,7 @@ use fluent_core::gpui_compat::{
 use fluent_core::spec::feedback;
 use fluent_theme::FluentTheme;
 use gpui::prelude::FluentBuilder as _;
-use gpui::{Bounds, Pixels, anchored, deferred, point};
+use gpui::{Bounds, Edges, Pixels, anchored, deferred, point};
 
 /// Called with the new open state whenever the popover shows or hides.
 pub type OpenChangeHandler = Box<dyn Fn(bool, &mut Window, &mut App) + 'static>;
@@ -117,16 +117,22 @@ impl RenderOnce for Popover {
         let anchor = div()
             .on_children_prepainted({
                 let trigger_bounds = trigger_bounds.clone();
-                move |children, _, cx| {
+                move |children, window, cx| {
                     let Some(child) = children.first() else {
                         return;
                     };
-                    trigger_bounds.update(cx, |bounds, cx| {
+                    let mut changed = false;
+                    trigger_bounds.update(cx, |bounds, _| {
                         if *bounds != Some(*child) {
                             *bounds = Some(*child);
-                            cx.notify();
+                            changed = true;
                         }
                     });
+                    // Notify from prepaint rebuilds the tree mid-frame; asking for
+                    // the next frame instead keeps the update between frames.
+                    if changed {
+                        window.request_animation_frame();
+                    }
                 }
             })
             .child(
@@ -150,6 +156,20 @@ impl RenderOnce for Popover {
                     .when_some(trigger, |el, trigger| el.child(trigger)),
             );
 
+        if std::env::var_os("FLUENT_POPOVER_DEBUG").is_some() {
+            use std::io::Write as _;
+            if let Ok(mut file) = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open("target/popover-debug.log")
+            {
+                let bounds = anchor_bounds
+                    .map(|b| format!("{b:?}"))
+                    .unwrap_or_else(|| "none".into());
+                let _ = writeln!(file, "popover open={} bounds={}", is_open, bounds);
+            }
+        }
+
         div()
             .child(anchor)
             .when(is_open, |el| {
@@ -172,7 +192,17 @@ impl RenderOnce for Popover {
                         )
                     })
                     .unwrap_or_default();
-                el.child(deferred(anchored().position(origin).child(panel)))
+                // Default fit mode is SwitchAnchor: when the panel would not fit, the
+                // anchor corner switches and the panel jumps to the opposite side. While a
+                // scroll walks the trigger past that boundary it flips back and forth —
+                // which is the visible jitter. Snapping keeps it on its side and slides it
+                // into the window instead.
+                el.child(deferred(
+                    anchored()
+                        .position(origin)
+                        .snap_to_window_with_margin(Edges::all(px(8.)))
+                        .child(panel),
+                ))
             })
             .refine_style(&style)
     }
