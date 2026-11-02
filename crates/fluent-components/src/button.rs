@@ -242,7 +242,10 @@ impl RenderOnce for Button {
                     let text = text.clone();
                     overlay.update(cx, |overlay, cx| {
                         overlay.request_show(
-                            gpui_base::TooltipRequest::new(bounds, move |_, cx| {
+                            // Fluent leaves a 4px gap between trigger and tooltip.
+                            // TooltipPositioner does not expose Positioner::offset,
+                            // so dilate the bounds by the gap instead.
+                            gpui_base::TooltipRequest::new(bounds.dilate(px(4.)), move |_, cx| {
                                 cx.new(|_| crate::feedback::TooltipView::new(text.clone()))
                                     .into()
                             }),
