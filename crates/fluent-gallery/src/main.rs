@@ -17,8 +17,8 @@ use fluent_ui::prelude::*;
 use fluent_ui::{
     Appearance, Avatar, AvatarSize, Badge, BadgeAppearance, BadgeSize, Button, ButtonAppearance,
     ButtonShape, Checkbox, ControlSize, Divider, Field, FluentIcon, FluentRoot, FluentTheme,
-    FontMode, InputAppearance, Link, ProgressAppearance, ProgressBar, Radio, Switch, TextInput,
-    Textarea, TextareaAppearance, TooltipSurface, ValidationMessage,
+    FontMode, InputAppearance, Link, Popover, ProgressAppearance, ProgressBar, Radio, Switch,
+    TextInput, Textarea, TextareaAppearance, TooltipSurface, ValidationMessage,
 };
 
 const APPEARANCES: [ButtonAppearance; 5] = [
@@ -634,6 +634,19 @@ impl Render for Gallery {
                     )
                     // Static preview of the surface, since screenshots cannot hover.
                     .child(TooltipSurface::new("Saves the current document")),
+            )
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(16.))
+                    // Opened by default so a screenshot can show the panel.
+                    .child(
+                        Popover::new("popover-demo")
+                            .default_open(true)
+                            .trigger(Button::new("popover-trigger").child("Open popover"))
+                            .content("Popover content"),
+                    ),
             );
 
         let feedback_section = div()
