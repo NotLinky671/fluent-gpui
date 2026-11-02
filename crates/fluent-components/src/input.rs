@@ -179,6 +179,26 @@ impl RenderOnce for TextInput {
                     .update(cx, |state, cx| state.focus(window, cx))
                     .ok();
             })
+            // GPUI does not drop focus when the pointer lands elsewhere, and
+            // gpui-base's text input does not do it either, so without this a
+            // field stays focused (and keeps drawing its underline) after the
+            // user clicks away.
+            .on_mouse_down_out({
+                let weak_state = self.state.downgrade();
+                move |_, window, cx| {
+                    let Some(state) = weak_state.upgrade() else {
+                        return;
+                    };
+                    if state
+                        .read(cx)
+                        .presentation()
+                        .focus_handle()
+                        .is_focused(window)
+                    {
+                        window.blur(cx);
+                    }
+                }
+            })
             .refine_style(&self.style);
 
         if !is_disabled {
@@ -271,3 +291,6 @@ impl RenderOnce for TextInput {
         root
     }
 }
+
+#[cfg(test)]
+mod focus_tests;

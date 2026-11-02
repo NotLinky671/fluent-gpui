@@ -13,8 +13,8 @@
 | 组件 | 实现范围 | 说明 |
 |---|---|---|
 | `Button` | 基础实现 | Primary / Secondary / Outline / Subtle / Transparent；支持尺寸、形状和图标配置；Toggle / Compound / Menu / Split 派生未实现 |
-| `TextInput` | 基础实现 | 单行，含前置/后置内容、错误态、禁用态；IME 尚未实测 |
-| `Textarea` | 基础实现 | 多行，三种外观 |
+| `TextInput` | 基础实现 | 单行，含前置/后置内容、错误态、禁用态；点击别处会清除焦点；IME 尚未实测 |
+| `Textarea` | 基础实现 | 多行，三种外观；点击别处会清除焦点 |
 | `Field` / `Label` | 基础实现 | 垂直/水平布局、hint、Error/Warning/Success 验证消息 |
 | `Checkbox` / `Radio` / `Switch` | 基础实现 | 受控与非受控模式；鼠标 hover / pressed 接线及颜色过渡已实现，完整交互验证待补 |
 | `Link` / `Divider` | 基础实现 | 三种 Link 配色、四种 Divider 外观 |
