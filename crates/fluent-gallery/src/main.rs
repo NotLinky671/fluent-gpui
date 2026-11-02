@@ -273,6 +273,9 @@ impl Render for Gallery {
                         InputAppearance::FilledLighter => "filled-lighter",
                     }),
             );
+            if matches!(appearance, InputAppearance::FilledLighter) {
+                row = row.bg(FluentTheme::global(cx).tokens().color.neutral_background_2);
+            }
             for size in SIZES {
                 row = row.child(
                     div().w(px(220.)).child(
@@ -335,6 +338,9 @@ impl Render for Gallery {
                         TextareaAppearance::FilledLighter => "filled-lighter",
                     }),
             );
+            if matches!(appearance, TextareaAppearance::FilledLighter) {
+                row = row.bg(FluentTheme::global(cx).tokens().color.neutral_background_2);
+            }
             for size in SIZES {
                 row = row.child(
                     div().w(px(220.)).child(
