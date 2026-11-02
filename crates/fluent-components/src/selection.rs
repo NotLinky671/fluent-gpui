@@ -3,8 +3,8 @@
 use crate::icon::Icon;
 use fluent_core::gpui_compat::StyledExt as _;
 use fluent_core::gpui_compat::{
-    App, ElementId, IntoElement, ParentElement, RenderOnce, SharedString, StyleRefinement, Styled,
-    Window, div, px,
+    App, ElementId, InteractiveElement, IntoElement, ParentElement, RenderOnce, SharedString,
+    StyleRefinement, Styled, Window, div, px,
 };
 use fluent_core::spec::ControlSize;
 use fluent_core::spec::selection::{self, CheckboxProps, RadioProps};
@@ -116,6 +116,9 @@ impl RenderOnce for Checkbox {
         );
         let mark = spec.mark;
 
+        // Hover/pressed come from the row: the indicator is a child, so it reads
+        // the group state of the whole control (label included).
+        let hover_group = SharedString::from(format!("cb-hover-{:?}", self.id));
         let indicator = div()
             .flex_shrink_0()
             .size(spec.box_size)
@@ -123,6 +126,12 @@ impl RenderOnce for Checkbox {
             .border_1()
             .border_color(spec.border)
             .bg(spec.background)
+            .when(!self.disabled, |el| {
+                let hover = format!("cb-hover-{:?}", self.id);
+                el.group_hover(hover, move |s| {
+                    s.bg(spec.hover_background).border_color(spec.hover_border)
+                })
+            })
             .flex()
             .items_center()
             .justify_center()
@@ -142,6 +151,7 @@ impl RenderOnce for Checkbox {
         let store_for_click = store.clone();
 
         BaseCheckbox::new(self.id)
+            .group(hover_group.clone())
             .checked(checked)
             .disabled(self.disabled)
             .child(content)
@@ -262,7 +272,11 @@ impl RenderOnce for Radio {
                         .flex_shrink_0()
                         .size(spec.dot)
                         .rounded(px(10000.))
-                        .bg(spec.dot_color),
+                        .bg(spec.dot_color)
+                        .when(!self.disabled, |el| {
+                            let hover = format!("radio-hover-{:?}", self.id);
+                            el.group_hover(hover, move |s| s.bg(spec.hover_dot))
+                        }),
                 )
             })
             .child(
@@ -273,7 +287,11 @@ impl RenderOnce for Radio {
                     .size(spec.circle)
                     .rounded(px(10000.))
                     .border_1()
-                    .border_color(spec.border),
+                    .border_color(spec.border)
+                    .when(!self.disabled, |el| {
+                        let hover = format!("radio-hover-{:?}", self.id);
+                        el.group_hover(hover, move |s| s.border_color(spec.hover_border))
+                    }),
             );
 
         let content = div()
@@ -287,7 +305,8 @@ impl RenderOnce for Radio {
         let handler = self.on_change;
         let store_for_click = store.clone();
 
-        BaseRadio::new(self.id)
+        BaseRadio::new(self.id.clone())
+            .group(format!("radio-hover-{:?}", self.id))
             .checked(checked)
             .disabled(self.disabled)
             .child(content)

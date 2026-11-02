@@ -2,8 +2,8 @@
 
 use fluent_core::gpui_compat::StyledExt as _;
 use fluent_core::gpui_compat::{
-    App, ElementId, IntoElement, ParentElement, RenderOnce, SharedString, StyleRefinement, Styled,
-    Window, div, px,
+    App, ElementId, InteractiveElement, IntoElement, ParentElement, RenderOnce, SharedString,
+    StyleRefinement, Styled, Window, div, px,
 };
 use fluent_core::spec::ControlSize;
 use fluent_core::spec::switch::{self, SwitchProps};
@@ -121,6 +121,13 @@ impl RenderOnce for Switch {
             .border_1()
             .border_color(spec.track_border)
             .bg(spec.track_bg)
+            .when(!self.disabled, |el| {
+                let hover = format!("switch-hover-{:?}", self.id);
+                el.group_hover(hover, move |s| {
+                    s.bg(spec.hover_track_bg)
+                        .border_color(spec.hover_track_border)
+                })
+            })
             .flex()
             .items_center()
             .pl(if checked { spec.thumb_offset } else { px(3.) })
@@ -129,7 +136,11 @@ impl RenderOnce for Switch {
                     .flex_shrink_0()
                     .size(spec.thumb_size)
                     .rounded(px(10000.))
-                    .bg(spec.thumb),
+                    .bg(spec.thumb)
+                    .when(!self.disabled, |el| {
+                        let hover = format!("switch-hover-{:?}", self.id);
+                        el.group_hover(hover, move |s| s.bg(spec.hover_thumb))
+                    }),
             );
 
         let content = div()
@@ -143,7 +154,8 @@ impl RenderOnce for Switch {
         let handler = self.on_change;
         let store_for_click = store.clone();
 
-        BaseSwitch::new(self.id)
+        BaseSwitch::new(self.id.clone())
+            .group(format!("switch-hover-{:?}", self.id))
             .checked(checked)
             .disabled(self.disabled)
             .child(content)
