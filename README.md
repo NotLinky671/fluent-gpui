@@ -113,6 +113,7 @@ cargo xtask gen-tokens --check  # token 生成物是否最新
 cargo xtask gen-icons --check   # 图标生成物是否最新
 cargo xtask tasks --check       # 任务索引是否最新
 cargo deny --offline check      # 依赖许可与安全审计
+cargo test -p fluent-gallery --features screenshot --test baselines   # 像素基线比对
 FLUENT_GALLERY_SECTION=buttons cargo run -p fluent-gallery   # 单组件预览
 ```
 

@@ -4,6 +4,8 @@
 //! - `FLUENT_GALLERY_SCREENSHOT=<path>` (with `--features screenshot`) writes a
 //!   PNG of the first frame.
 
+mod fixtures;
+
 use std::time::Duration;
 
 use fluent_ui::gpui::{
@@ -50,6 +52,8 @@ fn size_name(size: ControlSize) -> &'static str {
 /// Root view: theme switcher, font mode, and the button matrix.
 struct Gallery {
     appearance: Appearance,
+    /// Set by `FLUENT_GALLERY_FIXTURE`: render one component on a fixed canvas.
+    fixture: Option<String>,
     clicks: usize,
     inputs: Vec<gpui::Entity<InputState>>,
     textareas: Vec<gpui::Entity<TextareaState>>,
@@ -63,6 +67,7 @@ struct Gallery {
 
 impl Gallery {
     fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let fixture = std::env::var("FLUENT_GALLERY_FIXTURE").ok();
         // A forced appearance (screenshots, CI baselines) must not be
         // overwritten by the OS observer, which fires immediately.
         let forced = std::env::var_os("FLUENT_GALLERY_APPEARANCE").is_some();
@@ -99,6 +104,7 @@ impl Gallery {
             radio_choice: 1,
             switch_a: true,
             switch_b: false,
+            fixture,
             _appearance_sub: sub,
         }
     }
@@ -123,8 +129,23 @@ impl Gallery {
 }
 
 impl Render for Gallery {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = FluentTheme::global(cx);
+
+        // Baseline mode: one fixture, centred on a canvas the window is sized to.
+        if let Some(element) = self
+            .fixture
+            .as_deref()
+            .and_then(|name| fixtures::render(name, window, cx))
+        {
+            return FluentRoot::new()
+                .flex()
+                .items_center()
+                .justify_center()
+                .child(element)
+                .into_any_element();
+        }
+
         let t = theme.tokens();
 
         let swatch = |c: Hsla| div().w(px(44.)).h(px(28.)).rounded(px(4.)).bg(c);
@@ -685,27 +706,38 @@ impl Render for Gallery {
         if want("feedback") {
             sections.push(feedback_section.into_any_element());
         }
-        FluentRoot::new().flex().flex_col().child(header).child(
-            div()
-                .id("matrix-scroll")
-                .flex_1()
-                .overflow_y_scroll()
-                .children(sections)
-                .child(
-                    div()
-                        .p(px(16.))
-                        .flex()
-                        .gap(px(8.))
-                        .child(swatch(t.color.brand_background))
-                        .child(swatch(t.color.neutral_background_1_hover))
-                        .child(swatch(t.color.neutral_stroke_accessible))
-                        .child(swatch(t.color.stroke_focus_2)),
-                ),
-        )
+        FluentRoot::new()
+            .flex()
+            .flex_col()
+            .child(header)
+            .child(
+                div()
+                    .id("matrix-scroll")
+                    .flex_1()
+                    .overflow_y_scroll()
+                    .children(sections)
+                    .child(
+                        div()
+                            .p(px(16.))
+                            .flex()
+                            .gap(px(8.))
+                            .child(swatch(t.color.brand_background))
+                            .child(swatch(t.color.neutral_background_1_hover))
+                            .child(swatch(t.color.neutral_stroke_accessible))
+                            .child(swatch(t.color.stroke_focus_2)),
+                    ),
+            )
+            .into_any_element()
     }
 }
 
 fn main() {
+    if std::env::var_os("FLUENT_GALLERY_LIST_FIXTURES").is_some() {
+        for fixture in fixtures::FIXTURES {
+            println!("{}\t{}\t{}", fixture.name, fixture.width, fixture.height);
+        }
+        return;
+    }
     fluent_ui::application().run(|cx: &mut App| {
         fluent_ui::init(cx);
 
@@ -718,13 +750,19 @@ fn main() {
             FluentTheme::for_appearance(appearance).install(cx);
         }
 
-        let (width, height) = std::env::var("FLUENT_GALLERY_SIZE")
+        // A fixture pins the window to its canvas so the PNG is reproducible.
+        let fixture_size = std::env::var("FLUENT_GALLERY_FIXTURE")
             .ok()
-            .and_then(|value| {
-                let (w, h) = value.split_once('x')?;
-                Some((w.trim().parse::<f32>().ok()?, h.trim().parse::<f32>().ok()?))
-            })
-            .unwrap_or((900.0, 640.0));
+            .and_then(|name| fixtures::size(&name));
+        let (width, height) = fixture_size.unwrap_or_else(|| {
+            std::env::var("FLUENT_GALLERY_SIZE")
+                .ok()
+                .and_then(|value| {
+                    let (w, h) = value.split_once('x')?;
+                    Some((w.trim().parse::<f32>().ok()?, h.trim().parse::<f32>().ok()?))
+                })
+                .unwrap_or((900.0, 640.0))
+        });
         let bounds = Bounds::centered(None, size(px(width), px(height)), cx);
         let window = cx
             .open_window(
