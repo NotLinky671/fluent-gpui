@@ -239,6 +239,37 @@ impl RenderOnce for Popover {
         let on_change = self.on_open_change;
         let focus = self.focus;
 
+        // Focus handover. Opening moves focus into the panel and remembers what
+        // had it; closing gives it back only if it is still inside, so a click
+        // that focused something else is not undone.
+        if let Some(panel_focus) = focus.as_ref() {
+            let previous = window.use_keyed_state(
+                SharedString::from(format!("popover-previous-focus-{:?}", self.id)),
+                cx,
+                |_, _| None::<gpui::FocusHandle>,
+            );
+            let was_open = window.use_keyed_state(
+                SharedString::from(format!("popover-was-open-{:?}", self.id)),
+                cx,
+                |_, _| false,
+            );
+            let previously_open = *was_open.read(cx);
+            if is_open && !previously_open {
+                let current = window.focused(cx);
+                previous.update(cx, |slot, _| *slot = current);
+                panel_focus.focus(window, cx);
+                was_open.update(cx, |open, _| *open = true);
+            } else if !is_open && previously_open {
+                let restore = previous.update(cx, |slot, _| slot.take());
+                if panel_focus.contains_focused(window, cx)
+                    && let Some(handle) = restore
+                {
+                    handle.focus(window, cx);
+                }
+                was_open.update(cx, |open, _| *open = false);
+            }
+        }
+
         let anchor = div()
             .on_children_prepainted({
                 let trigger_bounds = trigger_bounds.clone();

@@ -8,7 +8,7 @@
 |---|---|---|
 | `FluentRoot` | 携带 `ROOT_KEY_CONTEXT`，并处理 `FocusNext` / `FocusPrev` | 不等于 gpui-base 的 `Root` 视图；两者 context 不同 |
 | `TextInput` / `Textarea` | 点击自身聚焦；`on_mouse_down_out` 失焦 | 不包含 Tab 遍历与焦点陷阱 |
-| `Popover` | 可选 `track_focus`，Escape 依赖它 | 不负责把焦点移入面板或归还 |
+| `Popover` | `track_focus` 提供面板焦点句柄；打开时移入、关闭时归还；Escape 依赖它 | 不包含焦点陷阱；面板内控件需自己可聚焦 |
 
 ## 失焦时机
 
@@ -24,6 +24,19 @@
 `on_mouse_down_out` 在 capture 阶段触发，判据是“指针不在本元素 hitbox 内”，所以点输入框内部不会误触发。先判 `is_focused` 再 blur，避免对未聚焦的字段做无谓调用。
 
 `TextInput` 与 `Textarea` 都按这个形状实现，两者缺一不可——它们是各自独立的组件，没有共享基类。
+
+## 浮层焦点交接
+
+`Popover` 在提供 `track_focus` 时按边沿处理焦点：
+
+```text
+打开（上一帧关闭）→ 记录 window.focused(cx)，聚焦面板句柄
+关闭（上一帧打开）→ 若焦点仍在面板内，交还记录的句柄
+```
+
+「仍在面板内」这个条件不能省：用户可能在浮层打开期间点击别处，此时焦点已经移动，关闭时强行归还会把焦点从用户刚点的地方抢走。
+
+保存前一焦点与「上一帧是否打开」都用 window keyed state（按元素 ID 区分），因为 `Popover` 是 `RenderOnce`，自身没有跨帧状态。
 
 ## Tab 顺序
 
@@ -51,11 +64,12 @@ cargo test -p fluent-components --lib tab_order_tests --locked
 | `pressing_inside_again_keeps_focus` | 再次点击内部不误失焦 |
 | `tab_moves_focus_to_the_next_field` | Tab 在两个字段间前进；移除 `FluentRoot` 的 context 后失败 |
 | `shift_tab_moves_focus_backwards` | Shift+Tab 反向移动 |
+| `opening_moves_focus_into_the_panel` | 打开时焦点移入面板；移除交接逻辑后失败 |
+| `closing_returns_focus_to_where_it_was` | 关闭时归还焦点；先断言打开确实移入了焦点，否则该测试在无交接时也会通过 |
 
 ## 尚未覆盖
 
-- 焦点陷阱与模态（gpui-base 有 `focus_trap`，本项目尚未接入）
-- 打开浮层时把焦点移入面板、关闭后归还
+- 焦点陷阱与模态（gpui-base 有公开的 `FocusTrapElement` / `active_focus_trap`，本项目尚未接入）
 - 方向键在菜单项之间的移动、`aria-activedescendant`
 - AccessKit role/state 是否随焦点正确上报
 - 真实窗口中的 Tab 顺序（测试直接派发按键，不经过平台输入法或原生焦点环）

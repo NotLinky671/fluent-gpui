@@ -34,6 +34,8 @@ struct DismissView {
     open: Option<bool>,
     default_open: bool,
     focus: FocusHandle,
+    /// Focus that exists outside the popover, to prove it is handed back.
+    outside: FocusHandle,
 }
 
 impl Render for DismissView {
@@ -126,6 +128,7 @@ fn open_view(
         open,
         default_open,
         focus: cx.focus_handle(),
+        outside: cx.focus_handle(),
     });
     cx.run_until_parked();
     (window, log)
@@ -279,5 +282,102 @@ fn escape_requests_a_close_while_focus_is_inside(cx: &mut TestAppContext) {
         log.take(),
         vec![false],
         "Escape must request a close when the trigger subtree holds focus"
+    );
+}
+
+/// Focus the view's outside handle, as an application would before opening.
+fn focus_outside(cx: &mut TestAppContext, handle: WindowHandle<DismissView>) {
+    cx.update_window(handle.into(), |view, window, cx| {
+        let view = view.downcast::<DismissView>().unwrap();
+        let outside = view.read(cx).outside.clone();
+        window.focus(&outside, cx);
+    })
+    .unwrap();
+    cx.run_until_parked();
+}
+
+fn panel_focused(cx: &mut TestAppContext, handle: WindowHandle<DismissView>) -> bool {
+    let mut focused = false;
+    cx.update_window(handle.into(), |view, window, cx| {
+        let view = view.downcast::<DismissView>().unwrap();
+        let focus = view.read(cx).focus.clone();
+        focused = focus.is_focused(window);
+    })
+    .unwrap();
+    focused
+}
+
+fn outside_focused(cx: &mut TestAppContext, handle: WindowHandle<DismissView>) -> bool {
+    let mut focused = false;
+    cx.update_window(handle.into(), |view, window, cx| {
+        let view = view.downcast::<DismissView>().unwrap();
+        let outside = view.read(cx).outside.clone();
+        focused = outside.is_focused(window);
+    })
+    .unwrap();
+    focused
+}
+
+#[gpui::test]
+fn opening_moves_focus_into_the_panel(cx: &mut TestAppContext) {
+    let (handle, _log) = open_view(cx, None, false);
+    focus_outside(cx, handle);
+    assert!(outside_focused(cx, handle), "precondition: focus outside");
+
+    cx.update_window(handle.into(), |view, window, cx| {
+        let view = view.downcast::<DismissView>().unwrap();
+        view.update(cx, |view, cx| {
+            view.open = Some(true);
+            cx.notify();
+        });
+        window.refresh();
+    })
+    .unwrap();
+    cx.run_until_parked();
+
+    assert!(
+        panel_focused(cx, handle),
+        "opening must move focus into the panel so the keyboard reaches its content"
+    );
+}
+
+#[gpui::test]
+fn closing_returns_focus_to_where_it_was(cx: &mut TestAppContext) {
+    let (handle, _log) = open_view(cx, None, false);
+    focus_outside(cx, handle);
+
+    // Open first and prove focus actually moved, otherwise "focus is back
+    // outside" would pass even with no handover at all.
+    cx.update_window(handle.into(), |view, window, cx| {
+        let view = view.downcast::<DismissView>().unwrap();
+        view.update(cx, |view, cx| {
+            view.open = Some(true);
+            cx.notify();
+        });
+        window.refresh();
+    })
+    .unwrap();
+    cx.run_until_parked();
+    assert!(
+        panel_focused(cx, handle),
+        "precondition: opening moved focus into the panel"
+    );
+
+    // Now close.
+    cx.update_window(handle.into(), |view, window, cx| {
+        let view = view.downcast::<DismissView>().unwrap();
+        view.update(cx, |view, cx| {
+            view.open = Some(false);
+            cx.notify();
+        });
+        window.refresh();
+    })
+    .unwrap();
+    cx.run_until_parked();
+
+    assert!(
+        outside_focused(cx, handle),
+        "closing must hand focus back to what had it, otherwise the keyboard \
+         is stranded on a panel that no longer exists"
     );
 }
