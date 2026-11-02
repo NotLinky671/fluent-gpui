@@ -2,8 +2,8 @@
 
 use fluent_core::gpui_compat::StyledExt as _;
 use fluent_core::gpui_compat::{
-    App, Entity, Hsla, InteractiveElement, IntoElement, MouseButton, ParentElement, Pixels,
-    RenderOnce, StyleRefinement, Styled, Window, div, px,
+    App, Entity, InteractiveElement, IntoElement, MouseButton, ParentElement, RenderOnce,
+    SharedString, StatefulInteractiveElement, StyleRefinement, Styled, Window, div, px, relative,
 };
 use fluent_core::spec::ControlSize;
 use fluent_core::spec::textarea::{self, TextareaAppearance, TextareaProps};
@@ -56,18 +56,8 @@ impl Styled for Textarea {
     }
 }
 
-fn overlay_line(color: Hsla, height: Pixels) -> impl IntoElement {
-    div()
-        .absolute()
-        .left(px(0.))
-        .right(px(0.))
-        .bottom(px(0.))
-        .h(height)
-        .bg(color)
-}
-
 impl RenderOnce for Textarea {
-    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let theme = FluentTheme::global(cx);
         let spec = textarea::resolve(&theme, &self.props);
         let m = spec.metrics;
@@ -84,29 +74,61 @@ impl RenderOnce for Textarea {
         } else {
             spec.text
         };
-        let border = if is_disabled {
+        // Hover is tracked per textarea so the chrome eases instead of snapping.
+        let hover_state = window.use_keyed_state(
+            SharedString::from(format!("textarea-hovered-{:?}", self.state.entity_id())),
+            cx,
+            |_, _| false,
+        );
+        let hovered = *hover_state.read(cx) && !is_disabled;
+
+        let target_border = if is_disabled {
             disabled.border
         } else if self.props.invalid {
             invalid
+        } else if hovered {
+            hover.border
         } else {
             rest.border
         };
+        let target_background = if is_disabled {
+            disabled.background
+        } else if hovered {
+            hover.background
+        } else {
+            rest.background
+        };
+        let border = crate::motion::state_color(
+            SharedString::from(format!("textarea-border-{:?}", self.state.entity_id())),
+            target_border,
+            window,
+            cx,
+        );
+        let background = crate::motion::state_color(
+            SharedString::from(format!("textarea-bg-{:?}", self.state.entity_id())),
+            target_background,
+            window,
+            cx,
+        );
 
         let weak_state = self.state.downgrade();
 
+        let root_id = SharedString::from(format!("textarea-root-{:?}", self.state.entity_id()));
         let mut root = div()
+            .id(root_id)
             .relative()
             .flex()
             .flex_col()
             .min_h(m.min_height)
             .w_full()
-            .bg(if is_disabled {
-                disabled.background
-            } else {
-                rest.background
-            })
-            .border_1()
+            .bg(background)
+            // See input.rs: the bottom edge is an overlay so the focus
+            // underline can replace it, and both follow the corner radius.
+            .border_t_1()
+            .border_l_1()
+            .border_r_1()
             .border_color(border)
+            .pb(m.border_width)
             .rounded(m.radius)
             .px(m.padding_x)
             .py(m.padding_y)
@@ -121,12 +143,14 @@ impl RenderOnce for Textarea {
             .refine_style(&self.style);
 
         if !is_disabled {
-            root = root.hover(move |s| {
-                s.bg(hover.background).border_color(if self.props.invalid {
-                    invalid
-                } else {
-                    hover.border
-                })
+            let hover_listener = hover_state.clone();
+            root = root.on_hover(move |is_hovered, _, cx| {
+                hover_listener.update(cx, |state, cx| {
+                    if *state != *is_hovered {
+                        *state = *is_hovered;
+                        cx.notify();
+                    }
+                });
             });
         }
 
@@ -144,18 +168,47 @@ impl RenderOnce for Textarea {
         } else {
             rest.border_bottom
         };
-        root = root.child(overlay_line(bottom_edge, m.border_width));
+        // Bottom edge as a border on a rounded overlay: GPUI clips rectangles
+        // only, so a filled bar would end straight instead of turning the corner.
+        root = root.child(
+            div()
+                .absolute()
+                .left(px(0.))
+                .right(px(0.))
+                .top(px(0.))
+                .bottom(px(0.))
+                .rounded(m.radius)
+                .border_b(m.border_width)
+                .border_color(bottom_edge),
+        );
 
         if !is_disabled {
+            // Fluent grows the focus underline out of the centre: 200 ms in,
+            // 50 ms out. Insetting both edges from half the width reproduces the
+            // scaleX transform without knowing the pixel width.
+            let focused = focus_handle.is_focused(window);
+            let policy = if focused {
+                fluent_core::spec::motion::reveal_policy()
+            } else {
+                fluent_core::spec::motion::hide_policy()
+            };
+            let inset = crate::motion::fraction(
+                SharedString::from(format!("textarea-underline-{:?}", self.state.entity_id())),
+                if focused { 0.0 } else { 0.5 },
+                policy,
+                window,
+                cx,
+            );
             root = root.child(
                 div()
                     .absolute()
-                    .left(px(0.))
-                    .right(px(0.))
+                    .left(relative(inset))
+                    .right(relative(inset))
+                    .top(px(0.))
                     .bottom(px(0.))
-                    .h(m.underline_height)
-                    .track_focus(&focus_handle)
-                    .focus(move |s| s.bg(underline)),
+                    .rounded(m.radius)
+                    .border_b(m.underline_height)
+                    .border_color(underline),
             );
         }
 

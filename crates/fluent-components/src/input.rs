@@ -6,9 +6,9 @@
 
 use fluent_core::gpui_compat::StyledExt as _;
 use fluent_core::gpui_compat::{
-    AnyElement, App, Entity, Hsla, InteractiveElement, IntoElement, MouseButton, ParentElement,
-    Pixels, RenderOnce, SharedString, StatefulInteractiveElement, StyleRefinement, Styled, Window,
-    div, px, relative,
+    AnyElement, App, Entity, InteractiveElement, IntoElement, MouseButton, ParentElement,
+    RenderOnce, SharedString, StatefulInteractiveElement, StyleRefinement, Styled, Window, div, px,
+    relative,
 };
 use fluent_core::spec::ControlSize;
 use fluent_core::spec::input::{self, InputAppearance, InputProps};
@@ -90,17 +90,6 @@ impl Styled for TextInput {
     fn style(&mut self) -> &mut StyleRefinement {
         &mut self.style
     }
-}
-
-/// A 1px overlay line, used for the heavier bottom edge and the focus underline.
-fn overlay_line(color: Hsla, height: Pixels) -> impl IntoElement {
-    div()
-        .absolute()
-        .left(px(0.))
-        .right(px(0.))
-        .bottom(px(0.))
-        .h(height)
-        .bg(color)
 }
 
 impl RenderOnce for TextInput {
