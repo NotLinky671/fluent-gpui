@@ -1,24 +1,26 @@
 # fluent-ui
 
-以 **Microsoft Fluent 2** 为视觉规范、用 **GPUI** 渲染的 Rust UI 组件库。目标是在 Windows、macOS、Linux 上提供一致的组件外观、交互行为和开发体验。
+A Rust UI component library built to the **Microsoft Fluent 2** visual specification and rendered with **GPUI**. The goal is consistent component appearance, interaction behaviour and developer experience across Windows, macOS and Linux.
 
-> 状态：**M1（组件基础）**。API 尚未稳定，0.1 之前会有破坏性变更。
+**English** | [简体中文](README.zh-CN.md)
 
-## 组件
+> Status: **M1 (component foundation)**. The API is not stable yet; expect breaking changes before 0.1.
 
-| 组件 | 状态 | 说明 |
+## Components
+
+| Component | Status | Notes |
 |---|---|---|
-| `Button` | ✅ | Primary / Secondary / Subtle / Transparent，含 Toggle、Compound、Menu、Split 派生 |
-| `TextInput` | ✅ | 单行，含前置/后置内容、错误态、禁用态 |
-| `Textarea` | ✅ | 多行，三种外观 |
-| `Field` / `Label` | ✅ | 垂直/水平布局、hint、Error/Warning/Success 验证消息 |
-| `Checkbox` / `Radio` / `Switch` | ✅ | 受控与非受控两种模式 |
-| `Link` / `Divider` | ✅ | 三种 Link 配色、四档 Divider |
-| `Badge` / `ProgressBar` / `Avatar` | ✅ | 7 种 Badge 外观、4 档 Avatar |
-| `Tooltip` | ✅ | 锚定元素、自动上下翻转、4px 间隙 |
-| `Spinner` | ⏸ | 等待旋转动画基础设施 |
+| `Button` | ✅ | Primary / Secondary / Subtle / Transparent, plus Toggle, Compound, Menu and Split variants |
+| `TextInput` | ✅ | Single line, with leading/trailing content, invalid and disabled states |
+| `Textarea` | ✅ | Multi-line, three appearances |
+| `Field` / `Label` | ✅ | Vertical and horizontal layout, hint text, Error/Warning/Success validation messages |
+| `Checkbox` / `Radio` / `Switch` | ✅ | Controlled and uncontrolled modes |
+| `Link` / `Divider` | ✅ | Three link palettes, four divider weights |
+| `Badge` / `ProgressBar` / `Avatar` | ✅ | Seven badge appearances, four avatar sizes |
+| `Tooltip` | ✅ | Anchored to the trigger, flips above/below, 4px gap |
+| `Spinner` | ⏸ | Waiting on a rotation animation foundation |
 
-## 快速开始
+## Quick start
 
 ```toml
 [dependencies]
@@ -47,14 +49,14 @@ fn main() {
 }
 ```
 
-`FluentRoot` 负责应用主题的背景色、前景色、字体，并托管 Tooltip 浮层——应用的最外层应当用它包裹。
+`FluentRoot` applies the theme's background, foreground and font, and hosts the tooltip overlay, so the outermost element of an application should be wrapped in it.
 
-## 受控与非受控
+## Controlled and uncontrolled
 
-选择类控件（`Checkbox` / `Radio` / `Switch`）支持两种模式，对应 Fluent React 的 `checked` / `defaultChecked`：
+The selection controls (`Checkbox`, `Radio`, `Switch`) support both modes, mirroring `checked` / `defaultChecked` in Fluent React:
 
 ```rust
-// 受控：状态由调用方持有
+// Controlled: the caller owns the state.
 Switch::new("wifi")
     .checked(self.wifi_on)
     .on_change(cx.listener(|this, value, _, cx| {
@@ -62,13 +64,13 @@ Switch::new("wifi")
         cx.notify();
     }))
 
-// 非受控：组件自持状态，无需外部变量
+// Uncontrolled: the component keeps its own state.
 Switch::new("wifi").default_checked(true)
 ```
 
-## 主题
+## Theming
 
-5 套主题，来自 Fluent 官方 token：
+Five themes, generated from the official Fluent design tokens:
 
 ```rust
 FluentTheme::web_light().install(cx);
@@ -78,45 +80,49 @@ FluentTheme::teams_dark().install(cx);
 FluentTheme::high_contrast().install(cx);
 ```
 
-也可以跟随系统外观：`FluentTheme::follow_system(window)`。
+To follow the operating system appearance instead: `FluentTheme::follow_system(window)`.
 
-## 架构
+## Architecture
 
 ```
-fluent-tokens    Fluent 设计 token（5 套主题 × 459 个），由脚本从官方数据生成
-fluent-theme     FluentTheme：token + 品牌色 + 字体，投影到 gpui_base::Theme
-fluent-icons     Fluent System Icons 的静态 SVG 数据（零 GPUI 依赖）
-fluent-core      与 GPUI 的快照兼容层 + 纯函数样式解析（spec）
-fluent-components 组件实现
-fluent-ui        对外门面
+fluent-tokens     Fluent design tokens (5 themes × 459), generated from the official data
+fluent-theme      FluentTheme: tokens + brand ramp + fonts, projected onto gpui_base::Theme
+fluent-icons      Fluent System Icons as static SVG data (no GPUI dependency)
+fluent-core       GPUI snapshot compatibility layer + pure-function style resolution (spec)
+fluent-components Component implementations
+fluent-ui         Public facade
 ```
 
-**样式是纯函数**：`spec::<component>::resolve(&FluentTheme, &Props) -> Spec`，不依赖渲染即可单测。组件只负责把 `Spec` 画出来。这样"视觉是否正确"可以在没有窗口的情况下用单元测试锁定。
+**Styling is a pure function.** `spec::<component>::resolve(&FluentTheme, &Props) -> Spec` needs no window, so visual decisions are unit-testable. Components only paint the `Spec` they are given, which lets "is this correct?" be pinned down without rendering anything.
 
-**视觉优先级**：当 Fluent UI React v9 的 CSS 常量与 Fluent 2 的实际渲染效果冲突时，以**渲染效果**为准（见 `plan/01-decisions.md` ADR-0002 补充）。Switch 滑块、Radio 圆点都是按截图量像素校正的。
+**Rendered output outranks CSS constants.** When the CSS values in Fluent UI React v9 disagree with what Fluent 2 actually renders, the rendering wins (see the ADR-0002 addendum in `plan/01-decisions.md`). The switch thumb and the radio dot were both corrected against measured pixels.
 
-## 已知限制
+GPUI is pinned to an exact snapshot (`gpui-pre = 0.3.10`); a caret requirement would drift onto an incompatible API.
 
-- `Spinner`、`ProgressBar` 的不定态尚未实现（需要旋转/循环动画）
-- `Avatar` 只渲染首字母，无图片与状态徽标
-- Checkbox / Radio / Switch 的 hover / pressed 状态色已在 spec 中解析，但尚未接线
-- 不支持 RTL 布局、`letter_spacing`、CSS `outline`
-- 无 live region / 屏幕阅读器主动播报
-- 高对比度需要手动切主题，未做系统级自动检测
-- 输入法（IME）组合输入尚未测试
+## Known limitations
 
-## 开发
+- `Spinner` and the indeterminate `ProgressBar` are not implemented — both need looping animation
+- `Avatar` renders initials only; no images, no status badge
+- Hover states are wired for Checkbox / Radio / Switch; pressed states are not yet
+- No RTL support, no letter-spacing control, no CSS `outline`
+- No live regions; nothing is announced to screen readers on change
+- High contrast has to be selected manually; there is no system-level auto-detection
+- IME composition has not been tested
+
+## Development
 
 ```bash
-cargo test --workspace          # 单元测试
-cargo xtask gen-tokens --check  # token 生成物是否最新
-cargo xtask gen-icons --check   # 图标生成物是否最新
-cargo xtask tasks --check       # 任务索引是否最新
-cargo deny --offline check      # 依赖许可与安全审计
-cargo test -p fluent-gallery --features screenshot --test baselines   # 像素基线比对
-FLUENT_GALLERY_SECTION=buttons cargo run -p fluent-gallery   # 单组件预览
+cargo test --workspace          # unit tests
+cargo xtask gen-tokens --check  # generated tokens are up to date
+cargo xtask gen-icons --check   # generated icons are up to date
+cargo xtask tasks --check       # task index is up to date
+cargo deny --offline check      # licence and security audit
+cargo test -p fluent-gallery --features screenshot --test baselines   # pixel baselines
+FLUENT_GALLERY_SECTION=buttons cargo run -p fluent-gallery            # single component preview
 ```
 
-## 许可
+Pixel baselines need the `screenshot` feature and a GPU surface, so they currently run locally only. After an intentional visual change, regenerate them with `FLUENT_BASELINE_UPDATE=1` and review the image diff.
+
+## License
 
 Apache-2.0
