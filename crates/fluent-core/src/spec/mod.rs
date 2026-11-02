@@ -7,6 +7,7 @@
 pub mod button;
 pub mod field;
 pub mod input;
+pub mod misc;
 pub mod selection;
 pub mod switch;
 pub mod textarea;

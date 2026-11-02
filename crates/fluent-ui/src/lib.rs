@@ -18,11 +18,12 @@
 //! `Cargo.toml`: two different gpui crates have incompatible types.
 
 pub use fluent_components::{
-    Button, Checkbox, Field, FluentIcon, FluentRoot, Icon, IconStyle, InputAppearance, Label,
-    Radio, Switch, TextInput, Textarea, TextareaAppearance, ValidationMessage,
+    Button, Checkbox, Divider, Field, FluentIcon, FluentRoot, Icon, IconStyle, InputAppearance,
+    Label, Link, Radio, Switch, TextInput, Textarea, TextareaAppearance, ValidationMessage,
 };
 pub use fluent_core::spec::ControlSize;
 pub use fluent_core::spec::button::{ButtonAppearance, ButtonShape, IconPosition};
+pub use fluent_core::spec::misc::{DividerAppearance, LinkAppearance};
 pub use fluent_theme::{Appearance, FluentTheme, FontMode};
 pub use fluent_tokens::Tokens;
 pub use gpui;

@@ -13,9 +13,9 @@ use fluent_ui::gpui::{
 use fluent_ui::gpui_base::input::{InputState, TextareaState};
 use fluent_ui::prelude::*;
 use fluent_ui::{
-    Appearance, Button, ButtonAppearance, ButtonShape, Checkbox, ControlSize, Field, FluentIcon,
-    FluentRoot, FluentTheme, FontMode, InputAppearance, Radio, Switch, TextInput, Textarea,
-    TextareaAppearance, ValidationMessage,
+    Appearance, Button, ButtonAppearance, ButtonShape, Checkbox, ControlSize, Divider, Field,
+    FluentIcon, FluentRoot, FluentTheme, FontMode, InputAppearance, Link, Radio, Switch, TextInput,
+    Textarea, TextareaAppearance, ValidationMessage,
 };
 
 const APPEARANCES: [ButtonAppearance; 5] = [
@@ -575,6 +575,30 @@ impl Render for Gallery {
                     .label("Disabled switch"),
             );
 
+        let misc_section = div()
+            .flex()
+            .flex_col()
+            .gap(px(12.))
+            .p(px(16.))
+            .child(
+                div()
+                    .flex()
+                    .gap(px(16.))
+                    .child(Link::new("link-1", "Default link"))
+                    .child(
+                        Link::new("link-2", "Subtle link")
+                            .appearance(fluent_ui::LinkAppearance::Subtle),
+                    )
+                    .child(Link::new("link-3", "Disabled link").disabled(true)),
+            )
+            .child(Divider::new())
+            .child(
+                Divider::new()
+                    .appearance(fluent_ui::DividerAppearance::Brand)
+                    .inset(px(24.)),
+            )
+            .child(Divider::new().appearance(fluent_ui::DividerAppearance::Subtle));
+
         // `FLUENT_GALLERY_SECTION` narrows the gallery to one section; useful for
         // screenshots and pixel baselines that would otherwise be below the fold.
         let want = |name: &str| match std::env::var("FLUENT_GALLERY_SECTION") {
@@ -599,6 +623,9 @@ impl Render for Gallery {
         }
         if want("switch") {
             sections.push(switch_section.into_any_element());
+        }
+        if want("misc") {
+            sections.push(misc_section.into_any_element());
         }
         FluentRoot::new().flex().flex_col().child(header).child(
             div()
