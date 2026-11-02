@@ -8,6 +8,7 @@ pub mod button;
 pub mod feedback;
 pub mod field;
 pub mod input;
+pub mod menu;
 pub mod misc;
 pub mod motion;
 pub mod selection;
