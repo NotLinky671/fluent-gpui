@@ -1,12 +1,9 @@
 //! Fluent 2 `Popover`.
 //!
-//! The panel is painted with `deferred(anchored(..))`: `anchored` interprets its
-//! position in **window** coordinates and `deferred` lifts the element out of any
-//! scrolling ancestor, so the position and the paint space agree. gpui-base's
-//! `Popup` mixes the two — a window-space anchor painted through the scroll
-//! transform — which made the panel drift against its trigger while scrolling.
-//!
-//! This is the same primitive gpui-component's menus use.
+//! The trigger publishes its window-space bounds during prepaint. A deferred
+//! positioner reads those bounds later in the **same frame**, placing the panel
+//! above the normal tree without inheriting its clipping. Reading the anchor in
+//! `render` instead would make the panel lag behind its trigger during scrolling.
 
 use fluent_core::gpui_compat::StyledExt as _;
 use fluent_core::gpui_compat::{
@@ -16,7 +13,126 @@ use fluent_core::gpui_compat::{
 use fluent_core::spec::feedback;
 use fluent_theme::FluentTheme;
 use gpui::prelude::FluentBuilder as _;
-use gpui::{Bounds, Edges, Pixels, anchored, deferred, point};
+use gpui::{
+    Bounds, Display, Element, GlobalElementId, InspectorElementId, LayoutId, Pixels, Point,
+    Position, Size, Style, deferred, point,
+};
+use std::{cell::Cell, rc::Rc};
+
+/// Shared only by the trigger and its panel for one rendered element tree.
+/// Both callbacks run during prepaint, so no cross-frame state is necessary.
+type TriggerBounds = Rc<Cell<Option<Bounds<Pixels>>>>;
+
+struct PopoverPositioner {
+    trigger_bounds: TriggerBounds,
+    panel: AnyElement,
+}
+
+/// Clamp against the inset viewport from the outset, rather than applying the
+/// margin only after crossing the window edge (which introduces an 8px jump).
+fn panel_origin(
+    trigger: Bounds<Pixels>,
+    panel_size: Size<Pixels>,
+    viewport: Size<Pixels>,
+    margin: Pixels,
+) -> Point<Pixels> {
+    let fit = |desired: Pixels, panel: Pixels, viewport: Pixels| {
+        desired.clamp(margin, (viewport - panel - margin).max(margin))
+    };
+    point(
+        fit(trigger.left(), panel_size.width, viewport.width),
+        fit(
+            trigger.bottom() + px(4.),
+            panel_size.height,
+            viewport.height,
+        ),
+    )
+}
+
+impl IntoElement for PopoverPositioner {
+    type Element = Self;
+
+    fn into_element(self) -> Self::Element {
+        self
+    }
+}
+
+impl Element for PopoverPositioner {
+    type RequestLayoutState = LayoutId;
+    type PrepaintState = bool;
+
+    fn id(&self) -> Option<ElementId> {
+        None
+    }
+
+    fn source_location(&self) -> Option<&'static core::panic::Location<'static>> {
+        None
+    }
+
+    fn request_layout(
+        &mut self,
+        _id: Option<&GlobalElementId>,
+        _inspector_id: Option<&InspectorElementId>,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> (LayoutId, LayoutId) {
+        let panel_layout = self.panel.request_layout(window, cx);
+        let layout = window.request_layout(
+            Style {
+                position: Position::Absolute,
+                display: Display::Flex,
+                ..Style::default()
+            },
+            [panel_layout],
+            cx,
+        );
+        (layout, panel_layout)
+    }
+
+    fn prepaint(
+        &mut self,
+        _id: Option<&GlobalElementId>,
+        _inspector_id: Option<&InspectorElementId>,
+        _bounds: Bounds<Pixels>,
+        panel_layout: &mut LayoutId,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> bool {
+        // Deferred prepaint runs after the trigger's measurement callback. Do
+        // not capture a copy of these bounds in render/request_layout.
+        let Some(trigger) = self.trigger_bounds.get() else {
+            return false;
+        };
+        let panel = window.layout_bounds(*panel_layout);
+        let origin = panel_origin(
+            trigger,
+            panel.size,
+            window.viewport_size(),
+            px(8.) + window.client_inset().unwrap_or_default(),
+        );
+        // layout_bounds includes the pixel-snapped ancestor scroll offset.
+        // Replace that offset, preserving GPUI's physical-pixel snapping rather
+        // than rounding a relative displacement to whole logical pixels.
+        let offset = window.pixel_snap_point(window.element_offset()) + origin - panel.origin;
+        window.with_absolute_element_offset(offset, |window| self.panel.prepaint(window, cx));
+        true
+    }
+
+    fn paint(
+        &mut self,
+        _id: Option<&GlobalElementId>,
+        _inspector_id: Option<&InspectorElementId>,
+        _bounds: Bounds<Pixels>,
+        _panel_layout: &mut LayoutId,
+        positioned: &mut bool,
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        if *positioned {
+            self.panel.paint(window, cx);
+        }
+    }
+}
 
 /// Called with the new open state whenever the popover shows or hides.
 pub type OpenChangeHandler = Box<dyn Fn(bool, &mut Window, &mut App) + 'static>;
@@ -99,15 +215,7 @@ impl RenderOnce for Popover {
         let is_open = self.open.unwrap_or_else(|| *store.read(cx));
         let controlled = self.open.is_some();
 
-        // The trigger's window-space bounds. Kept in window keyed state, not in
-        // an Rc: a cell rebuilt每 render would lose the value the prepaint wrote
-        // and the panel would stay at the default origin.
-        let trigger_bounds = window.use_keyed_state(
-            SharedString::from(format!("popover-anchor-{:?}", self.id)),
-            cx,
-            |_, _| None::<Bounds<Pixels>>,
-        );
-        let anchor_bounds = *trigger_bounds.read(cx);
+        let trigger_bounds = TriggerBounds::default();
 
         let trigger = self.trigger.map(|trigger| trigger.into_any_element());
         let content = self.content;
@@ -117,22 +225,8 @@ impl RenderOnce for Popover {
         let anchor = div()
             .on_children_prepainted({
                 let trigger_bounds = trigger_bounds.clone();
-                move |children, window, cx| {
-                    let Some(child) = children.first() else {
-                        return;
-                    };
-                    let mut changed = false;
-                    trigger_bounds.update(cx, |bounds, _| {
-                        if *bounds != Some(*child) {
-                            *bounds = Some(*child);
-                            changed = true;
-                        }
-                    });
-                    // Notify from prepaint rebuilds the tree mid-frame; asking for
-                    // the next frame instead keeps the update between frames.
-                    if changed {
-                        window.request_animation_frame();
-                    }
+                move |children, _, _| {
+                    trigger_bounds.set(children.first().copied());
                 }
             })
             .child(
@@ -156,20 +250,6 @@ impl RenderOnce for Popover {
                     .when_some(trigger, |el, trigger| el.child(trigger)),
             );
 
-        if std::env::var_os("FLUENT_POPOVER_DEBUG").is_some() {
-            use std::io::Write as _;
-            if let Ok(mut file) = std::fs::OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open("target/popover-debug.log")
-            {
-                let bounds = anchor_bounds
-                    .map(|b| format!("{b:?}"))
-                    .unwrap_or_else(|| "none".into());
-                let _ = writeln!(file, "popover open={} bounds={}", is_open, bounds);
-            }
-        }
-
         div()
             .child(anchor)
             .when(is_open, |el| {
@@ -184,26 +264,14 @@ impl RenderOnce for Popover {
                 if let Some(content) = content {
                     panel = panel.child(content);
                 }
-                let origin = anchor_bounds
-                    .map(|bounds: Bounds<Pixels>| {
-                        point(
-                            bounds.origin.x,
-                            bounds.origin.y + bounds.size.height + px(4.),
-                        )
-                    })
-                    .unwrap_or_default();
-                // Default fit mode is SwitchAnchor: when the panel would not fit, the
-                // anchor corner switches and the panel jumps to the opposite side. While a
-                // scroll walks the trigger past that boundary it flips back and forth —
-                // which is the visible jitter. Snapping keeps it on its side and slides it
-                // into the window instead.
-                el.child(deferred(
-                    anchored()
-                        .position(origin)
-                        .snap_to_window_with_margin(Edges::all(px(8.)))
-                        .child(panel),
-                ))
+                el.child(deferred(PopoverPositioner {
+                    trigger_bounds,
+                    panel: panel.into_any_element(),
+                }))
             })
             .refine_style(&style)
     }
 }
+
+#[cfg(test)]
+mod tests;
