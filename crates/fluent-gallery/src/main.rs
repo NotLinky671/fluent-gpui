@@ -57,6 +57,7 @@ struct Gallery {
     radio_choice: usize,
     switch_a: bool,
     switch_b: bool,
+    switch_small: bool,
     /// Keeps the OS appearance observer alive for the window's lifetime.
     _appearance_sub: Option<Subscription>,
 }
@@ -100,6 +101,7 @@ impl Gallery {
             radio_choice: 1,
             switch_a: true,
             switch_b: false,
+            switch_small: true,
             _appearance_sub: sub,
         }
     }
@@ -565,8 +567,12 @@ impl Render for Gallery {
             .child(
                 Switch::new("sw-small")
                     .size(ControlSize::Small)
-                    .checked(true)
-                    .label("Small switch"),
+                    .checked(self.switch_small)
+                    .label("Small switch")
+                    .on_change(cx.listener(|this, value, _, cx| {
+                        this.switch_small = *value;
+                        cx.notify();
+                    })),
             )
             .child(
                 Switch::new("sw-disabled")
