@@ -36,6 +36,7 @@ pub struct Button {
     children: Vec<AnyElement>,
     style: StyleRefinement,
     icon: Option<FluentIcon>,
+    tooltip: Option<SharedString>,
     on_click: Option<ClickHandler>,
     a11y_label: Option<SharedString>,
     theme: Option<FluentTheme>,
@@ -51,6 +52,7 @@ impl Button {
             children: Vec::new(),
             style: StyleRefinement::default(),
             icon: None,
+            tooltip: None,
             on_click: None,
             a11y_label: None,
             theme: None,
@@ -79,6 +81,12 @@ impl Button {
     /// `disabled_focusable` lands (T-020).
     pub fn disabled(mut self, disabled: bool) -> Self {
         self.props.disabled = disabled;
+        self
+    }
+
+    /// Shows a Fluent tooltip while the button is hovered.
+    pub fn tooltip(mut self, text: impl Into<SharedString>) -> Self {
+        self.tooltip = Some(text.into());
         self
     }
 
@@ -214,6 +222,9 @@ impl RenderOnce for Button {
 
         if let Some(label) = self.a11y_label {
             el = el.accessibility_label(label);
+        }
+        if let Some(text) = self.tooltip {
+            el = el.tooltip(crate::feedback::tooltip(text));
         }
         if let Some(handler) = self.on_click {
             el = el.on_click(handler);
