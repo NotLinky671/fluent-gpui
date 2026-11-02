@@ -141,24 +141,37 @@ impl RenderOnce for Switch {
             (_, true) => spec.hover_thumb,
             _ => spec.thumb,
         };
-        let track_bg = crate::motion::state_color(
+        let track_bg = crate::motion::color(
             SharedString::from(format!("switch-track-bg-{:?}", self.id)),
             target_track_bg,
+            fluent_core::spec::motion::motion_policy(),
             window,
             cx,
         );
-        let track_border = crate::motion::state_color(
+        let track_border = crate::motion::color(
             SharedString::from(format!("switch-track-border-{:?}", self.id)),
             target_track_border,
+            fluent_core::spec::motion::motion_policy(),
             window,
             cx,
         );
-        let thumb_color = crate::motion::state_color(
+        let thumb_color = crate::motion::color(
             SharedString::from(format!("switch-thumb-{:?}", self.id)),
             target_thumb,
+            fluent_core::spec::motion::motion_policy(),
             window,
             cx,
         );
+        // The thumb slides rather than jumping; Fluent runs this over 200 ms,
+        // the same window as the track colours.
+        let thumb_left = crate::motion::length(
+            SharedString::from(format!("switch-thumb-x-{:?}", self.id)),
+            if checked { spec.thumb_offset } else { px(3.) },
+            fluent_core::spec::motion::motion_policy(),
+            window,
+            cx,
+        );
+
         let track = div()
             .flex_shrink_0()
             .w(spec.track_width)
@@ -169,7 +182,7 @@ impl RenderOnce for Switch {
             .bg(track_bg)
             .flex()
             .items_center()
-            .pl(if checked { spec.thumb_offset } else { px(3.) })
+            .pl(thumb_left)
             .child(
                 div()
                     .flex_shrink_0()

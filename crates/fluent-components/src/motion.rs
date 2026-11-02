@@ -5,7 +5,7 @@
 //! so [`gpui_base::motion::transition`] can drive it frame by frame (and honour
 //! the system reduce-motion setting for us).
 
-use fluent_core::gpui_compat::{App, Hsla, Window};
+use fluent_core::gpui_compat::{App, Hsla, Pixels, Window};
 use fluent_core::spec::motion as spec;
 use gpui_base::motion::{Interpolate, Transition, TransitionId, transition};
 
@@ -41,4 +41,39 @@ pub fn state_color(
     cx: &mut App,
 ) -> Hsla {
     color(id, target, spec::state_policy(), window, cx)
+}
+/// A length that can be animated by GPUI.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct AnimPixels(pub Pixels);
+
+impl Interpolate for AnimPixels {
+    fn interpolate(&self, target: &Self, progress: f32) -> Self {
+        Self(self.0 + (target.0 - self.0) * progress)
+    }
+}
+
+/// Animates a length toward `target`, returning the value to lay out this frame.
+pub fn length(
+    id: impl Into<TransitionId>,
+    target: Pixels,
+    policy: Transition,
+    window: &mut Window,
+    cx: &mut App,
+) -> Pixels {
+    transition(id, AnimPixels(target), policy, window, cx).0
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use fluent_core::gpui_compat::px;
+
+    #[test]
+    fn lengths_interpolate_linearly() {
+        let from = AnimPixels(px(4.));
+        let to = AnimPixels(px(24.));
+        assert_eq!(from.interpolate(&to, 0.0), from);
+        assert_eq!(from.interpolate(&to, 1.0), to);
+        assert_eq!(from.interpolate(&to, 0.5), AnimPixels(px(14.)));
+    }
 }
