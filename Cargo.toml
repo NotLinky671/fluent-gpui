@@ -6,7 +6,7 @@ members = ["crates/*", "xtask"]
 version = "0.1.0"
 edition = "2024"
 license = "Apache-2.0"
-repository = "https://github.com/fluent-gpui/fluent-gpui"
+repository = "https://github.com/NotLinky671/fluent-gpui"
 
 [workspace.dependencies]
 # GPUI stack — exact pins, see plan/01-decisions.md ADR-0001.
