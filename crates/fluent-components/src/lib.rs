@@ -4,6 +4,7 @@
 //! every color, radius and size comes from `fluent_core::spec`.
 
 pub mod button;
+pub mod feedback;
 pub mod field;
 pub mod icon;
 pub mod input;
@@ -14,6 +15,7 @@ pub mod switch;
 pub mod textarea;
 
 pub use button::Button;
+pub use feedback::{Avatar, Badge, ProgressBar};
 pub use field::{Field, Label, ValidationMessage};
 pub use fluent_core::spec::ControlSize;
 pub use fluent_core::spec::button::{ButtonAppearance, ButtonShape, IconPosition};

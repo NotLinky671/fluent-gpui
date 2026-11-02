@@ -13,8 +13,9 @@ use fluent_ui::gpui::{
 use fluent_ui::gpui_base::input::{InputState, TextareaState};
 use fluent_ui::prelude::*;
 use fluent_ui::{
-    Appearance, Button, ButtonAppearance, ButtonShape, Checkbox, ControlSize, Divider, Field,
-    FluentIcon, FluentRoot, FluentTheme, FontMode, InputAppearance, Link, Radio, Switch, TextInput,
+    Appearance, Avatar, AvatarSize, Badge, BadgeAppearance, BadgeSize, Button, ButtonAppearance,
+    ButtonShape, Checkbox, ControlSize, Divider, Field, FluentIcon, FluentRoot, FluentTheme,
+    FontMode, InputAppearance, Link, ProgressAppearance, ProgressBar, Radio, Switch, TextInput,
     Textarea, TextareaAppearance, ValidationMessage,
 };
 
@@ -595,6 +596,45 @@ impl Render for Gallery {
             )
             .child(Divider::new().appearance(fluent_ui::DividerAppearance::Subtle));
 
+        let feedback_section = div()
+            .flex()
+            .flex_col()
+            .gap(px(16.))
+            .p(px(16.))
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(8.))
+                    .child(Badge::new("Brand"))
+                    .child(Badge::new("Danger").appearance(BadgeAppearance::Danger))
+                    .child(Badge::new("Success").appearance(BadgeAppearance::Success))
+                    .child(Badge::new("Warning").appearance(BadgeAppearance::Warning))
+                    .child(Badge::new("12").size(BadgeSize::Large))
+                    .child(Badge::dot().appearance(BadgeAppearance::Danger)),
+            )
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(8.))
+                    .w(px(320.))
+                    .child(ProgressBar::new(25.))
+                    .child(ProgressBar::new(60.))
+                    .child(ProgressBar::new(100.).appearance(ProgressAppearance::Success))
+                    .child(ProgressBar::new(40.).appearance(ProgressAppearance::Error)),
+            )
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(8.))
+                    .child(Avatar::new("Ada Lovelace").size(AvatarSize::Small))
+                    .child(Avatar::new("Grace Hopper"))
+                    .child(Avatar::new("Alan Turing").size(AvatarSize::Large))
+                    .child(Avatar::new("Katherine Johnson").size(AvatarSize::ExtraLarge)),
+            );
+
         // `FLUENT_GALLERY_SECTION` narrows the gallery to one section; useful for
         // screenshots and pixel baselines that would otherwise be below the fold.
         let want = |name: &str| match std::env::var("FLUENT_GALLERY_SECTION") {
@@ -622,6 +662,9 @@ impl Render for Gallery {
         }
         if want("misc") {
             sections.push(misc_section.into_any_element());
+        }
+        if want("feedback") {
+            sections.push(feedback_section.into_any_element());
         }
         FluentRoot::new().flex().flex_col().child(header).child(
             div()
