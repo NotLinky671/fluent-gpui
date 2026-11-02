@@ -237,14 +237,31 @@ impl RenderOnce for TextInput {
                 window,
                 cx,
             );
+            // Fluent draws this as a 2px bottom border on an element as tall as
+            // the corner radius, then clips everything but the border away. A
+            // filled bar with only its bottom corners rounded is the same shape
+            // without the trimming step.
+            // The outer strip is the field's border box grown by the 1px border,
+            // matching Fluent's `left/right/bottom: -1px`. The inner bar keeps the
+            // animated insets, which are fractions of the strip.
             root = root.child(
                 div()
                     .absolute()
-                    .left(relative(inset))
-                    .right(relative(inset))
-                    .bottom(px(0.))
+                    .left(px(-1.))
+                    .right(px(-1.))
+                    .bottom(px(-1.))
                     .h(m.underline_height)
-                    .bg(underline),
+                    .child(
+                        div()
+                            .absolute()
+                            .left(relative(inset))
+                            .right(relative(inset))
+                            .top(px(0.))
+                            .bottom(px(0.))
+                            .rounded_bl(m.radius)
+                            .rounded_br(m.radius)
+                            .bg(underline),
+                    ),
             );
         }
 
