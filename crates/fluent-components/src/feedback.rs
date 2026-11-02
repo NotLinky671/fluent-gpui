@@ -214,6 +214,12 @@ pub struct TooltipView {
     text: SharedString,
 }
 
+impl TooltipView {
+    pub fn new(text: impl Into<SharedString>) -> Self {
+        Self { text: text.into() }
+    }
+}
+
 impl Render for TooltipView {
     fn render(&mut self, _: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
         TooltipSurface::new(self.text.clone())

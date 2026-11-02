@@ -13,9 +13,10 @@ pub mod root;
 pub mod selection;
 pub mod switch;
 pub mod textarea;
+pub mod tooltip;
 
 pub use button::Button;
-pub use feedback::{Avatar, Badge, ProgressBar, TooltipSurface, TooltipView, tooltip};
+pub use feedback::{Avatar, Badge, ProgressBar, TooltipSurface, TooltipView};
 pub use field::{Field, Label, ValidationMessage};
 pub use fluent_core::spec::ControlSize;
 pub use fluent_core::spec::button::{ButtonAppearance, ButtonShape, IconPosition};
@@ -29,3 +30,4 @@ pub use root::FluentRoot;
 pub use selection::{Checkbox, Radio};
 pub use switch::Switch;
 pub use textarea::Textarea;
+pub use tooltip::TooltipService;

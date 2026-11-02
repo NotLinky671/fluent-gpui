@@ -10,6 +10,7 @@ use fluent_core::gpui_compat::{
     px,
 };
 use fluent_theme::FluentTheme;
+use gpui_base::TooltipOverlay;
 
 /// Applies the theme's background, foreground and font family to a subtree.
 ///
@@ -54,9 +55,18 @@ impl ParentElement for FluentRoot {
 }
 
 impl RenderOnce for FluentRoot {
-    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let theme = FluentTheme::global(cx);
         let tokens = theme.tokens();
+
+        // Host the anchored tooltip overlay once per window and publish it so
+        // components can request tooltips with their own trigger bounds.
+        let overlay =
+            window.use_keyed_state("fluent-tooltip-overlay", cx, |_, _| TooltipOverlay::new());
+        cx.set_global(crate::tooltip::TooltipService {
+            overlay: overlay.clone(),
+        });
+
         div()
             .size_full()
             .bg(tokens.color.neutral_background_1)
@@ -65,5 +75,6 @@ impl RenderOnce for FluentRoot {
             .text_size(px(14.))
             .refine_style(&self.style)
             .children(self.children)
+            .child(overlay)
     }
 }

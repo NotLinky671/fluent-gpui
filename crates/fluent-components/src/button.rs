@@ -9,12 +9,13 @@ use fluent_core::gpui_compat::StyledExt as _;
 use fluent_core::gpui_compat::{
     AnyElement, App, BoxShadow, ClickEvent, ElementId, InteractiveElement, IntoElement,
     ParentElement, RenderOnce, SharedString, StatefulInteractiveElement, StyleRefinement, Styled,
-    Window, point, px,
+    Window, div, point, px,
 };
 use fluent_core::spec::ControlSize;
 use fluent_core::spec::button::{self, ButtonAppearance, ButtonProps, ButtonShape, IconPosition};
 use fluent_icons::FluentIcon;
 use fluent_theme::FluentTheme;
+use gpui::AppContext as _;
 
 /// Click handler shape, matching `gpui_base::Button::on_click`.
 pub type ClickHandler = Box<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;
@@ -223,8 +224,37 @@ impl RenderOnce for Button {
         if let Some(label) = self.a11y_label {
             el = el.accessibility_label(label);
         }
+        let mut tooltip_slot: Option<
+            std::rc::Rc<std::cell::Cell<Option<gpui::Bounds<gpui::Pixels>>>>,
+        > = None;
         if let Some(text) = self.tooltip {
-            el = el.tooltip(crate::feedback::tooltip(text));
+            let slot: std::rc::Rc<std::cell::Cell<Option<gpui::Bounds<gpui::Pixels>>>> =
+                std::rc::Rc::new(std::cell::Cell::new(None));
+            let slot_hover = slot.clone();
+            el = el.on_hover(move |hovered, window, cx| {
+                let Some(overlay) = crate::tooltip::overlay(cx) else {
+                    return;
+                };
+                if *hovered {
+                    let Some(bounds) = slot_hover.get() else {
+                        return;
+                    };
+                    let text = text.clone();
+                    overlay.update(cx, |overlay, cx| {
+                        overlay.request_show(
+                            gpui_base::TooltipRequest::new(bounds, move |_, cx| {
+                                cx.new(|_| crate::feedback::TooltipView::new(text.clone()))
+                                    .into()
+                            }),
+                            window,
+                            cx,
+                        );
+                    });
+                } else {
+                    overlay.update(cx, |overlay, cx| overlay.request_hide(window, cx));
+                }
+            });
+            tooltip_slot = Some(slot);
         }
         if let Some(handler) = self.on_click {
             el = el.on_click(handler);
@@ -250,6 +280,16 @@ impl RenderOnce for Button {
             }
         }
 
-        el
+        if let Some(slot) = tooltip_slot {
+            return div()
+                .on_children_prepainted(move |children, _, _| {
+                    if let Some(bounds) = children.first() {
+                        slot.set(Some(*bounds));
+                    }
+                })
+                .child(el)
+                .into_any_element();
+        }
+        el.into_any_element()
     }
 }
