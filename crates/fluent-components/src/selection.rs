@@ -12,16 +12,22 @@ use fluent_icons::FluentIcon;
 use fluent_theme::FluentTheme;
 use gpui::prelude::FluentBuilder as _;
 use gpui_base::Checkbox as BaseCheckbox;
-use gpui_base::{CheckboxState, Radio as BaseRadio};
+use gpui_base::CheckboxState;
+use gpui_base::Radio as BaseRadio;
 
-/// Change handler shared by the selection controls.
+/// Change handler shape shared by the selection controls.
 pub type ChangeHandler = Box<dyn Fn(&bool, &mut Window, &mut App) + 'static>;
 
 /// A Fluent 2 checkbox.
+///
+/// Controlled by default; use [`Checkbox::default_checked`] for an
+/// uncontrolled checkbox that keeps its own state.
 #[derive(IntoElement)]
 pub struct Checkbox {
     id: ElementId,
+    controlled: bool,
     checked: bool,
+    default_checked: bool,
     disabled: bool,
     size: ControlSize,
     label: Option<SharedString>,
@@ -33,7 +39,9 @@ impl Checkbox {
     pub fn new(id: impl Into<ElementId>) -> Self {
         Self {
             id: id.into(),
+            controlled: false,
             checked: false,
+            default_checked: false,
             disabled: false,
             size: ControlSize::Medium,
             label: None,
@@ -42,8 +50,17 @@ impl Checkbox {
         }
     }
 
+    /// Controlled value: the caller owns the state.
     pub fn checked(mut self, checked: bool) -> Self {
+        self.controlled = true;
         self.checked = checked;
+        self
+    }
+
+    /// Uncontrolled initial value: the control keeps its own state.
+    pub fn default_checked(mut self, checked: bool) -> Self {
+        self.controlled = false;
+        self.default_checked = checked;
         self
     }
 
@@ -76,17 +93,27 @@ impl Styled for Checkbox {
 }
 
 impl RenderOnce for Checkbox {
-    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let theme = FluentTheme::global(cx);
+        let store = window.use_keyed_state(
+            SharedString::from(format!("checkbox-state-{:?}", self.id)),
+            cx,
+            |_, _| self.default_checked,
+        );
+        let checked = if self.controlled {
+            self.checked
+        } else {
+            *store.read(cx)
+        };
+
         let spec = selection::checkbox(
             &theme,
             &CheckboxProps {
                 size: self.size,
-                checked: self.checked,
+                checked,
                 disabled: self.disabled,
             },
         );
-        let checked = self.checked;
         let mark = spec.mark;
 
         let indicator = div()
@@ -103,7 +130,6 @@ impl RenderOnce for Checkbox {
                 el.child(Icon::new(FluentIcon::Checkmark).size(px(12.)).color(mark))
             });
 
-        // Fluent lays the indicator and the label out in a row with an 8px gap.
         let content = div()
             .flex()
             .items_center()
@@ -111,18 +137,27 @@ impl RenderOnce for Checkbox {
             .child(indicator)
             .when_some(self.label, |el, label| el.child(label));
 
-        let mut el = BaseCheckbox::new(self.id)
+        let controlled = self.controlled;
+        let handler = self.on_change;
+        let store_for_click = store.clone();
+
+        BaseCheckbox::new(self.id)
             .checked(checked)
             .disabled(self.disabled)
-            .child(content);
-
-        if let Some(handler) = self.on_change {
-            el = el.on_change(move |state, _, window, cx| {
-                let checked = state == CheckboxState::Checked;
-                handler(&checked, window, cx)
-            });
-        }
-        el.refine_style(&self.style)
+            .child(content)
+            .on_change(move |state, _, window, cx| {
+                let value = state == CheckboxState::Checked;
+                if !controlled {
+                    store_for_click.update(cx, |state, cx| {
+                        *state = value;
+                        cx.notify();
+                    });
+                }
+                if let Some(handler) = handler.as_ref() {
+                    handler(&value, window, cx);
+                }
+            })
+            .refine_style(&self.style)
     }
 }
 
@@ -130,7 +165,9 @@ impl RenderOnce for Checkbox {
 #[derive(IntoElement)]
 pub struct Radio {
     id: ElementId,
+    controlled: bool,
     checked: bool,
+    default_checked: bool,
     disabled: bool,
     label: Option<SharedString>,
     on_change: Option<ChangeHandler>,
@@ -141,7 +178,9 @@ impl Radio {
     pub fn new(id: impl Into<ElementId>) -> Self {
         Self {
             id: id.into(),
+            controlled: false,
             checked: false,
+            default_checked: false,
             disabled: false,
             label: None,
             on_change: None,
@@ -149,8 +188,17 @@ impl Radio {
         }
     }
 
+    /// Controlled value: the caller owns the state.
     pub fn checked(mut self, checked: bool) -> Self {
+        self.controlled = true;
         self.checked = checked;
+        self
+    }
+
+    /// Uncontrolled initial value: the control keeps its own state.
+    pub fn default_checked(mut self, checked: bool) -> Self {
+        self.controlled = false;
+        self.default_checked = checked;
         self
     }
 
@@ -177,16 +225,26 @@ impl Styled for Radio {
 }
 
 impl RenderOnce for Radio {
-    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let theme = FluentTheme::global(cx);
+        let store = window.use_keyed_state(
+            SharedString::from(format!("radio-state-{:?}", self.id)),
+            cx,
+            |_, _| self.default_checked,
+        );
+        let checked = if self.controlled {
+            self.checked
+        } else {
+            *store.read(cx)
+        };
+
         let spec = selection::radio(
             &theme,
             &RadioProps {
-                checked: self.checked,
+                checked,
                 disabled: self.disabled,
             },
         );
-        let checked = self.checked;
 
         // Ring painted as an inset overlay: keeping the border out of layout
         // means flex centring puts the dot exactly in the middle.
@@ -225,14 +283,25 @@ impl RenderOnce for Radio {
             .child(indicator)
             .when_some(self.label, |el, label| el.child(label));
 
-        let mut el = BaseRadio::new(self.id)
+        let controlled = self.controlled;
+        let handler = self.on_change;
+        let store_for_click = store.clone();
+
+        BaseRadio::new(self.id)
             .checked(checked)
             .disabled(self.disabled)
-            .child(content);
-
-        if let Some(handler) = self.on_change {
-            el = el.on_change(move |value, _, window, cx| handler(&value, window, cx));
-        }
-        el.refine_style(&self.style)
+            .child(content)
+            .on_change(move |value, _, window, cx| {
+                if !controlled {
+                    store_for_click.update(cx, |state, cx| {
+                        *state = value;
+                        cx.notify();
+                    });
+                }
+                if let Some(handler) = handler.as_ref() {
+                    handler(&value, window, cx);
+                }
+            })
+            .refine_style(&self.style)
     }
 }

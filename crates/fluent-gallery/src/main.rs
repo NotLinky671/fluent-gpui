@@ -53,7 +53,6 @@ struct Gallery {
     inputs: Vec<gpui::Entity<InputState>>,
     textareas: Vec<gpui::Entity<TextareaState>>,
     checkbox_a: bool,
-    checkbox_b: bool,
     radio_choice: usize,
     switch_a: bool,
     switch_b: bool,
@@ -96,7 +95,6 @@ impl Gallery {
             inputs,
             textareas,
             checkbox_a: true,
-            checkbox_b: false,
             radio_choice: 1,
             switch_a: true,
             switch_b: false,
@@ -500,13 +498,10 @@ impl Render for Gallery {
                     })),
             )
             .child(
+                // Uncontrolled: keeps its own state, no caller state needed.
                 Checkbox::new("cb-b")
-                    .checked(self.checkbox_b)
-                    .label("Unchecked by default")
-                    .on_change(cx.listener(|this, value, _, cx| {
-                        this.checkbox_b = *value;
-                        cx.notify();
-                    })),
+                    .default_checked(true)
+                    .label("Uncontrolled (starts checked)"),
             )
             .child(
                 Checkbox::new("cb-c")
