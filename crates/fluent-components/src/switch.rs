@@ -85,18 +85,19 @@ impl RenderOnce for Switch {
         let checked = self.checked;
 
         let track = div()
-            .relative()
+            .flex_shrink_0()
             .w(spec.track_width)
             .h(spec.track_height)
             .rounded(px(10000.))
             .border_1()
             .border_color(spec.track_border)
             .bg(spec.track_bg)
+            .flex()
+            .items_center()
+            .pl(if checked { spec.thumb_offset } else { px(0.) })
             .child(
                 div()
-                    .absolute()
-                    .top(px(1.))
-                    .left(if checked { spec.thumb_offset } else { px(2.) })
+                    .flex_shrink_0()
                     .size(spec.thumb_size)
                     .rounded(px(10000.))
                     .bg(spec.thumb),

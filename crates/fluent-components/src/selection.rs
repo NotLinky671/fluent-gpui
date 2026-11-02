@@ -90,6 +90,7 @@ impl RenderOnce for Checkbox {
         let mark = spec.mark;
 
         let indicator = div()
+            .flex_shrink_0()
             .size(spec.box_size)
             .rounded(spec.radius)
             .border_1()
@@ -187,17 +188,35 @@ impl RenderOnce for Radio {
         );
         let checked = self.checked;
 
+        // Ring painted as an inset overlay: keeping the border out of layout
+        // means flex centring puts the dot exactly in the middle.
         let indicator = div()
+            .relative()
+            .flex_shrink_0()
             .size(spec.circle)
             .rounded(px(10000.))
-            .border_1()
-            .border_color(spec.border)
             .flex()
             .items_center()
             .justify_center()
             .when(checked, |el| {
-                el.child(div().size(spec.dot).rounded(px(10000.)).bg(spec.dot_color))
-            });
+                el.child(
+                    div()
+                        .flex_shrink_0()
+                        .size(spec.dot)
+                        .rounded(px(10000.))
+                        .bg(spec.dot_color),
+                )
+            })
+            .child(
+                div()
+                    .absolute()
+                    .top(px(0.))
+                    .left(px(0.))
+                    .size(spec.circle)
+                    .rounded(px(10000.))
+                    .border_1()
+                    .border_color(spec.border),
+            );
 
         let content = div()
             .flex()
