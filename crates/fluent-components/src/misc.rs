@@ -2,8 +2,9 @@
 
 use fluent_core::gpui_compat::StyledExt as _;
 use fluent_core::gpui_compat::{
-    App, ClickEvent, ElementId, InteractiveElement, IntoElement, ParentElement, Pixels, RenderOnce,
-    Role, SharedString, StatefulInteractiveElement, StyleRefinement, Styled, Window, div, px,
+    App, ClickEvent, ElementId, InteractiveElement, IntoElement, MouseButton, ParentElement,
+    Pixels, RenderOnce, Role, SharedString, StatefulInteractiveElement, StyleRefinement, Styled,
+    Window, div, px,
 };
 use fluent_core::spec::misc::{self, DividerAppearance, LinkAppearance};
 use fluent_theme::FluentTheme;
@@ -131,24 +132,70 @@ impl Styled for Link {
 }
 
 impl RenderOnce for Link {
-    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let theme = FluentTheme::global(cx);
         let spec = misc::link(&theme, self.appearance, self.disabled);
+
+        // Hover and press ease over the same 100 ms as every other control.
+        let hover_state = window.use_keyed_state(
+            SharedString::from(format!("link-hovered-{:?}", self.id)),
+            cx,
+            |_, _| false,
+        );
+        let press_state = window.use_keyed_state(
+            SharedString::from(format!("link-pressed-{:?}", self.id)),
+            cx,
+            |_, _| false,
+        );
+        let hovered = *hover_state.read(cx) && !self.disabled;
+        let is_pressed = *press_state.read(cx) && !self.disabled;
+        let target = if is_pressed {
+            spec.pressed_color
+        } else if hovered {
+            spec.hover_color
+        } else {
+            spec.color
+        };
+        let color = crate::motion::state_color(
+            SharedString::from(format!("link-color-{:?}", self.id)),
+            target,
+            window,
+            cx,
+        );
 
         let mut el = div()
             .id(self.id)
             .role(Role::Link)
             .text_size(spec.font_size)
             .line_height(spec.line_height)
-            .text_color(spec.color)
+            .text_color(color)
             .child(self.text)
             .refine_style(&self.style);
 
         if !self.disabled {
-            el = el
-                .cursor_pointer()
-                .hover(move |s| s.text_color(spec.hover_color))
-                .active(move |s| s.text_color(spec.pressed_color));
+            let hover_listener = hover_state.clone();
+            el = el.cursor_pointer().on_hover(move |is_hovered, _, cx| {
+                hover_listener.update(cx, |state, cx| {
+                    if *state != *is_hovered {
+                        *state = *is_hovered;
+                        cx.notify();
+                    }
+                });
+            });
+            let press_down = press_state.clone();
+            el = el.on_mouse_down(MouseButton::Left, move |_, _, cx| {
+                press_down.update(cx, |state, cx| {
+                    *state = true;
+                    cx.notify();
+                });
+            });
+            let press_up = press_state.clone();
+            el = el.on_mouse_up(MouseButton::Left, move |_, _, cx| {
+                press_up.update(cx, |state, cx| {
+                    *state = false;
+                    cx.notify();
+                });
+            });
         }
         if let Some(handler) = self.on_click {
             el = el.on_click(handler);
