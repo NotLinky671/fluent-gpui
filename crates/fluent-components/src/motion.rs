@@ -77,3 +77,27 @@ mod tests {
         assert_eq!(from.interpolate(&to, 0.5), AnimPixels(px(14.)));
     }
 }
+/// A fraction of the parent's size, animatable by GPUI.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct AnimFraction(pub f32);
+
+impl Interpolate for AnimFraction {
+    fn interpolate(&self, target: &Self, progress: f32) -> Self {
+        Self(self.0 + (target.0 - self.0) * progress)
+    }
+}
+
+/// Animates a parent-relative fraction.
+///
+/// Used for geometry that has to scale about its own centre without knowing the
+/// pixel size in advance: the input's focus underline insets from 0.5 to 0, which
+/// is a horizontal collapse from the middle, exactly like Fluent's `scaleX`.
+pub fn fraction(
+    id: impl Into<TransitionId>,
+    target: f32,
+    policy: Transition,
+    window: &mut Window,
+    cx: &mut App,
+) -> f32 {
+    transition(id, AnimFraction(target), policy, window, cx).0
+}

@@ -15,6 +15,9 @@ use std::time::Duration;
 use crate::gpui_compat::Hsla;
 use gpui_base::motion::{Easing, Transition};
 
+/// The focus underline retracting, per Fluent's input styles.
+pub const DURATION_ULTRA_FAST: Duration = Duration::from_millis(50);
+
 /// State-change colours: hover, pressed and selected.
 pub const DURATION_FASTER: Duration = Duration::from_millis(100);
 
@@ -42,6 +45,21 @@ pub fn state_policy() -> Transition {
 /// The policy for a moving part (switch thumb, tab indicator).
 pub fn motion_policy() -> Transition {
     Transition::new(DURATION_NORMAL).easing(curve_easy_ease())
+}
+
+/// Fluent's `curveAccelerateMid`: slow start, quick exit.
+pub fn curve_accelerate() -> Easing {
+    Easing::cubic_bezier(1.0, 0.0, 1.0, 1.0).expect("curveAccelerateMid is a valid bezier")
+}
+
+/// A focus indicator growing in: 200 ms, decelerating.
+pub fn reveal_policy() -> Transition {
+    Transition::new(DURATION_NORMAL).easing(curve_decelerate())
+}
+
+/// A focus indicator retracting: Fluent uses the faster duration here.
+pub fn hide_policy() -> Transition {
+    Transition::new(DURATION_ULTRA_FAST).easing(curve_accelerate())
 }
 
 /// Mixes two colours, taking the short way around the hue circle.
@@ -116,7 +134,7 @@ mod tests {
 
     #[test]
     fn curves_are_anchored_at_both_ends() {
-        for easing in [curve_easy_ease(), curve_decelerate()] {
+        for easing in [curve_easy_ease(), curve_decelerate(), curve_accelerate()] {
             assert!(easing.sample(0.0).abs() < 1e-3);
             assert!((easing.sample(1.0) - 1.0).abs() < 1e-3);
         }
@@ -127,6 +145,8 @@ mod tests {
         assert_eq!(DURATION_FASTER, Duration::from_millis(100));
         assert_eq!(DURATION_NORMAL, Duration::from_millis(200));
         assert_eq!(DURATION_SLOW, Duration::from_millis(300));
+        assert_eq!(DURATION_ULTRA_FAST, Duration::from_millis(50));
+        assert!(DURATION_ULTRA_FAST < DURATION_FASTER);
         assert!(DURATION_FASTER < DURATION_NORMAL && DURATION_NORMAL < DURATION_SLOW);
     }
 }
