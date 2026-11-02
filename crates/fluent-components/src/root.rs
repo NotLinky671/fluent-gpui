@@ -4,6 +4,7 @@
 //! surface colour, foreground and UI font once, at the top of its tree.
 //! [`FluentRoot`] does exactly that and nothing else.
 
+use fluent_core::gpui_compat::InteractiveElement as _;
 use fluent_core::gpui_compat::StyledExt as _;
 use fluent_core::gpui_compat::{
     AnyElement, App, IntoElement, ParentElement, RenderOnce, StyleRefinement, Styled, Window, div,
@@ -73,6 +74,12 @@ impl RenderOnce for FluentRoot {
             .text_color(tokens.color.neutral_foreground_1)
             .font_family(theme.font_family().clone())
             .text_size(px(14.))
+            // Tab order: gpui-base binds tab to its own Root context, which only
+            // fires under its own root view. Carrying this context here is what
+            // lets the binding reach controls mounted under FluentRoot.
+            .key_context(crate::ROOT_KEY_CONTEXT)
+            .on_action(|_: &crate::FocusNext, window, cx| window.focus_next(cx))
+            .on_action(|_: &crate::FocusPrev, window, cx| window.focus_prev(cx))
             .refine_style(&self.style)
             .children(self.children)
             .child(overlay)

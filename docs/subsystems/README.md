@@ -74,6 +74,11 @@ cargo test -p fluent-components --lib motion --locked
 先读[浮层专题](overlays.md)，区分 Button 的根级 Tooltip overlay、通用原生 tooltip 助手及自研 Popover。不要因为名称相似就假设它们共用定位、事件或焦点机制。
 菜单面板的视觉与点击实现见 [Menu](../../crates/fluent-components/src/menu.rs)；它不等于完整菜单触发、键盘导航或嵌套浮层协议。
 
+## 焦点
+
+先读[焦点专题](focus.md)，区分“组件自己清焦点”与“Tab 遍历”，两者都不是 GPUI 自动提供的。
+点击别处失焦由 `TextInput` / `Textarea` 各自接线；Tab 顺序由 `FluentRoot` 的 key context 加 `FocusNext` / `FocusPrev` 承担，不复用 gpui-base 私有的 `Root` context。
+
 ## Gallery 与视觉验证
 
 - **阅读顺序**：[Gallery 启动与环境开关](../../crates/fluent-gallery/src/main.rs) → [组件夹具](../../crates/fluent-gallery/src/fixtures.rs) → [screenshot feature](../../crates/fluent-gallery/Cargo.toml) → [像素测试](../../crates/fluent-gallery/tests/baselines.rs) → [CI 配置](../../.github/workflows/ci.yml)。

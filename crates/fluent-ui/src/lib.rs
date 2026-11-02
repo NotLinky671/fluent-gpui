@@ -65,4 +65,18 @@ pub fn init(cx: &mut gpui::App) {
         fluent_components::Dismiss,
         Some(fluent_components::OVERLAY_KEY_CONTEXT),
     )]);
+    // Tab order inside `FluentRoot`. gpui-base's own binding is scoped to its
+    // private root context, so it never fires under a Fluent application.
+    cx.bind_keys([
+        gpui::KeyBinding::new(
+            "tab",
+            fluent_components::FocusNext,
+            Some(fluent_components::ROOT_KEY_CONTEXT),
+        ),
+        gpui::KeyBinding::new(
+            "shift-tab",
+            fluent_components::FocusPrev,
+            Some(fluent_components::ROOT_KEY_CONTEXT),
+        ),
+    ]);
 }

@@ -13,7 +13,7 @@ This table describes implementation scope, not verification of every platform, i
 | Component | Implementation scope | Notes |
 |---|---|---|
 | `Button` | Foundation | Primary / Secondary / Outline / Subtle / Transparent; size, shape and icon configuration; Toggle / Compound / Menu / Split variants are not implemented |
-| `TextInput` | Foundation | Single line, with leading/trailing content, invalid and disabled states; pressing elsewhere clears focus; IME has not been tried |
+| `TextInput` | Foundation | Single line, with leading/trailing content, invalid and disabled states; pressing elsewhere clears focus, and Tab moves between fields; IME has not been tried |
 | `Textarea` | Foundation | Multi-line, three appearances; pressing elsewhere clears focus |
 | `Field` / `Label` | Foundation | Vertical and horizontal layout, hint text, Error/Warning/Success validation messages |
 | `Checkbox` / `Radio` / `Switch` | Foundation | Controlled/uncontrolled modes; mouse hover/pressed wiring and colour transitions are implemented; full interaction verification remains pending |

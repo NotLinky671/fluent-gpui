@@ -5,7 +5,7 @@
 
 use gpui::actions;
 
-actions!(fluent, [Dismiss]);
+actions!(fluent, [Dismiss, FocusNext, FocusPrev]);
 
 /// Key context an overlay sets on the element that should receive [`Dismiss`].
 ///
@@ -13,6 +13,13 @@ actions!(fluent, [Dismiss]);
 /// carrying that context, which keeps Escape from closing an overlay the user
 /// is not interacting with.
 pub const OVERLAY_KEY_CONTEXT: &str = "FluentOverlay";
+
+/// Key context [`crate::FluentRoot`] sets so Tab order works inside it.
+///
+/// `gpui-base` binds `tab` to its own `Root` context, which only fires under its
+/// own root view. Applications here mount [`crate::FluentRoot`] instead, so the
+/// binding has to be repeated for a context that root actually carries.
+pub const ROOT_KEY_CONTEXT: &str = "FluentRoot";
 
 pub mod button;
 pub mod feedback;

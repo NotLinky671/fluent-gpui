@@ -294,3 +294,5 @@ impl RenderOnce for TextInput {
 
 #[cfg(test)]
 mod focus_tests;
+#[cfg(test)]
+mod tab_order_tests;
