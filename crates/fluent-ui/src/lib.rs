@@ -20,7 +20,7 @@
 pub use fluent_components::{
     Avatar, Badge, Button, Checkbox, Divider, Field, FluentIcon, FluentRoot, Icon, IconStyle,
     InputAppearance, Label, Link, ProgressBar, Radio, Switch, TextInput, Textarea,
-    TextareaAppearance, TooltipView, ValidationMessage, tooltip,
+    TextareaAppearance, TooltipSurface, TooltipView, ValidationMessage, tooltip,
 };
 pub use fluent_core::spec::ControlSize;
 pub use fluent_core::spec::button::{ButtonAppearance, ButtonShape, IconPosition};

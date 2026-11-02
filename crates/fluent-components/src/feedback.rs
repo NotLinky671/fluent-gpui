@@ -177,14 +177,21 @@ impl RenderOnce for Avatar {
     }
 }
 
-/// The Fluent tooltip surface, used through [`tooltip`] with GPUI's
-/// `InteractiveElement::tooltip`.
-pub struct TooltipView {
+/// The Fluent tooltip surface. Rendered by [`TooltipView`] and reusable as a
+/// static preview.
+#[derive(IntoElement)]
+pub struct TooltipSurface {
     text: SharedString,
 }
 
-impl Render for TooltipView {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+impl TooltipSurface {
+    pub fn new(text: impl Into<SharedString>) -> Self {
+        Self { text: text.into() }
+    }
+}
+
+impl RenderOnce for TooltipSurface {
+    fn render(self, _: &mut Window, cx: &mut App) -> impl IntoElement {
         let theme = FluentTheme::global(cx);
         let spec = feedback::tooltip(&theme);
         div()
@@ -193,10 +200,23 @@ impl Render for TooltipView {
             .text_size(spec.font_size)
             .line_height(spec.line_height)
             .px(spec.padding_x)
-            .py(spec.padding_y)
+            .pt(spec.padding_top)
+            .pb(spec.padding_bottom)
             .rounded(spec.radius)
             .max_w(spec.max_width)
-            .child(self.text.clone())
+            .shadow(spec.shadow.to_vec())
+            .child(self.text)
+    }
+}
+
+/// The tooltip view GPUI instantiates for `InteractiveElement::tooltip`.
+pub struct TooltipView {
+    text: SharedString,
+}
+
+impl Render for TooltipView {
+    fn render(&mut self, _: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+        TooltipSurface::new(self.text.clone())
     }
 }
 

@@ -139,16 +139,18 @@ pub fn avatar(theme: &FluentTheme, size: AvatarSize) -> AvatarSpec {
 }
 
 /// Resolved tooltip surface.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct TooltipSpec {
     pub background: Hsla,
     pub foreground: Hsla,
     pub font_size: Pixels,
     pub line_height: Pixels,
     pub padding_x: Pixels,
-    pub padding_y: Pixels,
+    pub padding_top: Pixels,
+    pub padding_bottom: Pixels,
     pub radius: Pixels,
     pub max_width: Pixels,
+    pub shadow: [gpui::BoxShadow; 2],
 }
 
 /// Resolves the Fluent tooltip surface (dark neutral, static colors).
@@ -156,14 +158,16 @@ pub fn tooltip(theme: &FluentTheme) -> TooltipSpec {
     let t = theme.tokens();
     let c = &t.color;
     TooltipSpec {
-        background: c.neutral_background_static,
-        foreground: c.neutral_foreground_static_inverted,
+        background: c.neutral_background_1,
+        foreground: c.neutral_foreground_1,
         font_size: t.font_size.base_200,
         line_height: t.line_height.base_200,
-        padding_x: px(8.),
-        padding_y: px(4.),
+        padding_x: px(11.),
+        padding_top: px(4.),
+        padding_bottom: px(6.),
         radius: t.radius.medium,
-        max_width: px(320.),
+        max_width: px(240.),
+        shadow: t.shadow.s4.clone(),
     }
 }
 #[cfg(test)]

@@ -16,7 +16,7 @@ use fluent_ui::{
     Appearance, Avatar, AvatarSize, Badge, BadgeAppearance, BadgeSize, Button, ButtonAppearance,
     ButtonShape, Checkbox, ControlSize, Divider, Field, FluentIcon, FluentRoot, FluentTheme,
     FontMode, InputAppearance, Link, ProgressAppearance, ProgressBar, Radio, Switch, TextInput,
-    Textarea, TextareaAppearance, ValidationMessage,
+    Textarea, TextareaAppearance, TooltipSurface, ValidationMessage,
 };
 
 const APPEARANCES: [ButtonAppearance; 5] = [
@@ -596,9 +596,17 @@ impl Render for Gallery {
             )
             .child(Divider::new().appearance(fluent_ui::DividerAppearance::Subtle))
             .child(
-                Button::new("tooltip-btn")
-                    .tooltip("Saves the current document")
-                    .child("Hover for tooltip"),
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(16.))
+                    .child(
+                        Button::new("tooltip-btn")
+                            .tooltip("Saves the current document")
+                            .child("Hover for tooltip"),
+                    )
+                    // Static preview of the surface, since screenshots cannot hover.
+                    .child(TooltipSurface::new("Saves the current document")),
             );
 
         let feedback_section = div()
