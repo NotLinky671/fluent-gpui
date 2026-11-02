@@ -954,21 +954,43 @@ fn validate(tasks: &[Task]) -> Vec<String> {
         }
     }
 
-    // Cycle detection over depends_on.
+    // Cycle detection over depends_on. A cycle means following the dependency
+    // edges from a task leads back to that same task; reaching a task twice by
+    // two different routes (a diamond) is not a cycle, so this walks one path at
+    // a time instead of remembering every node ever seen.
     let by_id: std::collections::BTreeMap<&str, &Task> =
         tasks.iter().map(|t| (t.id.as_str(), t)).collect();
+
+    fn returns_to(
+        start: &str,
+        node: &str,
+        by_id: &std::collections::BTreeMap<&str, &Task>,
+        path: &mut Vec<String>,
+    ) -> bool {
+        let Some(task) = by_id.get(node) else {
+            return false;
+        };
+        for dep in &task.depends_on {
+            if dep == start {
+                return true;
+            }
+            if path.iter().any(|seen| seen == dep) {
+                continue;
+            }
+            path.push(dep.clone());
+            let found = returns_to(start, dep.as_str(), by_id, path);
+            path.pop();
+            if found {
+                return true;
+            }
+        }
+        false
+    }
+
     for task in tasks {
-        let mut visited = Vec::new();
-        let mut stack = vec![task.id.as_str()];
-        while let Some(current) = stack.pop() {
-            if visited.contains(&current) {
-                problems.push(format!("dependency cycle involving {}", task.id));
-                break;
-            }
-            visited.push(current);
-            if let Some(next) = by_id.get(current) {
-                stack.extend(next.depends_on.iter().map(String::as_str));
-            }
+        let mut path = vec![task.id.clone()];
+        if returns_to(&task.id, &task.id, &by_id, &mut path) {
+            problems.push(format!("dependency cycle involving {}", task.id));
         }
     }
 
