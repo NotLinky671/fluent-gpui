@@ -30,8 +30,11 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            libxkbcommon-dev libwayland-dev libx11-xcb-dev libxcb1-dev \
-            libfontconfig1-dev libfreetype6-dev libvulkan-dev
+            libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libx11-dev \
+            libx11-xcb-dev libxcb1-dev libxcb-randr0-dev libxcb-render0-dev \
+            libxcb-render-util0-dev libxcb-shape0-dev libxcb-xfixes0-dev \
+            libxcb-xkb-dev libxcb-sync-dev libfontconfig1-dev libfreetype6-dev \
+            libvulkan-dev libasound2-dev libssl-dev libzstd-dev pkg-config
 
       - name: Formatting
         run: cargo fmt --all --check
@@ -62,9 +65,9 @@ jobs:
       - name: No stray images
         shell: bash
         run: |
-          stray=$(git ls-files | grep -Ei '\.(png|jpe?g|webp)$' | grep -v '^tests/baselines/' || true)
+          stray=$(git ls-files | grep -Ei '\.(png|jpe?g|webp)$' | grep -v '^crates/fluent-gallery/tests/baselines/' || true)
           if [ -n "$stray" ]; then
-            echo "::error::tracked images outside tests/baselines:"
+            echo "::error::tracked images outside crates/fluent-gallery/tests/baselines:"
             echo "$stray"
             exit 1
           fi
