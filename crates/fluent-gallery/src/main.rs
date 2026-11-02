@@ -648,6 +648,36 @@ impl Render for Gallery {
                             .trigger(Button::new("popover-trigger").child("Open popover"))
                             .content("Popover content"),
                     )
+                    // Reproduction for popover positioning inside a scroll
+                    // container: scroll this column to the middle row.
+                    .child(
+                        div()
+                            .id("popover-scroll-probe")
+                            .h(px(120.))
+                            .w(px(260.))
+                            .overflow_y_scroll()
+                            .border_1()
+                            .border_color(Hsla::black().opacity(0.12))
+                            .rounded(px(4.))
+                            .child(
+                                div()
+                                    .flex()
+                                    .flex_col()
+                                    .gap(px(8.))
+                                    .p(px(8.))
+                                    .child(div().h(px(36.)).child("spacer 1"))
+                                    .child(
+                                        Popover::new("popover-scroll-demo")
+                                            .default_open(true)
+                                            .trigger(
+                                                Button::new("popover-scroll-trigger")
+                                                    .child("Scroll me"),
+                                            )
+                                            .content("Anchored panel"),
+                                    )
+                                    .child(div().h(px(60.)).child("spacer 2")),
+                            ),
+                    )
                     .child(
                         Menu::new()
                             .child(MenuHeader::new("Actions"))
