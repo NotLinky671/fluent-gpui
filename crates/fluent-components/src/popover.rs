@@ -15,7 +15,7 @@ use fluent_theme::FluentTheme;
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
     Bounds, Display, Element, GlobalElementId, InspectorElementId, LayoutId, Pixels, Point,
-    Position, Size, Style, deferred, point,
+    Position, Size, Style, anchored, deferred, point,
 };
 use std::{cell::Cell, rc::Rc};
 
@@ -135,7 +135,7 @@ impl Element for PopoverPositioner {
 }
 
 /// Called with the new open state whenever the popover shows or hides.
-pub type OpenChangeHandler = Box<dyn Fn(bool, &mut Window, &mut App) + 'static>;
+pub type OpenChangeHandler = std::rc::Rc<dyn Fn(bool, &mut Window, &mut App) + 'static>;
 
 /// A Fluent 2 popover: a floating panel anchored below a trigger.
 #[derive(IntoElement)]
@@ -190,7 +190,7 @@ impl Popover {
         mut self,
         handler: impl Fn(bool, &mut Window, &mut App) + 'static,
     ) -> Self {
-        self.on_open_change = Some(Box::new(handler));
+        self.on_open_change = Some(std::rc::Rc::new(handler));
         self
     }
 }
@@ -214,6 +214,7 @@ impl RenderOnce for Popover {
         );
         let is_open = self.open.unwrap_or_else(|| *store.read(cx));
         let controlled = self.open.is_some();
+        let backdrop_id = SharedString::from(format!("popover-backdrop-{:?}", self.id));
 
         let trigger_bounds = TriggerBounds::default();
 
@@ -234,7 +235,7 @@ impl RenderOnce for Popover {
                     .id(self.id)
                     .when(!controlled, |el| {
                         let store = store.clone();
-                        let on_change = on_change;
+                        let on_change = on_change.clone();
                         el.on_click(move |_, window, cx| {
                             let mut next = false;
                             store.update(cx, |open, cx| {
@@ -250,8 +251,36 @@ impl RenderOnce for Popover {
                     .when_some(trigger, |el, trigger| el.child(trigger)),
             );
 
+        let close_store = store.clone();
+        let close_handler = on_change.clone();
+
         div()
             .child(anchor)
+            .when(is_open, |el| {
+                // Clicking anywhere outside the panel dismisses it. The backdrop
+                // paints below the panel, so clicks on the panel itself never
+                // reach it.
+                let viewport = window.viewport_size();
+                el.child(deferred(
+                    anchored().child(
+                        div()
+                            .id(backdrop_id)
+                            .w(viewport.width)
+                            .h(viewport.height)
+                            .on_click(move |_, window, cx| {
+                                close_store.update(cx, |open, cx| {
+                                    if *open {
+                                        *open = false;
+                                        cx.notify();
+                                    }
+                                });
+                                if let Some(handler) = close_handler.as_ref() {
+                                    handler(false, window, cx);
+                                }
+                            }),
+                    ),
+                ))
+            })
             .when(is_open, |el| {
                 let mut panel = div()
                     .min_w(px(160.))

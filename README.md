@@ -4,21 +4,26 @@ A Rust UI component library built to the **Microsoft Fluent 2** visual specifica
 
 **English** | [简体中文](README.zh-CN.md)
 
-> Status: **M1 (component foundation)**. The API is not stable yet; expect breaking changes before 0.1.
+> Status: **M1 component foundation is in place; M2 motion and overlay work is in progress**. The API is not stable; current capabilities and unfinished work are listed below.
 
 ## Components
 
-| Component | Status | Notes |
+This table describes implementation scope, not verification of every platform, interaction or visual state. See the [engineering checklist](docs/code-standards.md) for the separate verification layers.
+
+| Component | Implementation scope | Notes |
 |---|---|---|
-| `Button` | ✅ | Primary / Secondary / Subtle / Transparent, plus Toggle, Compound, Menu and Split variants |
-| `TextInput` | ✅ | Single line, with leading/trailing content, invalid and disabled states |
-| `Textarea` | ✅ | Multi-line, three appearances |
-| `Field` / `Label` | ✅ | Vertical and horizontal layout, hint text, Error/Warning/Success validation messages |
-| `Checkbox` / `Radio` / `Switch` | ✅ | Controlled and uncontrolled modes |
-| `Link` / `Divider` | ✅ | Three link palettes, four divider weights |
-| `Badge` / `ProgressBar` / `Avatar` | ✅ | Seven badge appearances, four avatar sizes, determinate and indeterminate progress |
-| `Tooltip` | ✅ | Anchored to the trigger, flips above/below, 4px gap |
-| `Spinner` | ⏸ | Blocked: Fluent's ring needs stroked arcs, which GPUI does not expose |
+| `Button` | Foundation | Primary / Secondary / Outline / Subtle / Transparent; size, shape and icon configuration; Toggle / Compound / Menu / Split variants are not implemented |
+| `TextInput` | Foundation | Single line, with leading/trailing content, invalid and disabled states; IME has not been tried |
+| `Textarea` | Foundation | Multi-line, three appearances |
+| `Field` / `Label` | Foundation | Vertical and horizontal layout, hint text, Error/Warning/Success validation messages |
+| `Checkbox` / `Radio` / `Switch` | Foundation | Controlled/uncontrolled modes; mouse hover/pressed wiring and colour transitions are implemented; full interaction verification remains pending |
+| `Link` / `Divider` | Foundation | Three link palettes, four divider weights |
+| `Badge` / `Avatar` | Foundation | Seven badge appearances, four avatar sizes; Avatar renders initials only |
+| `ProgressBar` | Partial | Determinate progress and an indeterminate sweep; reduced-motion handling and pixel baselines for the indeterminate mode are pending |
+| `Tooltip` | Foundation | `Button::tooltip` uses a root-hosted anchored overlay with a configured 4px gap; hover and flip placement still need manual verification |
+| `Popover` | Experimental | Anchored panel, controlled/uncontrolled open state and same-frame scroll positioning; dismissal, focus management and pixel baselines remain unfinished |
+| `Menu` / `MenuItem` | Partial | Panel, clickable items, separators and headers; trigger integration, full keyboard/accessibility and submenus remain unfinished |
+| `Spinner` | Blocked | Not implemented; the current stroked-arc rendering approach is blocked |
 
 ## Quick start
 
@@ -93,7 +98,7 @@ fluent-components Component implementations
 fluent-ui         Public facade
 ```
 
-**Styling is a pure function.** `spec::<component>::resolve(&FluentTheme, &Props) -> Spec` needs no window, so visual decisions are unit-testable. Components only paint the `Spec` they are given, which lets "is this correct?" be pinned down without rendering anything.
+**Style decisions are pure functions.** `spec::<component>::resolve(&FluentTheme, &Props) -> Spec` needs no window, so token mappings, dimensions, colours and state precedence are unit-testable. This does not prove event wiring or final rendering: GPUI behaviour tests and native-window/pixel checks are separate verification layers.
 
 **Rendered output outranks CSS constants.** When the CSS values in Fluent UI React v9 disagree with what Fluent 2 actually renders, the rendering wins (ADR-0002). The switch thumb and the radio dot were both corrected against measured pixels.
 
@@ -101,9 +106,13 @@ GPUI is pinned to an exact snapshot (`gpui-pre = 0.3.10`); a caret requirement w
 
 ## Known limitations
 
-- `Spinner` is not implemented: it needs a stroked arc, and GPUI offers no public path painter, no per-side border colours and no rotation style
+- `Spinner` is not implemented; the current stroked-arc rendering approach is blocked
 - `Avatar` renders initials only; no images, no status badge
-- Hover states are wired for Checkbox / Radio / Switch; pressed states are not yet
+- Mouse hover/pressed state wiring and colour transitions are implemented for Checkbox / Radio / Switch; full keyboard and pointer-cancellation behaviour is not yet verified
+- `Popover` has no Escape/outside-click dismissal or full focus management; viewport edges clamp the panel rather than flipping it above/below
+- `Menu` trigger integration, keyboard navigation, accessibility and submenus are unfinished
+- Reduced-motion handling and pixel baselines for indeterminate `ProgressBar` are pending
+- `Button::tooltip` delegates flipping to the gpui-base overlay; hover/flip placement still needs manual verification. The generic `tooltip(text)` helper uses GPUI-native positioning without the same anchoring guarantee
 - No RTL support, no letter-spacing control, no CSS `outline`
 - No live regions; nothing is announced to screen readers on change
 - High contrast has to be selected manually; there is no system-level auto-detection
@@ -111,17 +120,26 @@ GPUI is pinned to an exact snapshot (`gpui-pre = 0.3.10`); a caret requirement w
 
 ## Development
 
-```bash
-cargo test --workspace          # unit tests
-cargo xtask gen-tokens --check  # generated tokens are up to date
-cargo xtask gen-icons --check   # generated icons are up to date
-cargo xtask tasks --check       # task index is up to date
-cargo deny --offline check      # licence and security audit
-cargo test -p fluent-gallery --features screenshot --test baselines   # pixel baselines
-FLUENT_GALLERY_SECTION=buttons cargo run -p fluent-gallery            # single component preview
+Before editing, read the [agent entry point](AGENTS.md) and [engineering standards, component checklist and verification matrix](docs/code-standards.md). Use the [PR verification record](.github/pull_request_template.md) for delivery. Documentation-only changes and code changes have different verification requirements.
+
+```text
+cargo fmt --all --check
+cargo clippy --workspace --all-targets --locked -- -D warnings
+cargo test --workspace --locked
+cargo doc --workspace --no-deps --locked
+cargo deny check
+cargo xtask gen-tokens --check
+cargo xtask gen-icons --check
 ```
 
-Pixel baselines need the `screenshot` feature and a GPU surface, so they currently run locally only. After an intentional visual change, regenerate them with `FLUENT_BASELINE_UPDATE=1` and review the image diff.
+`cargo deny check` may need network access to refresh advisories; disclose data-freshness limits for offline audits. If the local task index exists, additionally run `cargo xtask tasks --check`; it depends on local-only notes that are not distributed with the repository and is not a current CI gate.
+
+```text
+cargo run -p fluent-gallery
+cargo test -p fluent-gallery --features screenshot --test baselines --locked
+```
+
+Pixel comparisons need the `screenshot` feature and a usable GPU surface; they currently run locally, not in CI. The 15 committed baselines cover Windows / light only, not dark/high-contrast or hover/focus/pressed/disabled. Directories currently distinguish OS only; DPI, fonts and rendering environment must also match. Set `FLUENT_BASELINE_UPDATE=1` only to accept an intentional visual change, review the image diff, then rerun with update mode unset. Do not re-record baselines instead of investigating a regression.
 
 ## License
 

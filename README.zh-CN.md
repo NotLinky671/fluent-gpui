@@ -4,21 +4,26 @@
 
 [English](README.md) | **简体中文**
 
-> 状态：**M1（组件基础）**。API 尚未稳定，0.1 之前会有破坏性变更。
+> 状态：**M1 组件基础已建立，M2 动效与浮层进行中**。API 尚未稳定；当前能力与未完成项见下文。
 
 ## 组件
 
-| 组件 | 状态 | 说明 |
+下表描述实现范围，不代表所有平台、交互与视觉状态均已验证；验证层次见[工程规范](docs/code-standards.md)。
+
+| 组件 | 实现范围 | 说明 |
 |---|---|---|
-| `Button` | ✅ | Primary / Secondary / Subtle / Transparent，含 Toggle、Compound、Menu、Split 派生 |
-| `TextInput` | ✅ | 单行，含前置/后置内容、错误态、禁用态 |
-| `Textarea` | ✅ | 多行，三种外观 |
-| `Field` / `Label` | ✅ | 垂直/水平布局、hint、Error/Warning/Success 验证消息 |
-| `Checkbox` / `Radio` / `Switch` | ✅ | 受控与非受控两种模式 |
-| `Link` / `Divider` | ✅ | 三种 Link 配色、四档 Divider |
-| `Badge` / `ProgressBar` / `Avatar` | ✅ | 7 种 Badge 外观、4 档 Avatar、进度条含不定态 |
-| `Tooltip` | ✅ | 锚定元素、自动上下翻转、4px 间隙 |
-| `Spinner` | ⏸ | 受阻：需要绘制圆弧，GPUI 未暴露该能力 |
+| `Button` | 基础实现 | Primary / Secondary / Outline / Subtle / Transparent；支持尺寸、形状和图标配置；Toggle / Compound / Menu / Split 派生未实现 |
+| `TextInput` | 基础实现 | 单行，含前置/后置内容、错误态、禁用态；IME 尚未实测 |
+| `Textarea` | 基础实现 | 多行，三种外观 |
+| `Field` / `Label` | 基础实现 | 垂直/水平布局、hint、Error/Warning/Success 验证消息 |
+| `Checkbox` / `Radio` / `Switch` | 基础实现 | 受控与非受控模式；鼠标 hover / pressed 接线及颜色过渡已实现，完整交互验证待补 |
+| `Link` / `Divider` | 基础实现 | 三种 Link 配色、四档 Divider |
+| `Badge` / `Avatar` | 基础实现 | 7 种 Badge 外观、4 档 Avatar；Avatar 仅首字母 |
+| `ProgressBar` | 部分实现 | 确定进度与不定态滑动动画；不定态 reduced-motion 支持及像素基线待补 |
+| `Tooltip` | 基础实现 | `Button::tooltip` 接入根级锚定 overlay，配置 4px 间隙；悬停与翻转位置尚待人工验证 |
+| `Popover` | 实验性 | 已有锚定浮层、受控/非受控开关和同帧滚动定位；关闭语义、焦点管理及像素基线未完成 |
+| `Menu` / `MenuItem` | 部分实现 | 面板、可点击菜单项、分隔线与标题；触发器、完整键盘/无障碍及子菜单待完成 |
+| `Spinner` | 受阻 | 尚未实现；当前圆弧绘制方案受阻 |
 
 ## 快速开始
 
@@ -93,7 +98,7 @@ fluent-components 组件实现
 fluent-ui         对外门面
 ```
 
-**样式是纯函数**：`spec::<component>::resolve(&FluentTheme, &Props) -> Spec`，不依赖渲染即可单测。组件只负责把 `Spec` 画出来。这样"视觉是否正确"可以在没有窗口的情况下用单元测试锁定。
+**样式决策是纯函数**：`spec::<component>::resolve(&FluentTheme, &Props) -> Spec`，不依赖渲染即可单测。它能锁定 token 映射、尺寸、颜色和状态优先级，不能证明事件接线或最终绘制正确；还需要 GPUI 行为测试与真实窗口/像素检查。
 
 **渲染效果优先于 CSS 常量**：当 Fluent UI React v9 的 CSS 常量与 Fluent 2 的实际渲染效果冲突时，以**渲染效果**为准（ADR-0002）。Switch 滑块、Radio 圆点都是按截图量像素校正的。
 
@@ -101,9 +106,13 @@ GPUI 精确锁定在快照版本（`gpui-pre = 0.3.10`）；用 caret 版本会�
 
 ## 已知限制
 
-- `Spinner` 尚未实现：需要描边圆弧，而 GPUI 没有公开的 path 绘制、没有按边设色、也没有旋转样式
+- `Spinner` 尚未实现：当前描边圆弧绘制方案受阻
 - `Avatar` 只渲染首字母，无图片与状态徽标
-- Checkbox / Radio / Switch 的 hover 已接线，pressed 尚未
+- Checkbox / Radio / Switch 已接入鼠标 hover / pressed 状态及颜色过渡；完整键盘与指针取消行为尚未验证
+- `Popover` 尚无 Esc / 点击外部关闭及完整焦点管理；窗口边缘采用限位，不是上下自动翻转
+- `Menu` 尚未补齐触发器、键盘导航、无障碍及子菜单
+- `ProgressBar` 不定态的 reduced-motion 支持及像素基线待补
+- `Button::tooltip` 的翻转由 gpui-base overlay 提供，悬停与翻转位置尚待人工验证；通用 `tooltip(text)` 助手使用 GPUI 原生定位，不提供相同锚定保证
 - 不支持 RTL 布局、`letter_spacing`、CSS `outline`
 - 无 live region；状态变化不会主动播报给屏幕阅读器
 - 高对比度需要手动切主题，未做系统级自动检测
@@ -111,17 +120,26 @@ GPUI 精确锁定在快照版本（`gpui-pre = 0.3.10`）；用 caret 版本会�
 
 ## 开发
 
-```bash
-cargo test --workspace          # 单元测试
-cargo xtask gen-tokens --check  # token 生成物是否最新
-cargo xtask gen-icons --check   # 图标生成物是否最新
-cargo xtask tasks --check       # 任务索引是否最新
-cargo deny --offline check      # 依赖许可与安全审计
-cargo test -p fluent-gallery --features screenshot --test baselines   # 像素基线比对
-FLUENT_GALLERY_SECTION=buttons cargo run -p fluent-gallery            # 单组件预览
+修改前阅读 [agent 工作入口](AGENTS.md)与[工程规范、组件交付清单和验证矩阵](docs/code-standards.md)，交付时填写 [PR 验证记录](.github/pull_request_template.md)。纯文档改动和代码改动的验证范围不同。
+
+```text
+cargo fmt --all --check
+cargo clippy --workspace --all-targets --locked -- -D warnings
+cargo test --workspace --locked
+cargo doc --workspace --no-deps --locked
+cargo deny check
+cargo xtask gen-tokens --check
+cargo xtask gen-icons --check
 ```
 
-像素基线需要 `screenshot` feature 和 GPU surface，目前只在本地运行。故意改变样式后，用 `FLUENT_BASELINE_UPDATE=1` 重新生成，并 review 图片差异。
+`cargo deny check` 可能需要联网更新公告；离线审计须注明数据新鲜度限制。本地任务索引若存在，可额外运行 `cargo xtask tasks --check`；它依赖不随仓库分发的本地笔记，不属于当前 CI 门槛。
+
+```text
+cargo run -p fluent-gallery
+cargo test -p fluent-gallery --features screenshot --test baselines --locked
+```
+
+像素比对需要 `screenshot` feature 和可用 GPU surface，目前仅在本地运行，未接入 CI。已有 15 张 Windows / light 基线，尚未覆盖 dark/high-contrast 或 hover/focus/pressed/disabled。当前目录只按 OS 区分，DPI、字体及渲染环境也需一致。只有有意接受视觉变化时才设置 `FLUENT_BASELINE_UPDATE=1`，审查图片差异后取消更新模式重跑；不要以重录基线代替排查回归。
 
 ## 许可
 
