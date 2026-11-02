@@ -1,7 +1,7 @@
 //! Fluent style infrastructure shared by every component.
 //!
 //! - [`spec`]: pure `resolve(theme, props) -> Spec` functions, unit-testable
-//!   without rendering (see plan/01-decisions.md ADR-0002).
+//!   without rendering (ADR-0002).
 //! - [`gpui_compat`]: the single place that re-exports GPUI APIs we depend on,
 //!   so a snapshot bump touches one file (ADR-0001).
 //!
@@ -18,7 +18,7 @@ mod tests {
     ///
     /// `gpui-component` and `gpui-kit` carry their own visual language; pulling
     /// either in would make this library a re-skin rather than an independent
-    /// design system (plan/00-goals.md G4).
+    /// design system (goal G4).
     #[test]
     fn dependency_graph_stays_independent() {
         let lock = include_str!("../../../Cargo.lock");

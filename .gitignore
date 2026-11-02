@@ -14,3 +14,8 @@ Thumbs.db
 screenshots/
 *.png
 !crates/fluent-gallery/tests/baselines/**/*.png
+
+# Local-only working notes: design decision records and the task board are kept
+# out of the published repository.
+/plan/
+/task/

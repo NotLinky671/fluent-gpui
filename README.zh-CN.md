@@ -95,7 +95,7 @@ fluent-ui         对外门面
 
 **样式是纯函数**：`spec::<component>::resolve(&FluentTheme, &Props) -> Spec`，不依赖渲染即可单测。组件只负责把 `Spec` 画出来。这样"视觉是否正确"可以在没有窗口的情况下用单元测试锁定。
 
-**渲染效果优先于 CSS 常量**：当 Fluent UI React v9 的 CSS 常量与 Fluent 2 的实际渲染效果冲突时，以**渲染效果**为准（见 `plan/01-decisions.md` ADR-0002 补充）。Switch 滑块、Radio 圆点都是按截图量像素校正的。
+**渲染效果优先于 CSS 常量**：当 Fluent UI React v9 的 CSS 常量与 Fluent 2 的实际渲染效果冲突时，以**渲染效果**为准（ADR-0002）。Switch 滑块、Radio 圆点都是按截图量像素校正的。
 
 GPUI 精确锁定在快照版本（`gpui-pre = 0.3.10`）；用 caret 版本会漂移到不兼容的 API。
 

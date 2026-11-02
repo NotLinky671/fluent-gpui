@@ -95,7 +95,7 @@ fluent-ui         Public facade
 
 **Styling is a pure function.** `spec::<component>::resolve(&FluentTheme, &Props) -> Spec` needs no window, so visual decisions are unit-testable. Components only paint the `Spec` they are given, which lets "is this correct?" be pinned down without rendering anything.
 
-**Rendered output outranks CSS constants.** When the CSS values in Fluent UI React v9 disagree with what Fluent 2 actually renders, the rendering wins (see the ADR-0002 addendum in `plan/01-decisions.md`). The switch thumb and the radio dot were both corrected against measured pixels.
+**Rendered output outranks CSS constants.** When the CSS values in Fluent UI React v9 disagree with what Fluent 2 actually renders, the rendering wins (ADR-0002). The switch thumb and the radio dot were both corrected against measured pixels.
 
 GPUI is pinned to an exact snapshot (`gpui-pre = 0.3.10`); a caret requirement would drift onto an incompatible API.
 

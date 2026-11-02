@@ -2,7 +2,7 @@
 //!
 //! Ported from
 //! `packages/react-components/react-button/library/src/components/Button/useButtonStyles.styles.ts`
-//! (see `plan/specs/button.md` for the line-by-line source table).
+//! (measured against the Fluent UI React v9 style table).
 
 use std::time::Duration;
 

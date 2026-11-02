@@ -2,7 +2,7 @@
 //!
 //! Ported from
 //! `packages/react-components/react-input/library/src/components/Input/useInputStyles.styles.ts`
-//! (see `plan/specs/input.md`).
+//! (measured against the Fluent UI React v9 style table).
 
 use fluent_theme::FluentTheme;
 use gpui::{Hsla, Pixels, px};

@@ -51,15 +51,12 @@ jobs:
           cargo install cargo-deny --locked --version 0.20.2
           cargo deny check
 
-      # Generated code must match its snapshot (plan/02-architecture.md §14).
+      # Generated code must match its snapshot.
       - name: Tokens in sync
         run: cargo xtask gen-tokens --check
 
       - name: Icons in sync
         run: cargo xtask gen-icons --check
-
-      - name: Task index in sync
-        run: cargo xtask tasks --check
 
       # Screenshots are scratch: only committed pixel baselines may be tracked.
       - name: No stray images

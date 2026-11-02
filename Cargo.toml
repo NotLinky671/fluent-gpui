@@ -9,7 +9,7 @@ license = "Apache-2.0"
 repository = "https://github.com/NotLinky671/fluent-gpui"
 
 [workspace.dependencies]
-# GPUI stack — exact pins, see plan/01-decisions.md ADR-0001.
+# GPUI stack — exact pins, see ADR-0001.
 # `gpui-pre` is a republished snapshot of Zed's gpui; a caret requirement
 # would drift onto an incompatible API.
 gpui = { package = "gpui-pre", version = "=0.3.10" }
