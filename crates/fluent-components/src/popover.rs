@@ -15,9 +15,9 @@ use fluent_theme::FluentTheme;
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
     Bounds, Display, Element, GlobalElementId, InspectorElementId, LayoutId, Pixels, Point,
-    Position, Size, Style, anchored, deferred, point,
+    Position, Size, Style, deferred, point,
 };
-use gpui_base::actions::Cancel;
+
 use std::{cell::Cell, rc::Rc};
 
 /// Shared only by the trigger and its panel for one rendered element tree.
@@ -26,6 +26,9 @@ type TriggerBounds = Rc<Cell<Option<Bounds<Pixels>>>>;
 
 struct PopoverPositioner {
     trigger_bounds: TriggerBounds,
+    /// Written back during prepaint so the panel's own mouse-out handler knows
+    /// where the surface ended up.
+    panel_bounds: TriggerBounds,
     panel: AnyElement,
 }
 
@@ -115,6 +118,7 @@ impl Element for PopoverPositioner {
         // Replace that offset, preserving GPUI's physical-pixel snapping rather
         // than rounding a relative displacement to whole logical pixels.
         let offset = window.pixel_snap_point(window.element_offset()) + origin - panel.origin;
+        self.panel_bounds.set(Some(Bounds::new(origin, panel.size)));
         window.with_absolute_element_offset(offset, |window| self.panel.prepaint(window, cx));
         true
     }
@@ -147,6 +151,7 @@ pub struct Popover {
     open: Option<bool>,
     default_open: bool,
     on_open_change: Option<OpenChangeHandler>,
+    focus: Option<gpui::FocusHandle>,
     style: StyleRefinement,
 }
 
@@ -159,6 +164,7 @@ impl Popover {
             open: None,
             default_open: false,
             on_open_change: None,
+            focus: None,
             style: StyleRefinement::default(),
         }
     }
@@ -184,6 +190,15 @@ impl Popover {
     /// Uncontrolled initial state.
     pub fn default_open(mut self, open: bool) -> Self {
         self.default_open = open;
+        self
+    }
+
+    /// Focus handle used for keyboard dismissal.
+    ///
+    /// Escape only reaches the popover while focus is inside it, so an overlay
+    /// must own a focus handle to be dismissable from the keyboard.
+    pub fn track_focus(mut self, focus: &gpui::FocusHandle) -> Self {
+        self.focus = Some(focus.clone());
         self
     }
 
@@ -215,7 +230,6 @@ impl RenderOnce for Popover {
         );
         let is_open = self.open.unwrap_or_else(|| *store.read(cx));
         let controlled = self.open.is_some();
-        let backdrop_id = SharedString::from(format!("popover-backdrop-{:?}", self.id));
 
         let trigger_bounds = TriggerBounds::default();
 
@@ -223,6 +237,7 @@ impl RenderOnce for Popover {
         let content = self.content;
         let style = self.style;
         let on_change = self.on_open_change;
+        let focus = self.focus;
 
         let anchor = div()
             .on_children_prepainted({
@@ -237,7 +252,7 @@ impl RenderOnce for Popover {
                     .when(is_open, |el| {
                         let store = store.clone();
                         let on_change = on_change.clone();
-                        el.on_action(move |_: &Cancel, window, cx| {
+                        el.on_action(move |_: &crate::Dismiss, window, cx| {
                             store.update(cx, |open, cx| {
                                 if *open {
                                     *open = false;
@@ -264,39 +279,18 @@ impl RenderOnce for Popover {
                             }
                         })
                     })
+                    .key_context(crate::OVERLAY_KEY_CONTEXT)
+                    .when_some(focus, |el, focus| el.track_focus(&focus))
                     .when_some(trigger, |el, trigger| el.child(trigger)),
             );
 
         let close_store = store.clone();
         let close_handler = on_change.clone();
+        let panel_bounds: TriggerBounds = TriggerBounds::default();
+        let close_bounds = panel_bounds.clone();
 
         div()
             .child(anchor)
-            .when(is_open, |el| {
-                // A click anywhere outside the panel dismisses it. Painting order
-                // alone does not keep panel clicks away from the backdrop, so the
-                // panel blocks the mouse itself (see below).
-                let viewport = window.viewport_size();
-                el.child(deferred(
-                    anchored().child(
-                        div()
-                            .id(backdrop_id)
-                            .w(viewport.width)
-                            .h(viewport.height)
-                            .on_click(move |_, window, cx| {
-                                close_store.update(cx, |open, cx| {
-                                    if *open {
-                                        *open = false;
-                                        cx.notify();
-                                    }
-                                });
-                                if let Some(handler) = close_handler.as_ref() {
-                                    handler(false, window, cx);
-                                }
-                            }),
-                    ),
-                ))
-            })
             .when(is_open, |el| {
                 let mut panel = div()
                     .min_w(px(160.))
@@ -306,20 +300,53 @@ impl RenderOnce for Popover {
                     .text_color(surface.foreground)
                     .p(px(12.))
                     .shadow(shadow);
-                // Painting above the backdrop does not stop the mouse reaching it;
-                // blocking here is what makes "clicks inside the panel keep it
-                // open" true rather than merely intended.
-                panel = panel.occlude();
+                // Blocking here is what makes "clicks inside the panel keep it
+                // open" true rather than merely intended by paint order.
+                panel = panel.occlude().key_context(crate::OVERLAY_KEY_CONTEXT);
+                {
+                    let close_store = close_store.clone();
+                    let close_handler = close_handler.clone();
+                    let close_bounds = close_bounds.clone();
+                    let close_trigger = trigger_bounds.clone();
+                    panel = panel.on_mouse_down_out(move |event, window, cx| {
+                        // A press that lands on the trigger belongs to the trigger's
+                        // own toggle. Closing here too would report the same press
+                        // twice and reopen what the user just dismissed.
+                        let on_trigger = close_bounds
+                            .get()
+                            .map(|panel| !panel.contains(&event.position))
+                            .unwrap_or(false)
+                            && close_trigger
+                                .get()
+                                .map(|trigger| trigger.contains(&event.position))
+                                .unwrap_or(false);
+                        if on_trigger {
+                            return;
+                        }
+                        close_store.update(cx, |open, cx| {
+                            if *open {
+                                *open = false;
+                                cx.notify();
+                            }
+                        });
+                        if let Some(handler) = close_handler.as_ref() {
+                            handler(false, window, cx);
+                        }
+                    });
+                }
                 if let Some(content) = content {
                     panel = panel.child(content);
                 }
                 el.child(deferred(PopoverPositioner {
                     trigger_bounds,
+                    panel_bounds,
                     panel: panel.into_any_element(),
                 }))
             })
             .refine_style(&style)
     }
 }
+#[cfg(test)]
+mod dismissal_tests;
 #[cfg(test)]
 mod tests;

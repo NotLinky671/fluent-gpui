@@ -3,6 +3,8 @@
 //! Metrics and colours come from [`fluent_core::spec::menu`]; this file only
 //! paints them. Trigger wiring and keyboard navigation live in later tasks.
 
+use crate::icon::Icon;
+use fluent_core::gpui_compat::Hsla;
 use fluent_core::gpui_compat::StyledExt as _;
 use fluent_core::gpui_compat::{
     AnyElement, App, ClickEvent, ElementId, InteractiveElement, IntoElement, ParentElement,
@@ -10,7 +12,9 @@ use fluent_core::gpui_compat::{
 };
 use fluent_core::spec::feedback;
 use fluent_core::spec::menu::{self, MenuItemProps};
+use fluent_icons::FluentIcon;
 use fluent_theme::FluentTheme;
+use gpui::prelude::FluentBuilder as _;
 
 /// Click handler shape for menu items.
 pub type MenuHandler = Box<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;
@@ -69,11 +73,72 @@ impl RenderOnce for Menu {
     }
 }
 
+/// A [`Menu`] that opens from a trigger.
+///
+/// Wraps the panel in a [`Popover`](crate::Popover) so the menu gets anchored
+/// placement, outside-click and Escape dismissal. This is composition, not a
+/// new interaction model: the popover owns open state and dismissal, the menu
+/// owns the rows.
+///
+/// Keyboard navigation *inside* the menu (arrow keys, Home/End, submenus) is not
+/// implemented yet, so the panel is reachable by pointer only.
+#[derive(IntoElement)]
+pub struct MenuDropdown {
+    popover: crate::Popover,
+}
+
+impl MenuDropdown {
+    pub fn new(id: impl Into<ElementId>, trigger: impl IntoElement, menu: Menu) -> Self {
+        Self {
+            popover: crate::Popover::new(id)
+                .trigger(trigger)
+                .content(menu)
+                .default_open(false),
+        }
+    }
+
+    /// Controlled open state, forwarded to the popover.
+    pub fn open(mut self, open: bool) -> Self {
+        self.popover = self.popover.open(open);
+        self
+    }
+
+    /// Uncontrolled initial state.
+    pub fn default_open(mut self, open: bool) -> Self {
+        self.popover = self.popover.default_open(open);
+        self
+    }
+
+    pub fn track_focus(mut self, focus: &gpui::FocusHandle) -> Self {
+        self.popover = self.popover.track_focus(focus);
+        self
+    }
+
+    pub fn on_open_change(
+        mut self,
+        handler: impl Fn(bool, &mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.popover = self.popover.on_open_change(handler);
+        self
+    }
+}
+
+impl RenderOnce for MenuDropdown {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+        self.popover.render(window, cx)
+    }
+}
+
 /// One actionable row.
 #[derive(IntoElement)]
 pub struct MenuItem {
     id: ElementId,
     label: SharedString,
+    icon: Option<FluentIcon>,
+    /// `Some(checked)` renders a check mark in the leading slot.
+    check: Option<bool>,
+    /// `Some(selected)` renders a radio dot in the leading slot.
+    radio: Option<bool>,
     disabled: bool,
     danger: bool,
     on_click: Option<MenuHandler>,
@@ -85,6 +150,9 @@ impl MenuItem {
         Self {
             id: id.into(),
             label: label.into(),
+            icon: None,
+            check: None,
+            radio: None,
             disabled: false,
             danger: false,
             on_click: None,
@@ -103,6 +171,24 @@ impl MenuItem {
         self
     }
 
+    /// Leading icon, shown in the same slot a check mark would occupy.
+    pub fn icon(mut self, icon: FluentIcon) -> Self {
+        self.icon = Some(icon);
+        self
+    }
+
+    /// Renders as a checkable row: a check mark appears while `checked`.
+    pub fn checked(mut self, checked: bool) -> Self {
+        self.check = Some(checked);
+        self
+    }
+
+    /// Renders as a radio row: a dot appears while `selected`.
+    pub fn selected(mut self, selected: bool) -> Self {
+        self.radio = Some(selected);
+        self
+    }
+
     pub fn on_click(
         mut self,
         handler: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
@@ -115,6 +201,52 @@ impl MenuItem {
 impl Styled for MenuItem {
     fn style(&mut self) -> &mut StyleRefinement {
         &mut self.style
+    }
+}
+
+impl MenuItem {
+    /// The fixed-width slot before the label: icon, check mark, radio dot, or
+    /// nothing.
+    ///
+    /// It keeps its width when empty so labels stay aligned down the menu.
+    fn leading_slot(&self, spec: &menu::MenuItemSpec, foreground: Hsla) -> AnyElement {
+        let slot = div()
+            .flex()
+            .items_center()
+            .justify_center()
+            .w(spec.indicator_slot)
+            .h(spec.icon_size)
+            .flex_shrink_0();
+
+        if let Some(checked) = self.check {
+            return slot
+                .when(checked, |el| {
+                    el.child(
+                        Icon::new(FluentIcon::Checkmark)
+                            .size(px(14.))
+                            .color(foreground),
+                    )
+                })
+                .into_any_element();
+        }
+
+        if let Some(selected) = self.radio {
+            return slot
+                .when(selected, |el| {
+                    // A dot rather than a ring: the ring is the row's own
+                    // affordance in Fluent's radio menu items.
+                    el.child(div().w(px(8.)).h(px(8.)).rounded_full().bg(foreground))
+                })
+                .into_any_element();
+        }
+
+        if let Some(icon) = self.icon {
+            return slot
+                .child(Icon::new(icon).size(px(16.)).color(foreground))
+                .into_any_element();
+        }
+
+        slot.into_any_element()
     }
 }
 
@@ -138,6 +270,8 @@ impl RenderOnce for MenuItem {
             spec.foreground
         };
 
+        let label = self.label.clone();
+        let leading = self.leading_slot(&spec, foreground);
         let mut el = div()
             .id(self.id)
             .flex()
@@ -150,7 +284,8 @@ impl RenderOnce for MenuItem {
             .text_color(foreground)
             .text_size(spec.font_size)
             .line_height(spec.line_height)
-            .child(self.label)
+            .child(leading)
+            .child(label)
             .refine_style(&self.style);
 
         if !self.disabled {

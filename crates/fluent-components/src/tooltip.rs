@@ -21,3 +21,6 @@ pub fn overlay(cx: &App) -> Option<Entity<TooltipOverlay>> {
     cx.try_global::<TooltipService>()
         .map(|service| service.overlay.clone())
 }
+
+#[cfg(test)]
+mod tests;

@@ -19,9 +19,9 @@
 
 pub use fluent_components::{
     Avatar, Badge, Button, Checkbox, Divider, Field, FluentIcon, FluentRoot, Icon, IconStyle,
-    InputAppearance, Label, Link, Menu, MenuHeader, MenuItem, MenuSeparator, Popover, ProgressBar,
-    Radio, Switch, TextInput, Textarea, TextareaAppearance, TooltipSurface, TooltipView,
-    ValidationMessage, tooltip,
+    InputAppearance, Label, Link, Menu, MenuDropdown, MenuHeader, MenuItem, MenuSeparator, Popover,
+    ProgressBar, Radio, Switch, TextInput, Textarea, TextareaAppearance, TooltipSurface,
+    TooltipView, ValidationMessage, tooltip,
 };
 pub use fluent_core::spec::ControlSize;
 pub use fluent_core::spec::button::{ButtonAppearance, ButtonShape, IconPosition};
@@ -57,4 +57,12 @@ pub fn application() -> gpui::Application {
 pub fn init(cx: &mut gpui::App) {
     fluent_core::gpui_compat::init_base(cx);
     fluent_theme::init(cx);
+    // Dismissing an overlay with Escape needs a binding scoped to the overlay's
+    // key context; GPUI ships none. Bound here so applications do not have to
+    // reproduce it.
+    cx.bind_keys([gpui::KeyBinding::new(
+        "escape",
+        fluent_components::Dismiss,
+        Some(fluent_components::OVERLAY_KEY_CONTEXT),
+    )]);
 }

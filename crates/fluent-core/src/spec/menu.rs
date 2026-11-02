@@ -19,6 +19,11 @@ pub struct MenuItemSpec {
     pub radius: Pixels,
     pub gap: Pixels,
     pub icon_size: Pixels,
+    /// Leading slot reserved for an icon or a check mark.
+    ///
+    /// Fluent keeps this slot in the layout even when a row has neither, so
+    /// labels line up down the menu instead of shifting row by row.
+    pub indicator_slot: Pixels,
     pub font_size: Pixels,
     pub line_height: Pixels,
     pub background: Hsla,
@@ -63,6 +68,7 @@ pub fn item(theme: &FluentTheme, props: &MenuItemProps) -> MenuItemSpec {
         radius: px(4.),
         gap: px(8.),
         icon_size: px(20.),
+        indicator_slot: px(20.),
         font_size: px(14.),
         line_height: px(20.),
         background: c.transparent_background,

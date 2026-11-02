@@ -9,8 +9,9 @@
 |---|---|---|
 | `Button::tooltip` | Button 测量触发器并向根级 gpui-base `TooltipOverlay` 发送请求 | 不等于 GPUI 原生 `.tooltip()`，也不等于 Popover 定位器 |
 | 通用 `tooltip(text)` 助手 | 构建 `TooltipView` 的闭包，供 GPUI 原生 `InteractiveElement::tooltip` 使用 | 内容采用 Fluent 外观，不代表具有 Button overlay 的锚定与间隙配置 |
-| `Popover` | window keyed open state + 同帧测量 + 自研 deferred positioner + 关闭请求背板 | 不依赖 TooltipService，也不是根级 PopoverHost；定位测试不证明关闭正确 |
-| `Menu` / `MenuItem` | Fluent 菜单面板与菜单项视觉/点击实现 | 不等于完整的菜单触发、键盘、子菜单或焦点协议 |
+| `Popover` | window keyed open state + 同帧测量 + 自研 deferred positioner + `on_mouse_down_out` 关闭 | 不依赖 TooltipService，也不是根级 PopoverHost；定位测试不证明关闭正确 |
+| `MenuDropdown` | 把 `Menu` 组合进 `Popover`，继承定位与关闭 | 不等于完整菜单协议：无键盘导航、无子菜单、无焦点协议 |
+| `Menu` / `MenuItem` | Fluent 菜单面板、菜单项、前导图标、勾选/单选行 | 不等于完整的菜单触发、键盘、子菜单或焦点协议 |
 
 **阅读顺序**：[公开导出](../../crates/fluent-ui/src/lib.rs) → 对应组件 → 状态/坐标读写者 → [现有测试](../../crates/fluent-components/src/popover/tests.rs)。
 
@@ -62,15 +63,16 @@ deferred positioner prepaint：读取同一共享值，结合面板尺寸和视�
 
 ## Popover：开关与事件路径
 
-| 状态来源 | 触发器包装层的内置点击 | 背板收到点击后的处理 |
+| 状态来源 | 触发器包装层的内置点击 | 面板收到 `on_mouse_down_out` 后的处理 |
 |---|---|---|
-| 未提供 `open`（非受控） | 翻转 keyed store，通知重绘，并调用可选的 `on_open_change(next)` | 将 store 置 false，必要时通知重绘，调用可选的 `on_open_change(false)` |
+| 未提供 `open`（非受控） | 翻转 keyed store，通知重绘，并调用可选的 `on_open_change(next)` | 若按下点落在面板外且在触发器内则跳过（交给触发器自身的切换）；否则置 store 为 false，必要时通知重绘，调用可选的 `on_open_change(false)` |
 | 提供 `open(value)`（受控） | 当前不安装内置 toggle 回调；调用方自行接线触发动作 | 仍写内部 store 并发出可选关闭回调，但显示状态继续取显式 `open`；需调用方更新值才能关闭 |
 
 - `default_open` 仅初始化 window keyed store，控件身份要稳定。`on_open_change` 是可选通知，不应因名字推定所有状态变化和交互都已覆盖。
 - 打开时构建全视口 `anchored` + `deferred` 背板，先加入背板，再加入 deferred 面板。背板只负责“面板外”的关闭请求。
-- **绘制在上方不等于鼠标命中遮挡。** 面板容器现在调用 `InteractiveElement::occlude`（`HitboxBehavior::BlockMouse`）阻断其下命中，因此面板上的点击不会落到背板。这只保证背板不被穿透，不等于已验证面板内每个交互子元素的命中与回调次数。
-- `Escape` 通过 `gpui_base::actions::Cancel` 关闭：打开期间在触发器包装层挂 `on_action`，走 GPUI 的焦点链分发。焦点不在该子树时不会触发，焦点进入/归还与约束仍未实现。
+- **绘制在上方不等于鼠标命中遮挡。** 面板容器调用 `InteractiveElement::occlude`（`HitboxBehavior::BlockMouse`）阻断其下命中，因此面板上的点击不会落到下方控件。行为测试用一块垫底元素验证了这一点：移除 `occlude` 后“面板内点击不穿透”的两条测试会失败。
+- `Escape` 通过 `fluent_components::Dismiss` 关闭：`fluent_ui::init` 把它绑定到 `escape` 并限定在 `OVERLAY_KEY_CONTEXT`，Popover 在触发器包装层与面板上都设置该 context 并挂 `on_action`。**只有焦点位于浮层内时才会触发**，所以调用方必须通过 `track_focus` 提供焦点句柄。焦点进入/归还与约束仍未实现。
+- 关闭行为已有测试覆盖：外部按下上报 `false`；面板本体、面板内交互子元素上的按下不上报且不穿透；按下触发器只上报一次变化（触发器自身的切换与“点击外部”不会重复上报）；受控调用方忽略请求时保持打开。
 - 当前没有完整焦点进入/归还/约束或嵌套多浮层协调机制。Menu 也没有补全这些能力，见[菜单实现](../../crates/fluent-components/src/menu.rs)。
 
 ## 验证入口与尚未覆盖的场景
@@ -79,12 +81,13 @@ deferred positioner prepaint：读取同一共享值，结合面板尺寸和视�
 
 ```text
 cargo test -p fluent-components --lib popover --locked
+cargo test -p fluent-components --lib tooltip --locked
 cargo test -p fluent-core --lib spec::feedback --locked
 cargo test -p fluent-core --lib spec::menu --locked
 cargo run -p fluent-gallery
 ```
 
-[Popover 测试](../../crates/fluent-components/src/popover/tests.rs)中的证据范围：
+[Popover 测试](../../crates/fluent-components/src/popover/tests.rs)与[关闭行为测试](../../crates/fluent-components/src/popover/dismissal_tests.rs)中的证据范围：
 
 | 测试入口 | 检查的承诺 |
 |---|---|
@@ -92,12 +95,19 @@ cargo run -p fluent-gallery
 | `panel_tracks_each_scroll_event_in_the_same_frame` | 首次 draw 和滚动事件后的首个 draw 对齐；断言 trigger 确实移动，不靠补帧通过 |
 | `panel_tracks_nested_fractional_scroll_and_escapes_clipping` | 嵌套/分数滚动、不同 scale factor、面板内容坐标与裁剪范围 |
 | `reopened_panel_uses_the_current_trigger_position` | 测试直接切换受控 `open` 后的位置，不是点击/关闭回调测试 |
+| `outside_click_requests_a_close` | 面板外的按下上报 `false` |
+| `click_on_panel_surface_keeps_it_open` / `click_on_interactive_child_inside_panel_keeps_it_open` | 面板本体与面板内交互子元素上的按下既不上报关闭，也不穿透到下方元素；移除 `occlude` 后这两条会失败 |
+| `clicking_the_trigger_again_toggles_instead_of_double_reporting` | 一次按下触发器只产生一次状态变化；移除“落在触发器内则跳过”的判断后该测试失败 |
+| `controlled_caller_that_ignores_the_request_stays_open` | 受控调用方收到关闭请求但未更新值时，面板保持打开 |
+| `escape_requests_a_close_while_focus_is_inside` | 焦点在浮层内时 Esc 上报关闭；测试自行绑定 `Dismiss` 并聚焦 |
+
+[Tooltip 测试](../../crates/fluent-components/src/tooltip/tests.rs)只覆盖 service 归属：无 `FluentRoot` 时调用方拿到 `None`、根渲染后 service 可用、实体身份跨重绘稳定。定位、翻转、悬停时机与多窗口隔离不在其中。
 
 **后续行为验证清单**（不是已实现保证；由下一次相关浮层改动认领并记录结果）：
 
-- 外部点击、面板空白/文本/按钮、再次点触发器：命中谁、是否关闭、是否误触背后控件、回调次数。`occlude` 只保证背板不被穿透，命中归属仍需实测。
-- 受控调用方接受/忽略关闭请求、非受控重绘后保持状态、不同 ID/窗口的隔离。
-- Escape 在焦点位于触发器内/外/面板内三种情况下的分发结果；焦点进入/归还、键盘可达性、嵌套/同时打开的多个浮层；先明确预期，再实现并验证。
+- 受控调用方接受关闭请求后的实际关闭、非受控重绘后保持状态、不同 ID/窗口的隔离。
+- Escape 在焦点位于触发器内/外/面板内三种情况下的分发结果；焦点进入/归还、键盘可达性、嵌套/同时打开的多个浮层。
+- 面板在真实窗口中的命中归属（测试用 `canvas` 与垫底元素近似，不覆盖 GPU 字体与原生事件顺序）。
 - Tooltip 的 hover/隐藏、翻转、滚动跟随、键盘触发及多窗口 service 归属。
 - 真实窗口中的边缘、缩放、长内容和滚动；现有测试直接 draw，并不验证 GPU 字体或所有原生事件。
 

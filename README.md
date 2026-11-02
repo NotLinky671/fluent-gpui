@@ -17,12 +17,12 @@ This table describes implementation scope, not verification of every platform, i
 | `Textarea` | Foundation | Multi-line, three appearances |
 | `Field` / `Label` | Foundation | Vertical and horizontal layout, hint text, Error/Warning/Success validation messages |
 | `Checkbox` / `Radio` / `Switch` | Foundation | Controlled/uncontrolled modes; mouse hover/pressed wiring and colour transitions are implemented; full interaction verification remains pending |
-| `Link` / `Divider` | Foundation | Three link palettes, four divider weights |
+| `Link` / `Divider` | Foundation | Three link palettes, four divider appearances |
 | `Badge` / `Avatar` | Foundation | Seven badge appearances, four avatar sizes; Avatar renders initials only |
 | `ProgressBar` | Partial | Determinate progress and an indeterminate sweep; reduced-motion handling and pixel baselines for the indeterminate mode are pending |
 | `Tooltip` | Foundation | `Button::tooltip` uses a root-hosted anchored overlay with a configured 4px gap; hover and flip placement still need manual verification |
-| `Popover` | Experimental | Anchored panel, controlled/uncontrolled open state and same-frame scroll positioning; dismissal, focus management and pixel baselines remain unfinished |
-| `Menu` / `MenuItem` | Partial | Panel, clickable items, separators and headers; trigger integration, full keyboard/accessibility and submenus remain unfinished |
+| `Popover` | Experimental | Anchored panel, controlled/uncontrolled open state, same-frame scroll positioning, outside-click dismissal and Escape; focus management remains unfinished |
+| `Menu` / `MenuItem` | Partial | Panel, clickable items, leading icons, check and radio rows, separators, headers, and `MenuDropdown` trigger integration through `Popover`; keyboard navigation, accessibility and submenus remain unfinished |
 | `Spinner` | Blocked | Not implemented; the current stroked-arc rendering approach is blocked |
 
 ## Quick start
@@ -34,11 +34,12 @@ fluent-ui = "0.1"
 
 ```rust
 use fluent_ui::{Button, FluentRoot, FluentTheme};
-use gpui::prelude::*;
+use fluent_ui::gpui::{App, AppContext, Context, IntoElement, Render, Window};
+use fluent_ui::prelude::*;
 
-struct App;
+struct HelloView;
 
-impl Render for App {
+impl Render for HelloView {
     fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
         FluentRoot::new().child(Button::new("save").child("Save"))
     }
@@ -48,7 +49,7 @@ fn main() {
     fluent_ui::application().run(|cx: &mut App| {
         fluent_ui::init(cx);
         FluentTheme::web_light().install(cx);
-        cx.open_window(Default::default(), |_, cx| cx.new(|_| App))
+        cx.open_window(Default::default(), |_, cx| cx.new(|_| HelloView))
             .expect("failed to open window");
     });
 }
@@ -75,13 +76,11 @@ Switch::new("wifi").default_checked(true)
 
 ## Theming
 
-Five themes, generated from the official Fluent design tokens:
+The token data includes five official palettes. `FluentTheme` currently exposes these three built-in theme constructors, not `teams_light()` / `teams_dark()`:
 
 ```rust
 FluentTheme::web_light().install(cx);
 FluentTheme::web_dark().install(cx);
-FluentTheme::teams_light().install(cx);
-FluentTheme::teams_dark().install(cx);
 FluentTheme::high_contrast().install(cx);
 ```
 
@@ -109,10 +108,10 @@ GPUI is pinned to an exact snapshot (`gpui-pre = 0.3.10`); a caret requirement w
 - `Spinner` is not implemented; the current stroked-arc rendering approach is blocked
 - `Avatar` renders initials only; no images, no status badge
 - Mouse hover/pressed state wiring and colour transitions are implemented for Checkbox / Radio / Switch; full keyboard and pointer-cancellation behaviour is not yet verified
-- `Popover` has no Escape/outside-click dismissal or full focus management; viewport edges clamp the panel rather than flipping it above/below
-- `Menu` trigger integration, keyboard navigation, accessibility and submenus are unfinished
+- `Popover` dismissal is covered by behaviour tests: an outside press reports `false`, presses on the panel body or its interactive children do not, a press on the trigger reports one change, and a controlled caller that ignores the request stays open. Escape is bound to `fluent_components::Dismiss` and only fires while focus is inside the popover, so `track_focus` is required. Focus entry and restoration are still unimplemented, and viewport edges clamp the panel rather than flipping it above/below
+- `MenuDropdown` composes `Menu` into `Popover`, so a menu inherits anchored placement and dismissal. Keyboard navigation, accessibility and submenus are unfinished, so menus are pointer-only
 - Reduced-motion handling and pixel baselines for indeterminate `ProgressBar` are pending
-- `Button::tooltip` delegates flipping to the gpui-base overlay; hover/flip placement still needs manual verification. The generic `tooltip(text)` helper uses GPUI-native positioning without the same anchoring guarantee
+- `Button::tooltip` delegates flipping to the gpui-base overlay; hover/flip placement still needs manual verification. The generic `tooltip(text)` helper uses GPUI-native positioning without the same anchoring guarantee. Tests cover only that the root publishes the service, that its entity identity survives redraws, and that callers see `None` without a root
 - No RTL support, no letter-spacing control, no CSS `outline`
 - No live regions; nothing is announced to screen readers on change
 - High contrast has to be selected manually; there is no system-level auto-detection
