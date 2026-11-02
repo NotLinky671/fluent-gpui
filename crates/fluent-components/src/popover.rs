@@ -233,11 +233,12 @@ impl RenderOnce for Popover {
 
         let trigger_bounds = TriggerBounds::default();
 
+        let trap_id = SharedString::from(format!("popover-trap-{:?}", self.id));
         let trigger = self.trigger.map(|trigger| trigger.into_any_element());
         let content = self.content;
         let style = self.style;
         let on_change = self.on_open_change;
-        let focus = self.focus;
+        let focus = self.focus.clone();
 
         // Focus handover. Opening moves focus into the panel and remembers what
         // had it; closing gives it back only if it is still inside, so a click
@@ -270,6 +271,7 @@ impl RenderOnce for Popover {
             }
         }
 
+        let panel_focus = focus.clone();
         let anchor = div()
             .on_children_prepainted({
                 let trigger_bounds = trigger_bounds.clone();
@@ -365,13 +367,41 @@ impl RenderOnce for Popover {
                         }
                     });
                 }
+                // Escape must work from inside the panel too: once focus moves
+                // here the trigger wrapper is no longer an ancestor of the
+                // focused element, so its handler cannot receive the action.
+                {
+                    let close_store = close_store.clone();
+                    let close_handler = close_handler.clone();
+                    panel = panel.on_action(move |_: &crate::Dismiss, window, cx| {
+                        close_store.update(cx, |open, cx| {
+                            if *open {
+                                *open = false;
+                                cx.notify();
+                            }
+                        });
+                        if let Some(handler) = close_handler.as_ref() {
+                            handler(false, window, cx);
+                        }
+                    });
+                }
                 if let Some(content) = content {
                     panel = panel.child(content);
                 }
+                // With a focus handle the panel also traps Tab, so the keyboard
+                // stays in the popover instead of walking into the page behind it.
+                // Without one there is nothing to trap around.
+                let panel: AnyElement = match panel_focus.as_ref() {
+                    Some(panel_focus) => {
+                        use gpui_base::FocusTrapElement as _;
+                        panel.focus_trap(trap_id, panel_focus).into_any_element()
+                    }
+                    None => panel.into_any_element(),
+                };
                 el.child(deferred(PopoverPositioner {
                     trigger_bounds,
                     panel_bounds,
-                    panel: panel.into_any_element(),
+                    panel,
                 }))
             })
             .refine_style(&style)

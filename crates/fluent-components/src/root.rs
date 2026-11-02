@@ -55,6 +55,37 @@ impl ParentElement for FluentRoot {
     }
 }
 
+/// Advances focus, keeping it inside an active focus trap.
+///
+/// A trap is registered by an overlay that wants Tab to cycle inside it instead
+/// of escaping to the page behind. `gpui-base` publishes the active trap but its
+/// own Tab handler lives on a different key context, so the walk has to be
+/// repeated here.
+///
+/// The walk stops at the first repeated stop rather than only when it returns to
+/// where it began: GPUI's tab order can cycle short of the whole window when a
+/// stop's previous stop is itself.
+fn advance_focus(window: &mut Window, cx: &mut App, advance: fn(&mut Window, &mut App)) {
+    let Some(container) = gpui_base::active_focus_trap(window, cx) else {
+        advance(window, cx);
+        return;
+    };
+
+    advance(window, cx);
+    let mut visited = Vec::new();
+    while !container.contains_focused(window, cx) {
+        let focused = window.focused(cx);
+        if visited.contains(&focused) {
+            // No stop in the trap is reachable; its own handle is still a safe
+            // target even when excluded from ordinary tab order.
+            container.focus(window, cx);
+            break;
+        }
+        visited.push(focused);
+        advance(window, cx);
+    }
+}
+
 impl RenderOnce for FluentRoot {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let theme = FluentTheme::global(cx);
@@ -78,8 +109,12 @@ impl RenderOnce for FluentRoot {
             // fires under its own root view. Carrying this context here is what
             // lets the binding reach controls mounted under FluentRoot.
             .key_context(crate::ROOT_KEY_CONTEXT)
-            .on_action(|_: &crate::FocusNext, window, cx| window.focus_next(cx))
-            .on_action(|_: &crate::FocusPrev, window, cx| window.focus_prev(cx))
+            .on_action(|_: &crate::FocusNext, window, cx| {
+                advance_focus(window, cx, gpui::Window::focus_next)
+            })
+            .on_action(|_: &crate::FocusPrev, window, cx| {
+                advance_focus(window, cx, gpui::Window::focus_prev)
+            })
             .refine_style(&self.style)
             .children(self.children)
             .child(overlay)

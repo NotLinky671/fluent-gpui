@@ -121,6 +121,9 @@ fn open_view(
     open: Option<bool>,
     default_open: bool,
 ) -> (WindowHandle<DismissView>, Log) {
+    // The focus trap keeps a global manager; a popover with a focus handle
+    // registers one, so the state has to exist before the window renders.
+    cx.update(fluent_core::gpui_compat::init_base);
     let log = Log::default();
     let handle_log = log.clone();
     let window = cx.open_window(size(px(600.), px(400.)), move |_, cx| DismissView {
@@ -171,6 +174,9 @@ fn press_escape(cx: &mut TestAppContext, handle: WindowHandle<DismissView>) {
         let view = view.downcast::<DismissView>().unwrap();
         let focus = view.read(cx).focus.clone();
         window.focus(&focus, cx);
+        // Focus changed outside a render, so the key context path has to be
+        // rebuilt before the dispatch can match the binding.
+        window.refresh();
         window.dispatch_event(
             PlatformInput::KeyDown(KeyDownEvent {
                 keystroke: Keystroke::parse("escape").unwrap(),

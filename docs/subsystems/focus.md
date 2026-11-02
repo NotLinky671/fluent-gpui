@@ -34,6 +34,8 @@
 关闭（上一帧打开）→ 若焦点仍在面板内，交还记录的句柄
 ```
 
+面板在提供焦点句柄时还会注册焦点陷阱（`gpui-base::FocusTrapElement`），Tab 由 `FluentRoot` 的处理器约束在陷阱内。Esc 在触发器包装层与面板上**都**挂了处理：焦点移入面板后，触发器不再是祖先，只挂一处会收不到。
+
 「仍在面板内」这个条件不能省：用户可能在浮层打开期间点击别处，此时焦点已经移动，关闭时强行归还会把焦点从用户刚点的地方抢走。
 
 保存前一焦点与「上一帧是否打开」都用 window keyed state（按元素 ID 区分），因为 `Popover` 是 `RenderOnce`，自身没有跨帧状态。
@@ -69,7 +71,8 @@ cargo test -p fluent-components --lib tab_order_tests --locked
 
 ## 尚未覆盖
 
-- 焦点陷阱与模态（gpui-base 有公开的 `FocusTrapElement` / `active_focus_trap`，本项目尚未接入）
+- **陷阱内的推进顺序未验证**：`TestAppContext` 里 `focus_next` 在陷阱容器存在时不会推进到下一个子元素（实测停在第一个 stop），因此无法用自动化断言「Tab 依次经过每个菜单项」。曾写过两条只断言"不逃逸"的测试，但移除陷阱后它们仍然通过，属于空测试，已删除。
+- 模态语义：`Role::Dialog` / `AlertDialog` 的 AccessKit 角色、背景内容是否真的不可交互
 - 方向键在菜单项之间的移动、`aria-activedescendant`
 - AccessKit role/state 是否随焦点正确上报
 - 真实窗口中的 Tab 顺序（测试直接派发按键，不经过平台输入法或原生焦点环）
