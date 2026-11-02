@@ -179,7 +179,6 @@ impl RenderOnce for TextInput {
             // exact size it had before the edge became an overlay.
             .pb(m.border_width)
             .rounded(m.radius)
-            .overflow_hidden()
             .px(m.padding_x)
             .gap(m.gap)
             .text_size(m.font_size)
@@ -224,7 +223,21 @@ impl RenderOnce for TextInput {
         } else {
             rest.border_bottom
         };
-        root = root.child(overlay_line(bottom_edge, m.border_width));
+        // Bottom edge painted as a border on a rounded overlay: GPUI clips
+        // rectangles only, so a filled bar would end in a straight line, while a
+        // border follows the element's corner radius — which is how Fluent's
+        // clip-path version ends up looking.
+        root = root.child(
+            div()
+                .absolute()
+                .left(px(0.))
+                .right(px(0.))
+                .top(px(0.))
+                .bottom(px(0.))
+                .rounded(m.radius)
+                .border_b(m.border_width)
+                .border_color(bottom_edge),
+        );
 
         // Focus underline: present but transparent until the field is focused.
         // `track_focus` + `focus()` gives us focus-without-modality styling.
@@ -258,9 +271,11 @@ impl RenderOnce for TextInput {
                     .absolute()
                     .left(relative(inset))
                     .right(relative(inset))
+                    .top(px(0.))
                     .bottom(px(0.))
-                    .h(m.underline_height)
-                    .bg(underline),
+                    .rounded(m.radius)
+                    .border_b(m.underline_height)
+                    .border_color(underline),
             );
         }
 
