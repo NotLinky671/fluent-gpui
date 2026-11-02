@@ -15,10 +15,16 @@ use gpui_base::Switch as BaseSwitch;
 pub type ChangeHandler = Box<dyn Fn(&bool, &mut Window, &mut App) + 'static>;
 
 /// A Fluent 2 switch.
+///
+/// Controlled by default: pass [`Switch::checked`] and update it in
+/// [`Switch::on_change`]. Use [`Switch::default_checked`] for an uncontrolled
+/// switch that keeps its own state.
 #[derive(IntoElement)]
 pub struct Switch {
     id: ElementId,
+    controlled: bool,
     checked: bool,
+    default_checked: bool,
     disabled: bool,
     size: ControlSize,
     label: Option<SharedString>,
@@ -30,7 +36,9 @@ impl Switch {
     pub fn new(id: impl Into<ElementId>) -> Self {
         Self {
             id: id.into(),
+            controlled: false,
             checked: false,
+            default_checked: false,
             disabled: false,
             size: ControlSize::Medium,
             label: None,
@@ -39,8 +47,17 @@ impl Switch {
         }
     }
 
+    /// Controlled value: the caller owns the state.
     pub fn checked(mut self, checked: bool) -> Self {
+        self.controlled = true;
         self.checked = checked;
+        self
+    }
+
+    /// Uncontrolled initial value: the switch keeps its own state.
+    pub fn default_checked(mut self, checked: bool) -> Self {
+        self.controlled = false;
+        self.default_checked = checked;
         self
     }
 
@@ -72,17 +89,29 @@ impl Styled for Switch {
 }
 
 impl RenderOnce for Switch {
-    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let theme = FluentTheme::global(cx);
+
+        // Uncontrolled switches keep their value in window-scoped keyed state.
+        let store = window.use_keyed_state(
+            SharedString::from(format!("switch-state-{:?}", self.id)),
+            cx,
+            |_, _| self.default_checked,
+        );
+        let checked = if self.controlled {
+            self.checked
+        } else {
+            *store.read(cx)
+        };
+
         let spec = switch::resolve(
             &theme,
             &SwitchProps {
                 size: self.size,
-                checked: self.checked,
+                checked,
                 disabled: self.disabled,
             },
         );
-        let checked = self.checked;
 
         let track = div()
             .flex_shrink_0()
@@ -110,14 +139,25 @@ impl RenderOnce for Switch {
             .child(track)
             .when_some(self.label, |el, label| el.child(label));
 
-        let mut el = BaseSwitch::new(self.id)
+        let controlled = self.controlled;
+        let handler = self.on_change;
+        let store_for_click = store.clone();
+
+        BaseSwitch::new(self.id)
             .checked(checked)
             .disabled(self.disabled)
-            .child(content);
-
-        if let Some(handler) = self.on_change {
-            el = el.on_change(move |value, _, window, cx| handler(&value, window, cx));
-        }
-        el.refine_style(&self.style)
+            .child(content)
+            .on_change(move |value, _, window, cx| {
+                if !controlled {
+                    store_for_click.update(cx, |state, cx| {
+                        *state = value;
+                        cx.notify();
+                    });
+                }
+                if let Some(handler) = handler.as_ref() {
+                    handler(&value, window, cx);
+                }
+            })
+            .refine_style(&self.style)
     }
 }
