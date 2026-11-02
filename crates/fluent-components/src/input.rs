@@ -168,9 +168,18 @@ impl RenderOnce for TextInput {
             .h(m.height)
             .w_full()
             .bg(background)
-            .border_1()
+            // No bottom border: the bottom edge is an overlay so the focus
+            // underline can replace it, and clipping to the radius makes both
+            // wrap the corners the way Fluent's clip-path does.
+            .border_t_1()
+            .border_l_1()
+            .border_r_1()
             .border_color(border)
+            // Replaces the removed bottom border so the content box keeps the
+            // exact size it had before the edge became an overlay.
+            .pb(m.border_width)
             .rounded(m.radius)
+            .overflow_hidden()
             .px(m.padding_x)
             .gap(m.gap)
             .text_size(m.font_size)
@@ -247,21 +256,11 @@ impl RenderOnce for TextInput {
             root = root.child(
                 div()
                     .absolute()
-                    .left(px(-1.))
-                    .right(px(-1.))
-                    .bottom(px(-1.))
+                    .left(relative(inset))
+                    .right(relative(inset))
+                    .bottom(px(0.))
                     .h(m.underline_height)
-                    .child(
-                        div()
-                            .absolute()
-                            .left(relative(inset))
-                            .right(relative(inset))
-                            .top(px(0.))
-                            .bottom(px(0.))
-                            .rounded_bl(m.radius)
-                            .rounded_br(m.radius)
-                            .bg(underline),
-                    ),
+                    .bg(underline),
             );
         }
 

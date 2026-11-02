@@ -176,6 +176,7 @@ pub fn render(name: &str, window: &mut Window, cx: &mut App) -> Option<AnyElemen
         "avatar-medium" => Avatar::new("Ada Lovelace")
             .size(AvatarSize::Medium)
             .into_any_element(),
+
         _ => return None,
     };
     Some(element)
