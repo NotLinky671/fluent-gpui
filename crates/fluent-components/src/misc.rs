@@ -162,15 +162,8 @@ impl RenderOnce for Link {
             window,
             cx,
         );
-        // Fluent underlines a link while it is hovered; fade the rule in rather
-        // than toggling it.
-        let underline = crate::motion::fraction(
-            SharedString::from(format!("link-underline-{:?}", self.id)),
-            if hovered || is_pressed { 1.0 } else { 0.0 },
-            fluent_core::spec::motion::state_policy(),
-            window,
-            cx,
-        );
+        // Fluent shows the rule immediately while the link is hovered: no fade.
+        let show_underline = hovered || is_pressed;
 
         let mut el = div()
             .id(self.id)
@@ -187,9 +180,9 @@ impl RenderOnce for Link {
                         .left(px(0.))
                         .right(px(0.))
                         .bottom(px(2.))
-                        .h(px(1.))
+                        .h(px(1.5))
                         .bg(color)
-                        .opacity(underline),
+                        .opacity(if show_underline { 1.0 } else { 0.0 }),
                 ),
             )
             .refine_style(&self.style);
