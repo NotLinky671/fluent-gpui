@@ -125,6 +125,9 @@ impl RenderOnce for ProgressBar {
 
         let track = div()
             .relative()
+            // The indeterminate segment travels from off one end to off the
+            // other; without a clip it paints outside the track.
+            .overflow_hidden()
             .h(spec.height)
             .w_full()
             .rounded(spec.radius)
