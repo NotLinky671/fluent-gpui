@@ -125,9 +125,6 @@ impl RenderOnce for ProgressBar {
 
         let track = div()
             .relative()
-            // The indeterminate segment travels from off one end to off the
-            // other; without a clip it paints outside the track.
-            .overflow_hidden()
             .h(spec.height)
             .w_full()
             .rounded(spec.radius)
@@ -143,12 +140,17 @@ impl RenderOnce for ProgressBar {
             let id = ElementId::Name(format!("progress-{:?}", self.appearance).into());
             return track
                 .with_animation(id, animation, move |track, delta| {
+                    // The segment slides from off the left edge to off the right.
+                    // Clamping both edges to the track keeps it inside without a
+                    // clip, which would square off the rounded ends.
                     let travel = -0.4 + delta * 1.4;
+                    let left_edge = travel.max(0.0);
+                    let right_edge = (travel + 0.4).min(1.0);
                     track.child(
                         div()
                             .absolute()
-                            .left(relative(travel))
-                            .right(relative(0.6 - travel))
+                            .left(relative(left_edge))
+                            .right(relative(1.0 - right_edge))
                             .top(px(0.))
                             .bottom(px(0.))
                             .rounded(spec.radius)
