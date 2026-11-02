@@ -16,9 +16,9 @@ A Rust UI component library built to the **Microsoft Fluent 2** visual specifica
 | `Field` / `Label` | ✅ | Vertical and horizontal layout, hint text, Error/Warning/Success validation messages |
 | `Checkbox` / `Radio` / `Switch` | ✅ | Controlled and uncontrolled modes |
 | `Link` / `Divider` | ✅ | Three link palettes, four divider weights |
-| `Badge` / `ProgressBar` / `Avatar` | ✅ | Seven badge appearances, four avatar sizes |
+| `Badge` / `ProgressBar` / `Avatar` | ✅ | Seven badge appearances, four avatar sizes, determinate and indeterminate progress |
 | `Tooltip` | ✅ | Anchored to the trigger, flips above/below, 4px gap |
-| `Spinner` | ⏸ | Waiting on a rotation animation foundation |
+| `Spinner` | ⏸ | Blocked: Fluent's ring needs stroked arcs, which GPUI does not expose |
 
 ## Quick start
 
@@ -101,7 +101,7 @@ GPUI is pinned to an exact snapshot (`gpui-pre = 0.3.10`); a caret requirement w
 
 ## Known limitations
 
-- `Spinner` and the indeterminate `ProgressBar` are not implemented — both need looping animation
+- `Spinner` is not implemented: it needs a stroked arc, and GPUI offers no public path painter, no per-side border colours and no rotation style
 - `Avatar` renders initials only; no images, no status badge
 - Hover states are wired for Checkbox / Radio / Switch; pressed states are not yet
 - No RTL support, no letter-spacing control, no CSS `outline`

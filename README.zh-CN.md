@@ -16,9 +16,9 @@
 | `Field` / `Label` | ✅ | 垂直/水平布局、hint、Error/Warning/Success 验证消息 |
 | `Checkbox` / `Radio` / `Switch` | ✅ | 受控与非受控两种模式 |
 | `Link` / `Divider` | ✅ | 三种 Link 配色、四档 Divider |
-| `Badge` / `ProgressBar` / `Avatar` | ✅ | 7 种 Badge 外观、4 档 Avatar |
+| `Badge` / `ProgressBar` / `Avatar` | ✅ | 7 种 Badge 外观、4 档 Avatar、进度条含不定态 |
 | `Tooltip` | ✅ | 锚定元素、自动上下翻转、4px 间隙 |
-| `Spinner` | ⏸ | 等待旋转动画基础设施 |
+| `Spinner` | ⏸ | 受阻：需要绘制圆弧，GPUI 未暴露该能力 |
 
 ## 快速开始
 
@@ -101,7 +101,7 @@ GPUI 精确锁定在快照版本（`gpui-pre = 0.3.10`）；用 caret 版本会�
 
 ## 已知限制
 
-- `Spinner`、`ProgressBar` 的不定态尚未实现（需要循环动画）
+- `Spinner` 尚未实现：需要描边圆弧，而 GPUI 没有公开的 path 绘制、没有按边设色、也没有旋转样式
 - `Avatar` 只渲染首字母，无图片与状态徽标
 - Checkbox / Radio / Switch 的 hover 已接线，pressed 尚未
 - 不支持 RTL 布局、`letter_spacing`、CSS `outline`
