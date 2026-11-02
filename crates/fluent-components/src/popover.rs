@@ -17,6 +17,7 @@ use gpui::{
     Bounds, Display, Element, GlobalElementId, InspectorElementId, LayoutId, Pixels, Point,
     Position, Size, Style, anchored, deferred, point,
 };
+use gpui_base::actions::Cancel;
 use std::{cell::Cell, rc::Rc};
 
 /// Shared only by the trigger and its panel for one rendered element tree.
@@ -233,6 +234,21 @@ impl RenderOnce for Popover {
             .child(
                 div()
                     .id(self.id)
+                    .when(is_open, |el| {
+                        let store = store.clone();
+                        let on_change = on_change.clone();
+                        el.on_action(move |_: &Cancel, window, cx| {
+                            store.update(cx, |open, cx| {
+                                if *open {
+                                    *open = false;
+                                    cx.notify();
+                                }
+                            });
+                            if let Some(handler) = on_change.as_ref() {
+                                handler(false, window, cx);
+                            }
+                        })
+                    })
                     .when(!controlled, |el| {
                         let store = store.clone();
                         let on_change = on_change.clone();
@@ -257,9 +273,9 @@ impl RenderOnce for Popover {
         div()
             .child(anchor)
             .when(is_open, |el| {
-                // Clicking anywhere outside the panel dismisses it. The backdrop
-                // paints below the panel, so clicks on the panel itself never
-                // reach it.
+                // A click anywhere outside the panel dismisses it. Painting order
+                // alone does not keep panel clicks away from the backdrop, so the
+                // panel blocks the mouse itself (see below).
                 let viewport = window.viewport_size();
                 el.child(deferred(
                     anchored().child(
@@ -290,6 +306,10 @@ impl RenderOnce for Popover {
                     .text_color(surface.foreground)
                     .p(px(12.))
                     .shadow(shadow);
+                // Painting above the backdrop does not stop the mouse reaching it;
+                // blocking here is what makes "clicks inside the panel keep it
+                // open" true rather than merely intended.
+                panel = panel.occlude();
                 if let Some(content) = content {
                     panel = panel.child(content);
                 }
@@ -301,6 +321,5 @@ impl RenderOnce for Popover {
             .refine_style(&style)
     }
 }
-
 #[cfg(test)]
 mod tests;
