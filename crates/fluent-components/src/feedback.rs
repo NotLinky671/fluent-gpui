@@ -1,6 +1,8 @@
 //! Fluent 2 `Badge`, `ProgressBar` and `Avatar`.
 
 use fluent_core::gpui_compat::StyledExt as _;
+use std::time::Duration;
+
 use fluent_core::gpui_compat::{
     App, Context, IntoElement, ParentElement, RenderOnce, SharedString, StyleRefinement, Styled,
     Window, div, px, relative,
@@ -10,7 +12,7 @@ use fluent_core::spec::feedback::{
 };
 use fluent_theme::FluentTheme;
 use gpui::prelude::FluentBuilder as _;
-use gpui::{AnyView, AppContext as _, Render};
+use gpui::{Animation, AnimationExt, AnyView, AppContext as _, ElementId, Render};
 
 /// A Fluent 2 badge.
 #[derive(IntoElement)]
@@ -82,6 +84,7 @@ impl RenderOnce for Badge {
 pub struct ProgressBar {
     value: f32,
     appearance: ProgressAppearance,
+    indeterminate: bool,
     style: StyleRefinement,
 }
 
@@ -91,12 +94,20 @@ impl ProgressBar {
         Self {
             value: value.clamp(0., 100.),
             appearance: ProgressAppearance::Default,
+            indeterminate: false,
             style: StyleRefinement::default(),
         }
     }
 
     pub fn appearance(mut self, appearance: ProgressAppearance) -> Self {
         self.appearance = appearance;
+        self
+    }
+
+    /// An unknown-duration progress: `value` is ignored and a segment sweeps
+    /// across the track on a loop.
+    pub fn indeterminate(mut self) -> Self {
+        self.indeterminate = true;
         self
     }
 }
@@ -111,11 +122,40 @@ impl RenderOnce for ProgressBar {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let theme = FluentTheme::global(cx);
         let spec = feedback::progress(&theme, self.appearance);
-        div()
+
+        let track = div()
+            .relative()
             .h(spec.height)
             .w_full()
             .rounded(spec.radius)
             .bg(spec.track)
+            .refine_style(&self.style);
+
+        if self.indeterminate {
+            // Fluent's indeterminate bar sweeps across on a loop: a fixed-width
+            // segment whose insets travel from off the left edge to off the right.
+            // The phase comes from a repeating animation rather than a transition
+            // because there is no target state to settle on.
+            let animation = Animation::new(Duration::from_millis(2000)).repeat();
+            let id = ElementId::Name(format!("progress-{:?}", self.appearance).into());
+            return track
+                .with_animation(id, animation, move |track, delta| {
+                    let travel = -0.4 + delta * 1.4;
+                    track.child(
+                        div()
+                            .absolute()
+                            .left(relative(travel))
+                            .right(relative(0.6 - travel))
+                            .top(px(0.))
+                            .bottom(px(0.))
+                            .rounded(spec.radius)
+                            .bg(spec.bar),
+                    )
+                })
+                .into_any_element();
+        }
+
+        track
             .child(
                 div()
                     .h_full()
@@ -123,7 +163,7 @@ impl RenderOnce for ProgressBar {
                     .rounded(spec.radius)
                     .bg(spec.bar),
             )
-            .refine_style(&self.style)
+            .into_any_element()
     }
 }
 

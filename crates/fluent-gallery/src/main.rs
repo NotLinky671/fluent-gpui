@@ -662,7 +662,8 @@ impl Render for Gallery {
                     .child(ProgressBar::new(25.))
                     .child(ProgressBar::new(60.))
                     .child(ProgressBar::new(100.).appearance(ProgressAppearance::Success))
-                    .child(ProgressBar::new(40.).appearance(ProgressAppearance::Error)),
+                    .child(ProgressBar::new(40.).appearance(ProgressAppearance::Error))
+                    .child(ProgressBar::new(0.).indeterminate()),
             )
             .child(
                 div()
