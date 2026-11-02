@@ -19,7 +19,7 @@
 
 pub use fluent_components::{
     Avatar, Badge, Button, Checkbox, Divider, Field, FluentIcon, FluentRoot, Icon, IconStyle,
-    InputAppearance, Label, Link, ProgressBar, Radio, Switch, TextInput, Textarea,
+    InputAppearance, Label, Link, Popover, ProgressBar, Radio, Switch, TextInput, Textarea,
     TextareaAppearance, TooltipSurface, TooltipView, ValidationMessage, tooltip,
 };
 pub use fluent_core::spec::ControlSize;
