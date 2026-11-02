@@ -8,8 +8,8 @@ use crate::icon::Icon;
 use fluent_core::gpui_compat::StyledExt as _;
 use fluent_core::gpui_compat::{
     AnyElement, App, BoxShadow, ClickEvent, ElementId, InteractiveElement, IntoElement,
-    ParentElement, RenderOnce, SharedString, StatefulInteractiveElement, StyleRefinement, Styled,
-    Window, div, point, px,
+    MouseButton, ParentElement, RenderOnce, SharedString, StatefulInteractiveElement,
+    StyleRefinement, Styled, Window, div, point, px,
 };
 use fluent_core::spec::ControlSize;
 use fluent_core::spec::button::{self, ButtonAppearance, ButtonProps, ButtonShape, IconPosition};
@@ -146,7 +146,7 @@ impl ParentElement for Button {
 }
 
 impl RenderOnce for Button {
-    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let theme = self.theme.unwrap_or_else(|| FluentTheme::global(cx));
         let spec = button::resolve(&theme, &self.props);
         let m = spec.metrics;
@@ -157,12 +157,56 @@ impl RenderOnce for Button {
         let disabled = spec.disabled;
         let is_disabled = self.props.disabled;
 
+        // Hover and press drive animated colours: gpui-base's own .hover() and
+        // .active() restyle instantly, which reads as a hard snap next to the
+        // rest of the system.
+        let hover_state = window.use_keyed_state(
+            SharedString::from(format!("button-hovered-{:?}", self.id)),
+            cx,
+            |_, _| false,
+        );
+        let press_state = window.use_keyed_state(
+            SharedString::from(format!("button-pressed-{:?}", self.id)),
+            cx,
+            |_, _| false,
+        );
+        let hovered = *hover_state.read(cx) && !is_disabled;
+        let is_pressed = *press_state.read(cx) && !is_disabled;
+
+        let (target_background, target_foreground, target_border) = if is_disabled {
+            (disabled.background, disabled.foreground, disabled.border)
+        } else if is_pressed {
+            (pressed.background, pressed.foreground, pressed.border)
+        } else if hovered {
+            (hover.background, hover.foreground, hover.border)
+        } else {
+            (rest.background, rest.foreground, rest.border)
+        };
+        let background = crate::motion::state_color(
+            SharedString::from(format!("button-bg-{:?}", self.id)),
+            target_background,
+            window,
+            cx,
+        );
+        let foreground = crate::motion::state_color(
+            SharedString::from(format!("button-fg-{:?}", self.id)),
+            target_foreground,
+            window,
+            cx,
+        );
+        let stroke = crate::motion::state_color(
+            SharedString::from(format!("button-border-{:?}", self.id)),
+            target_border,
+            window,
+            cx,
+        );
+
         let mut el = gpui_base::Button::new(self.id)
             .disabled(is_disabled)
-            .bg(rest.background)
-            .text_color(rest.foreground)
+            .bg(background)
+            .text_color(foreground)
             .border_1()
-            .border_color(rest.border)
+            .border_color(stroke)
             .rounded(m.radius)
             .text_size(m.font_size)
             .line_height(m.line_height)
@@ -175,22 +219,31 @@ impl RenderOnce for Button {
             // Caller overrides apply last (ADR-0002, layer 3).
             .refine_style(&self.style);
 
-        if is_disabled {
-            el = el
-                .bg(disabled.background)
-                .text_color(disabled.foreground)
-                .border_color(disabled.border);
-        } else {
-            el = el
-                .hover(move |s| {
-                    s.bg(hover.background)
-                        .text_color(hover.foreground)
-                        .border_color(hover.border)
-                })
-                .active(move |s| {
-                    s.bg(pressed.background)
-                        .text_color(pressed.foreground)
-                        .border_color(pressed.border)
+        if !is_disabled {
+            let hover_listener = hover_state.clone();
+            el.interactivity().on_hover(move |is_hovered, _, cx| {
+                hover_listener.update(cx, |state, cx| {
+                    if *state != *is_hovered {
+                        *state = *is_hovered;
+                        cx.notify();
+                    }
+                });
+            });
+            let press_down = press_state.clone();
+            el.interactivity()
+                .on_mouse_down(MouseButton::Left, move |_, _, cx| {
+                    press_down.update(cx, |state, cx| {
+                        *state = true;
+                        cx.notify();
+                    });
+                });
+            let press_up = press_state.clone();
+            el.interactivity()
+                .on_mouse_up(MouseButton::Left, move |_, _, cx| {
+                    press_up.update(cx, |state, cx| {
+                        *state = false;
+                        cx.notify();
+                    });
                 });
         }
 
