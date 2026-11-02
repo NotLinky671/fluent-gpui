@@ -40,12 +40,15 @@ pub struct SwitchSpec {
 pub fn resolve(theme: &FluentTheme, props: &SwitchProps) -> SwitchSpec {
     let t = theme.tokens();
     let c = &t.color;
-    let (track_width, track_height, thumb_size) = match props.size {
-        ControlSize::Small => (px(32.), px(16.), px(14.)),
-        _ => (px(40.), px(20.), px(18.)),
+    // Measured against Fluent's rendered switch: the thumb is ~70% of the
+    // track height, with a visible gap on every side.
+    let (track_width, track_height) = match props.size {
+        ControlSize::Small => (px(32.), px(16.)),
+        _ => (px(40.), px(20.)),
     };
-    // `translateX(trackWidth - thumbSize - spaceBetweenThumbAndTrack)`
-    let thumb_offset = track_width - thumb_size - px(2.);
+    let thumb_size = (track_height * 0.7).round();
+    let thumb_inset = ((track_height - thumb_size) / 2.0).round();
+    let thumb_offset = track_width - thumb_size - thumb_inset;
 
     if props.disabled {
         return SwitchSpec {
@@ -114,8 +117,8 @@ mod tests {
         let medium = resolve(&theme, &SwitchProps::default());
         assert_eq!(medium.track_width, px(40.));
         assert_eq!(medium.track_height, px(20.));
-        assert_eq!(medium.thumb_size, px(18.));
-        assert_eq!(medium.thumb_offset, px(20.));
+        assert_eq!(medium.thumb_size, px(14.));
+        assert_eq!(medium.thumb_offset, px(23.));
 
         let small = resolve(
             &theme,
@@ -126,8 +129,8 @@ mod tests {
         );
         assert_eq!(small.track_width, px(32.));
         assert_eq!(small.track_height, px(16.));
-        assert_eq!(small.thumb_size, px(14.));
-        assert_eq!(small.thumb_offset, px(16.));
+        assert_eq!(small.thumb_size, px(11.));
+        assert_eq!(small.thumb_offset, px(18.));
     }
 
     #[test]

@@ -94,7 +94,7 @@ impl RenderOnce for Switch {
             .bg(spec.track_bg)
             .flex()
             .items_center()
-            .pl(if checked { spec.thumb_offset } else { px(0.) })
+            .pl(if checked { spec.thumb_offset } else { px(3.) })
             .child(
                 div()
                     .flex_shrink_0()

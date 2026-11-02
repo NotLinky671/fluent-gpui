@@ -121,8 +121,8 @@ pub fn radio(theme: &FluentTheme, props: &RadioProps) -> RadioSpec {
     let t = theme.tokens();
     let c = &t.color;
     let circle = px(16.);
-    // Fluent's dot is the full indicator scaled by 0.625.
-    let dot = circle * 0.625;
+    // Measured against Fluent's rendered radio: the dot is ~0.58 of the ring.
+    let dot = px(9.5);
 
     if props.disabled {
         return RadioSpec {
@@ -239,7 +239,7 @@ mod tests {
     fn radio_dot_is_five_eighths_of_the_circle() {
         let spec = radio(&FluentTheme::web_light(), &RadioProps::default());
         assert_eq!(spec.circle, px(16.));
-        assert_eq!(spec.dot, px(10.));
+        assert_eq!(spec.dot, px(9.5));
     }
 
     #[test]
