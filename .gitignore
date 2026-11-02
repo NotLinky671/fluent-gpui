@@ -1,4 +1,7 @@
-/target
+# Build output (any workspace member, not just the root).
+target/
+
+# Editor / OS noise
 **/*.rs.bk
 .DS_Store
 Thumbs.db
@@ -7,6 +10,7 @@ Thumbs.db
 *.log
 
 # Scratch screenshots from the gallery's screenshot feature.
-# Committed pixel baselines live under tests/baselines/ instead.
-/screenshots/
-/*.png
+# Committed pixel baselines live under crates/fluent-gallery/tests/baselines/.
+screenshots/
+*.png
+!crates/fluent-gallery/tests/baselines/**/*.png
