@@ -119,7 +119,7 @@ impl Styled for MenuItem {
 }
 
 impl RenderOnce for MenuItem {
-    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let theme = FluentTheme::global(cx);
         let spec = menu::item(
             &theme,
@@ -129,36 +129,13 @@ impl RenderOnce for MenuItem {
             },
         );
 
-        let hover_state = window.use_keyed_state(
-            SharedString::from(format!("menu-item-hovered-{:?}", self.id)),
-            cx,
-            |_, _| false,
-        );
-        let hovered = *hover_state.read(cx) && !self.disabled;
-
-        let background = crate::motion::state_color(
-            SharedString::from(format!("menu-item-bg-{:?}", self.id)),
-            if hovered {
-                spec.hover_background
-            } else {
-                spec.background
-            },
-            window,
-            cx,
-        );
+        // Hover is applied as a style rather than through tracked state: with
+        // tracked state the highlight flickered (the state was observed
+        // resetting while the pointer was still over the row).
         let foreground = if self.disabled {
             spec.disabled_foreground
         } else {
-            crate::motion::state_color(
-                SharedString::from(format!("menu-item-fg-{:?}", self.id)),
-                if hovered {
-                    spec.hover_foreground
-                } else {
-                    spec.foreground
-                },
-                window,
-                cx,
-            )
+            spec.foreground
         };
 
         let mut el = div()
@@ -169,7 +146,7 @@ impl RenderOnce for MenuItem {
             .px(spec.padding_x)
             .gap(spec.gap)
             .rounded(spec.radius)
-            .bg(background)
+            .bg(spec.background)
             .text_color(foreground)
             .text_size(spec.font_size)
             .line_height(spec.line_height)
@@ -177,14 +154,10 @@ impl RenderOnce for MenuItem {
             .refine_style(&self.style);
 
         if !self.disabled {
-            let hover_listener = hover_state.clone();
-            el = el.cursor_pointer().on_hover(move |is_hovered, _, cx| {
-                hover_listener.update(cx, |state, cx| {
-                    if *state != *is_hovered {
-                        *state = *is_hovered;
-                        cx.notify();
-                    }
-                });
+            el = el.cursor_pointer().hover(move |style| {
+                style
+                    .bg(spec.hover_background)
+                    .text_color(spec.hover_foreground)
             });
             if let Some(handler) = self.on_click {
                 el = el.on_click(handler);
