@@ -138,6 +138,34 @@ pub fn avatar(theme: &FluentTheme, size: AvatarSize) -> AvatarSpec {
     }
 }
 
+/// Resolved tooltip surface.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct TooltipSpec {
+    pub background: Hsla,
+    pub foreground: Hsla,
+    pub font_size: Pixels,
+    pub line_height: Pixels,
+    pub padding_x: Pixels,
+    pub padding_y: Pixels,
+    pub radius: Pixels,
+    pub max_width: Pixels,
+}
+
+/// Resolves the Fluent tooltip surface (dark neutral, static colors).
+pub fn tooltip(theme: &FluentTheme) -> TooltipSpec {
+    let t = theme.tokens();
+    let c = &t.color;
+    TooltipSpec {
+        background: c.neutral_background_static,
+        foreground: c.neutral_foreground_static_inverted,
+        font_size: t.font_size.base_200,
+        line_height: t.line_height.base_200,
+        padding_x: px(8.),
+        padding_y: px(4.),
+        radius: t.radius.medium,
+        max_width: px(320.),
+    }
+}
 #[cfg(test)]
 mod tests {
     use super::*;

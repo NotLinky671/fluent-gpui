@@ -2,14 +2,15 @@
 
 use fluent_core::gpui_compat::StyledExt as _;
 use fluent_core::gpui_compat::{
-    App, IntoElement, ParentElement, RenderOnce, SharedString, StyleRefinement, Styled, Window,
-    div, px, relative,
+    App, Context, IntoElement, ParentElement, RenderOnce, SharedString, StyleRefinement, Styled,
+    Window, div, px, relative,
 };
 use fluent_core::spec::feedback::{
     self, AvatarSize, BadgeAppearance, BadgeSize, ProgressAppearance,
 };
 use fluent_theme::FluentTheme;
 use gpui::prelude::FluentBuilder as _;
+use gpui::{AnyView, AppContext as _, Render};
 
 /// A Fluent 2 badge.
 #[derive(IntoElement)]
@@ -174,6 +175,41 @@ impl RenderOnce for Avatar {
             .child(initials)
             .refine_style(&self.style)
     }
+}
+
+/// The Fluent tooltip surface, used through [`tooltip`] with GPUI's
+/// `InteractiveElement::tooltip`.
+pub struct TooltipView {
+    text: SharedString,
+}
+
+impl Render for TooltipView {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = FluentTheme::global(cx);
+        let spec = feedback::tooltip(&theme);
+        div()
+            .bg(spec.background)
+            .text_color(spec.foreground)
+            .text_size(spec.font_size)
+            .line_height(spec.line_height)
+            .px(spec.padding_x)
+            .py(spec.padding_y)
+            .rounded(spec.radius)
+            .max_w(spec.max_width)
+            .child(self.text.clone())
+    }
+}
+
+/// Builds the closure expected by `InteractiveElement::tooltip`.
+///
+/// ```ignore
+/// div().id("save").tooltip(tooltip("Save document")).child(button)
+/// ```
+pub fn tooltip(
+    text: impl Into<SharedString>,
+) -> impl Fn(&mut Window, &mut App) -> AnyView + 'static {
+    let text = text.into();
+    move |_, cx| cx.new(|_| TooltipView { text: text.clone() }).into()
 }
 
 /// First letter of the first and last words, uppercased.

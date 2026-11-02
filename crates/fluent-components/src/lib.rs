@@ -15,7 +15,7 @@ pub mod switch;
 pub mod textarea;
 
 pub use button::Button;
-pub use feedback::{Avatar, Badge, ProgressBar};
+pub use feedback::{Avatar, Badge, ProgressBar, TooltipView, tooltip};
 pub use field::{Field, Label, ValidationMessage};
 pub use fluent_core::spec::ControlSize;
 pub use fluent_core::spec::button::{ButtonAppearance, ButtonShape, IconPosition};

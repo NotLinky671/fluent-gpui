@@ -594,7 +594,13 @@ impl Render for Gallery {
                     .appearance(fluent_ui::DividerAppearance::Brand)
                     .inset(px(24.)),
             )
-            .child(Divider::new().appearance(fluent_ui::DividerAppearance::Subtle));
+            .child(Divider::new().appearance(fluent_ui::DividerAppearance::Subtle))
+            .child(
+                div()
+                    .id("tooltip-demo")
+                    .tooltip(fluent_ui::tooltip("Saves the current document"))
+                    .child(Button::new("tooltip-btn").child("Hover for tooltip")),
+            );
 
         let feedback_section = div()
             .flex()
