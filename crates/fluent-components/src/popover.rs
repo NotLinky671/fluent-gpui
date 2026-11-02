@@ -80,9 +80,17 @@ impl Styled for Popover {
 }
 
 impl RenderOnce for Popover {
-    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let theme = FluentTheme::global(cx);
         let surface = feedback::tooltip(&theme);
+
+        // gpui-base measures the trigger during prepaint but only asks for an
+        // extra frame on the first capture, so while a scroll moves the trigger
+        // the panel paints against the previous frame's anchor and jitters.
+        // Repainting while open keeps the anchor one frame fresh instead.
+        if self.open.unwrap_or(self.default_open) {
+            window.request_animation_frame();
+        }
 
         let mut base = BasePopover::new(self.id).offset(px(4.));
 
