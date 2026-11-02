@@ -3,8 +3,8 @@
 use crate::icon::Icon;
 use fluent_core::gpui_compat::StyledExt as _;
 use fluent_core::gpui_compat::{
-    App, ElementId, InteractiveElement, IntoElement, ParentElement, RenderOnce, SharedString,
-    StyleRefinement, Styled, Window, div, px,
+    App, ElementId, InteractiveElement, IntoElement, MouseButton, ParentElement, RenderOnce,
+    SharedString, StyleRefinement, Styled, Window, div, px,
 };
 use fluent_core::spec::ControlSize;
 use fluent_core::spec::selection::{self, CheckboxProps, RadioProps};
@@ -116,22 +116,45 @@ impl RenderOnce for Checkbox {
         );
         let mark = spec.mark;
 
-        // Hover/pressed come from the row: the indicator is a child, so it reads
-        // the group state of the whole control (label included).
-        let hover_group = SharedString::from(format!("cb-hover-{:?}", self.id));
+        // Hover and press are tracked per control and animated, so the colour
+        // eases over Fluent's 100 ms instead of snapping.
+        let hovered_key = SharedString::from(format!("cb-hovered-{:?}", self.id));
+        let pressed_key = SharedString::from(format!("cb-pressed-{:?}", self.id));
+        let hovered_state = window.use_keyed_state(hovered_key, cx, |_, _| false);
+        let pressed_state = window.use_keyed_state(pressed_key, cx, |_, _| false);
+        let hovered = *hovered_state.read(cx) && !self.disabled;
+        let pressed = *pressed_state.read(cx) && !self.disabled;
+
+        let target_background = match (pressed, hovered) {
+            (true, _) => spec.pressed_background,
+            (_, true) => spec.hover_background,
+            _ => spec.background,
+        };
+        let target_border = match (pressed, hovered) {
+            (true, _) => spec.pressed_border,
+            (_, true) => spec.hover_border,
+            _ => spec.border,
+        };
+        let background = crate::motion::state_color(
+            SharedString::from(format!("cb-bg-{:?}", self.id)),
+            target_background,
+            window,
+            cx,
+        );
+        let border = crate::motion::state_color(
+            SharedString::from(format!("cb-border-{:?}", self.id)),
+            target_border,
+            window,
+            cx,
+        );
+
         let indicator = div()
             .flex_shrink_0()
             .size(spec.box_size)
             .rounded(spec.radius)
             .border_1()
-            .border_color(spec.border)
-            .bg(spec.background)
-            .when(!self.disabled, |el| {
-                let hover = format!("cb-hover-{:?}", self.id);
-                el.group_hover(hover, move |s| {
-                    s.bg(spec.hover_background).border_color(spec.hover_border)
-                })
-            })
+            .border_color(border)
+            .bg(background)
             .flex()
             .items_center()
             .justify_center()
@@ -150,9 +173,37 @@ impl RenderOnce for Checkbox {
         let handler = self.on_change;
         let store_for_click = store.clone();
 
-        BaseCheckbox::new(self.id)
-            .group(hover_group.clone())
-            .checked(checked)
+        let hover_listener = hovered_state.clone();
+        let press_down = pressed_state.clone();
+        let press_up = pressed_state.clone();
+
+        // `Checkbox` delegates its interactivity to an inner div, so these
+        // listeners share the hitbox the control already has: no extra element,
+        // no chance of swallowing the click.
+        let mut base = BaseCheckbox::new(self.id);
+        base.interactivity().on_hover(move |is_hovered, _, cx| {
+            hover_listener.update(cx, |state, cx| {
+                if *state != *is_hovered {
+                    *state = *is_hovered;
+                    cx.notify();
+                }
+            });
+        });
+        base.interactivity()
+            .on_mouse_down(MouseButton::Left, move |_, _, cx| {
+                press_down.update(cx, |state, cx| {
+                    *state = true;
+                    cx.notify();
+                });
+            });
+        base.interactivity()
+            .on_mouse_up(MouseButton::Left, move |_, _, cx| {
+                press_up.update(cx, |state, cx| {
+                    *state = false;
+                    cx.notify();
+                });
+            });
+        base.checked(checked)
             .disabled(self.disabled)
             .child(content)
             .on_change(move |state, _, window, cx| {
@@ -256,6 +307,41 @@ impl RenderOnce for Radio {
             },
         );
 
+        // Same animated treatment as the checkbox.
+        let hovered_state = window.use_keyed_state(
+            SharedString::from(format!("radio-hovered-{:?}", self.id)),
+            cx,
+            |_, _| false,
+        );
+        let pressed_state = window.use_keyed_state(
+            SharedString::from(format!("radio-pressed-{:?}", self.id)),
+            cx,
+            |_, _| false,
+        );
+        let hovered = *hovered_state.read(cx) && !self.disabled;
+        let pressed = *pressed_state.read(cx) && !self.disabled;
+        let target_border = match (pressed, hovered) {
+            (true, _) => spec.pressed_border,
+            (_, true) => spec.hover_border,
+            _ => spec.border,
+        };
+        let target_dot = match (pressed, hovered) {
+            (true, _) => spec.pressed_dot,
+            (_, true) => spec.hover_dot,
+            _ => spec.dot_color,
+        };
+        let border = crate::motion::state_color(
+            SharedString::from(format!("radio-border-{:?}", self.id)),
+            target_border,
+            window,
+            cx,
+        );
+        let dot_color = crate::motion::state_color(
+            SharedString::from(format!("radio-dot-{:?}", self.id)),
+            target_dot,
+            window,
+            cx,
+        );
         // Ring painted as an inset overlay: keeping the border out of layout
         // means flex centring puts the dot exactly in the middle.
         let indicator = div()
@@ -272,11 +358,7 @@ impl RenderOnce for Radio {
                         .flex_shrink_0()
                         .size(spec.dot)
                         .rounded(px(10000.))
-                        .bg(spec.dot_color)
-                        .when(!self.disabled, |el| {
-                            let hover = format!("radio-hover-{:?}", self.id);
-                            el.group_hover(hover, move |s| s.bg(spec.hover_dot))
-                        }),
+                        .bg(dot_color),
                 )
             })
             .child(
@@ -287,11 +369,7 @@ impl RenderOnce for Radio {
                     .size(spec.circle)
                     .rounded(px(10000.))
                     .border_1()
-                    .border_color(spec.border)
-                    .when(!self.disabled, |el| {
-                        let hover = format!("radio-hover-{:?}", self.id);
-                        el.group_hover(hover, move |s| s.border_color(spec.hover_border))
-                    }),
+                    .border_color(border),
             );
 
         let content = div()
@@ -305,9 +383,33 @@ impl RenderOnce for Radio {
         let handler = self.on_change;
         let store_for_click = store.clone();
 
-        BaseRadio::new(self.id.clone())
-            .group(format!("radio-hover-{:?}", self.id))
-            .checked(checked)
+        let hover_listener = hovered_state.clone();
+        let press_down = pressed_state.clone();
+        let press_up = pressed_state.clone();
+        let mut base = BaseRadio::new(self.id.clone());
+        base.interactivity().on_hover(move |is_hovered, _, cx| {
+            hover_listener.update(cx, |state, cx| {
+                if *state != *is_hovered {
+                    *state = *is_hovered;
+                    cx.notify();
+                }
+            });
+        });
+        base.interactivity()
+            .on_mouse_down(MouseButton::Left, move |_, _, cx| {
+                press_down.update(cx, |state, cx| {
+                    *state = true;
+                    cx.notify();
+                });
+            });
+        base.interactivity()
+            .on_mouse_up(MouseButton::Left, move |_, _, cx| {
+                press_up.update(cx, |state, cx| {
+                    *state = false;
+                    cx.notify();
+                });
+            });
+        base.checked(checked)
             .disabled(self.disabled)
             .child(content)
             .on_change(move |value, _, window, cx| {

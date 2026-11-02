@@ -9,6 +9,7 @@ pub mod field;
 pub mod icon;
 pub mod input;
 pub mod misc;
+pub mod motion;
 pub mod root;
 pub mod selection;
 pub mod switch;

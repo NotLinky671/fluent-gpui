@@ -2,8 +2,8 @@
 
 use fluent_core::gpui_compat::StyledExt as _;
 use fluent_core::gpui_compat::{
-    App, ElementId, InteractiveElement, IntoElement, ParentElement, RenderOnce, SharedString,
-    StyleRefinement, Styled, Window, div, px,
+    App, ElementId, InteractiveElement, IntoElement, MouseButton, ParentElement, RenderOnce,
+    SharedString, StyleRefinement, Styled, Window, div, px,
 };
 use fluent_core::spec::ControlSize;
 use fluent_core::spec::switch::{self, SwitchProps};
@@ -113,21 +113,60 @@ impl RenderOnce for Switch {
             },
         );
 
+        // Hover and press drive animated colours, same as the checkbox.
+        let hovered_state = window.use_keyed_state(
+            SharedString::from(format!("switch-hovered-{:?}", self.id)),
+            cx,
+            |_, _| false,
+        );
+        let pressed_state = window.use_keyed_state(
+            SharedString::from(format!("switch-pressed-{:?}", self.id)),
+            cx,
+            |_, _| false,
+        );
+        let hovered = *hovered_state.read(cx) && !self.disabled;
+        let pressed = *pressed_state.read(cx) && !self.disabled;
+        let target_track_bg = match (pressed, hovered) {
+            (true, _) => spec.pressed_track_bg,
+            (_, true) => spec.hover_track_bg,
+            _ => spec.track_bg,
+        };
+        let target_track_border = match (pressed, hovered) {
+            (true, _) => spec.pressed_track_border,
+            (_, true) => spec.hover_track_border,
+            _ => spec.track_border,
+        };
+        let target_thumb = match (pressed, hovered) {
+            (true, _) => spec.pressed_thumb,
+            (_, true) => spec.hover_thumb,
+            _ => spec.thumb,
+        };
+        let track_bg = crate::motion::state_color(
+            SharedString::from(format!("switch-track-bg-{:?}", self.id)),
+            target_track_bg,
+            window,
+            cx,
+        );
+        let track_border = crate::motion::state_color(
+            SharedString::from(format!("switch-track-border-{:?}", self.id)),
+            target_track_border,
+            window,
+            cx,
+        );
+        let thumb_color = crate::motion::state_color(
+            SharedString::from(format!("switch-thumb-{:?}", self.id)),
+            target_thumb,
+            window,
+            cx,
+        );
         let track = div()
             .flex_shrink_0()
             .w(spec.track_width)
             .h(spec.track_height)
             .rounded(px(10000.))
             .border_1()
-            .border_color(spec.track_border)
-            .bg(spec.track_bg)
-            .when(!self.disabled, |el| {
-                let hover = format!("switch-hover-{:?}", self.id);
-                el.group_hover(hover, move |s| {
-                    s.bg(spec.hover_track_bg)
-                        .border_color(spec.hover_track_border)
-                })
-            })
+            .border_color(track_border)
+            .bg(track_bg)
             .flex()
             .items_center()
             .pl(if checked { spec.thumb_offset } else { px(3.) })
@@ -136,11 +175,7 @@ impl RenderOnce for Switch {
                     .flex_shrink_0()
                     .size(spec.thumb_size)
                     .rounded(px(10000.))
-                    .bg(spec.thumb)
-                    .when(!self.disabled, |el| {
-                        let hover = format!("switch-hover-{:?}", self.id);
-                        el.group_hover(hover, move |s| s.bg(spec.hover_thumb))
-                    }),
+                    .bg(thumb_color),
             );
 
         let content = div()
@@ -154,9 +189,33 @@ impl RenderOnce for Switch {
         let handler = self.on_change;
         let store_for_click = store.clone();
 
-        BaseSwitch::new(self.id.clone())
-            .group(format!("switch-hover-{:?}", self.id))
-            .checked(checked)
+        let hover_listener = hovered_state.clone();
+        let press_down = pressed_state.clone();
+        let press_up = pressed_state.clone();
+        let mut base = BaseSwitch::new(self.id.clone());
+        base.interactivity().on_hover(move |is_hovered, _, cx| {
+            hover_listener.update(cx, |state, cx| {
+                if *state != *is_hovered {
+                    *state = *is_hovered;
+                    cx.notify();
+                }
+            });
+        });
+        base.interactivity()
+            .on_mouse_down(MouseButton::Left, move |_, _, cx| {
+                press_down.update(cx, |state, cx| {
+                    *state = true;
+                    cx.notify();
+                });
+            });
+        base.interactivity()
+            .on_mouse_up(MouseButton::Left, move |_, _, cx| {
+                press_up.update(cx, |state, cx| {
+                    *state = false;
+                    cx.notify();
+                });
+            });
+        base.checked(checked)
             .disabled(self.disabled)
             .child(content)
             .on_change(move |value, _, window, cx| {

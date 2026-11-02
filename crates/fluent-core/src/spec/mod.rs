@@ -9,6 +9,7 @@ pub mod feedback;
 pub mod field;
 pub mod input;
 pub mod misc;
+pub mod motion;
 pub mod selection;
 pub mod switch;
 pub mod textarea;
