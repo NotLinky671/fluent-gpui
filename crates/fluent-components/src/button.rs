@@ -220,15 +220,6 @@ impl RenderOnce for Button {
             .refine_style(&self.style);
 
         if !is_disabled {
-            let hover_listener = hover_state.clone();
-            el.interactivity().on_hover(move |is_hovered, _, cx| {
-                hover_listener.update(cx, |state, cx| {
-                    if *state != *is_hovered {
-                        *state = *is_hovered;
-                        cx.notify();
-                    }
-                });
-            });
             let press_down = press_state.clone();
             el.interactivity()
                 .on_mouse_down(MouseButton::Left, move |_, _, cx| {
@@ -284,7 +275,16 @@ impl RenderOnce for Button {
             let slot: std::rc::Rc<std::cell::Cell<Option<gpui::Bounds<gpui::Pixels>>>> =
                 std::rc::Rc::new(std::cell::Cell::new(None));
             let slot_hover = slot.clone();
+            let hover_probe = hover_state.clone();
             el = el.on_hover(move |hovered, window, cx| {
+                // One on_hover per element: this listener carries both the colour
+                // state and the tooltip, so it must run before the early return.
+                hover_probe.update(cx, |state, cx| {
+                    if *state != *hovered {
+                        *state = *hovered;
+                        cx.notify();
+                    }
+                });
                 let Some(overlay) = crate::tooltip::overlay(cx) else {
                     return;
                 };
@@ -311,6 +311,16 @@ impl RenderOnce for Button {
                 }
             });
             tooltip_slot = Some(slot);
+        } else if !is_disabled {
+            let hover_listener = hover_state.clone();
+            el = el.on_hover(move |is_hovered, _, cx| {
+                hover_listener.update(cx, |state, cx| {
+                    if *state != *is_hovered {
+                        *state = *is_hovered;
+                        cx.notify();
+                    }
+                });
+            });
         }
         if let Some(handler) = self.on_click {
             el = el.on_click(handler);
