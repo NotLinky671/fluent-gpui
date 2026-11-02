@@ -5,6 +5,12 @@ on:
     branches: [main]
   pull_request:
 
+# Supersede an in-flight run when a new commit lands on the same ref: without
+# this, rapid pushes pile up 10+ minute runs and the check list looks stuck.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
@@ -36,6 +42,17 @@ jobs:
             libxcb-xkb-dev libxcb-sync-dev libfontconfig1-dev libfreetype6-dev \
             libvulkan-dev libasound2-dev libssl-dev libzstd-dev pkg-config
 
+      # Compiling gpui from scratch takes most of the run; the cache is keyed on
+      # Cargo.lock so it survives source-only changes.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ${{ matrix.os }}
+
+      # Prebuilt binary: `cargo install cargo-deny` compiles it every run.
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deny@0.20.2
+
       - name: Formatting
         run: cargo fmt --all --check
 
@@ -50,9 +67,7 @@ jobs:
 
       # License allow list, duplicate bans, RustSec advisories (T-013).
       - name: Dependency policy
-        run: |
-          cargo install cargo-deny --locked --version 0.20.2
-          cargo deny check
+        run: cargo deny check
 
       # Generated code must match its snapshot.
       - name: Tokens in sync
@@ -60,6 +75,14 @@ jobs:
 
       - name: Icons in sync
         run: cargo xtask gen-icons --check
+
+      # Opens the gallery for 1.5s and quits. Catches the class of bug that unit
+      # tests and pixel baselines cannot: a panic while building the tree.
+      - name: Boot smoke
+        if: runner.os == 'Windows'
+        run: cargo run -p fluent-gallery
+        env:
+          FLUENT_GALLERY_SMOKE: "1"
 
       # Screenshots are scratch: only committed pixel baselines may be tracked.
       - name: No stray images
