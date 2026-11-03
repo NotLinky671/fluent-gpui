@@ -62,11 +62,13 @@ cargo test -p fluent-core --lib --locked
 - **边界与约束**：保持控件身份和动效 channel ID 稳定；不同 channel 不共用同一个 transition key。受控值由调用方更新，非受控默认值只用于 keyed state 初始化；不要把重绘当作重新初始化，也不要混用两种 builder 模式来猜测优先级。
 - **输入边界**：文本、选择、光标等状态来自调用方持有的 `InputState` / `TextareaState`；本库绘制外壳并转发部分交互。需要跨重绘保留 state entity，不能每次 render 创建新文本状态；IME 正确性需真实输入验证。
 - **动效边界**：transition 路径依赖 gpui-base 的 reduced-motion 策略，不等于所有动画都走该路径。[ProgressBar 不定态与 Spinner](../../crates/fluent-components/src/feedback.rs)直接使用循环 `Animation`，reduced-motion 由组件显式检查 `cx.reduce_motion()` 改为静态帧；该检查只在 `spinner_animation_allowed` / `indeterminate_animation_allowed` 纯函数中做决策。鼠标 pressed 接线存在，不证明键盘 pressed 或按住移出后释放等取消路径完整。
-- **验证入口**：motion 纯函数与插值测试只检查数值；状态保持、回调次数、禁用/取消、焦点及 reduced motion 需要相应行为测试和原生操作。
+- **透明色混色**：`spec::motion::mix` 按**预乘 alpha** 插值，透明端的颜色不参与。Fluent 的 `subtle` / `transparent` 按钮静止色是 `transparent_black()`；若按原始通道插值，淡入会经过半透明近黑（浅色主题实测 lightness 0.23，深色 0.05），表现为悬停时"深灰闪一下"。不透明两端的行为不变。
+- **验证入口**：motion 纯函数与插值测试只检查数值；状态保持、回调次数、禁用/取消、焦点及 reduced motion 需要相应行为测试和原生操作。透明淡入另有控件级绘制断言见 `button/hover_tests.rs`。
 
 ```text
 cargo test -p fluent-core --lib spec::motion --locked
 cargo test -p fluent-components --lib motion --locked
+cargo test -p fluent-components --lib hover_tests --locked
 ```
 
 ## 浮层

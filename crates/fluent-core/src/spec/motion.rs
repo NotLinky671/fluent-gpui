@@ -64,6 +64,12 @@ pub fn hide_policy() -> Transition {
 
 /// Mixes two colours, taking the short way around the hue circle.
 ///
+/// Channels are mixed **premultiplied by alpha**, so a fully transparent
+/// endpoint contributes no colour at all. Mixing raw channels instead makes a
+/// transparent-black rest state (Fluent's `subtle` and `transparent` button
+/// appearances) walk through dark translucent greys on the way to its hover
+/// fill: the surface flashes darker than either endpoint before settling.
+///
 /// Components normally animate through [`state_policy`] and GPUI's transition
 /// machinery; this function is the pure kernel behind it, kept separate so the
 /// arithmetic is testable without a window.
@@ -77,15 +83,27 @@ pub fn mix(from: Hsla, to: Hsla, progress: f32) -> Hsla {
     if progress == 1.0 {
         return to;
     }
+
+    let alpha = from.a + (to.a - from.a) * progress;
+    // Both endpoints invisible: nothing is painted, so the colour is arbitrary.
+    if alpha <= f32::EPSILON {
+        return Hsla { a: 0.0, ..to };
+    }
+
+    // Premultiplied weights. For two opaque colours these are `1 - progress`
+    // and `progress`, so opaque mixing is unchanged.
+    let weight_to = to.a * progress / alpha;
+    let weight_from = from.a * (1.0 - progress) / alpha;
+
     let mut delta = (to.h - from.h).rem_euclid(1.0);
     if delta > 0.5 {
         delta -= 1.0;
     }
     Hsla {
-        h: (from.h + delta * progress).rem_euclid(1.0),
-        s: from.s + (to.s - from.s) * progress,
-        l: from.l + (to.l - from.l) * progress,
-        a: from.a + (to.a - from.a) * progress,
+        h: (from.h + delta * weight_to).rem_euclid(1.0),
+        s: from.s * weight_from + to.s * weight_to,
+        l: from.l * weight_from + to.l * weight_to,
+        a: alpha,
     }
 }
 
@@ -125,11 +143,48 @@ mod tests {
 
     #[test]
     fn mix_interpolates_lightness_and_alpha() {
+        // Premultiplied: a fully transparent endpoint contributes no lightness, so
+        // fading transparent black into white stays white while alpha rises. Mixing
+        // raw channels here would give l = 0.5 — a half-transparent grey, which is
+        // the dark flash this guards against.
         let a = color(0.0, 1.0, 0.0, 0.0);
         let b = color(0.0, 1.0, 1.0, 1.0);
         let middle = mix(a, b, 0.5);
-        assert!((middle.l - 0.5).abs() < 1e-6);
+        assert!(
+            (middle.l - 1.0).abs() < 1e-6,
+            "transparent black must not drag lightness down, got {}",
+            middle.l
+        );
         assert!((middle.a - 0.5).abs() < 1e-6);
+    }
+
+    #[test]
+    fn fading_out_of_transparency_never_darkens_the_surface() {
+        // Fluent's subtle and transparent button appearances rest on
+        // `transparent_black()`. Their hover and pressed fades must only ever add
+        // the target colour, never pass through a darker one.
+        let rest = color(0.0, 0.0, 0.0, 0.0);
+        let hover = color(0.0, 0.0, 0.96, 1.0);
+        for step in 0..=20 {
+            let progress = step as f32 / 20.0;
+            let mixed = mix(rest, hover, progress);
+            if progress > 0.0 {
+                assert!(
+                    (mixed.l - hover.l).abs() < 1e-5,
+                    "at progress {progress} lightness dropped to {}",
+                    mixed.l
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn opaque_colours_still_mix_linearly() {
+        let black = color(0.0, 0.0, 0.0, 1.0);
+        let white = color(0.0, 0.0, 1.0, 1.0);
+        let middle = mix(black, white, 0.5);
+        assert!((middle.l - 0.5).abs() < 1e-6);
+        assert!((middle.a - 1.0).abs() < 1e-6);
     }
 
     #[test]

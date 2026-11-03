@@ -398,3 +398,6 @@ impl RenderOnce for Button {
             .into_any_element()
     }
 }
+
+#[cfg(test)]
+mod hover_tests;
