@@ -5,7 +5,19 @@
 
 use gpui::actions;
 
-actions!(fluent, [Dismiss, FocusNext, FocusPrev]);
+actions!(
+    fluent,
+    [
+        Dismiss,
+        FocusNext,
+        FocusPrev,
+        MenuNext,
+        MenuPrev,
+        MenuFirst,
+        MenuLast,
+        MenuActivate
+    ]
+);
 
 /// Key context an overlay sets on the element that should receive [`Dismiss`].
 ///
@@ -20,6 +32,12 @@ pub const OVERLAY_KEY_CONTEXT: &str = "FluentOverlay";
 /// own root view. Applications here mount [`crate::FluentRoot`] instead, so the
 /// binding has to be repeated for a context that root actually carries.
 pub const ROOT_KEY_CONTEXT: &str = "FluentRoot";
+
+/// Key context a menu panel sets for its own navigation keys.
+///
+/// Arrow keys are only bound inside this context, so a menu does not take them
+/// away from text fields elsewhere in the window.
+pub const MENU_KEY_CONTEXT: &str = "FluentMenu";
 
 pub mod button;
 pub mod feedback;

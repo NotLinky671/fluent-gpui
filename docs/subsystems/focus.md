@@ -52,6 +52,15 @@
 
 不直接复用 gpui-base 的 context，是因为那个字符串是私有实现细节；自己绑定语义明确，也不受上游改动影响。
 
+## 菜单键盘
+
+菜单用「容器持有焦点 + 索引标记当前项」的模型，而不是让焦点在行之间移动。这样焦点陷阱仍然掌控 Tab，方向键只在菜单内部移动高亮。
+
+- `Menu::new(id)` 要求显式 id：当前项要跨重绘保存，存在 window keyed state 里。
+- 行必须用 `.item()` / `.separator()` / `.header()` 声明。走 `ParentElement::child` 的内容会渲染但**不参与**键盘导航——面板无法知道自定义内容里哪些可选。
+- `Menu` 与宿主 `Popover` 必须共用同一个 `FocusHandle`（`Menu::track_focus` + `Popover::track_focus`）。焦点落在菜单容器上时，`MENU_KEY_CONTEXT` 才在派发路径上；只设在 Popover 面板上不行，因为面板是菜单的祖先，而不是它本身。
+- 按键绑定限定在 `MENU_KEY_CONTEXT`，所以方向键不会从文本框被抢走。
+
 ## 写键盘测试的两个前提
 
 这两点曾让焦点陷阱的测试全部变成空测试，务必记住：
@@ -88,6 +97,7 @@ cargo test -p fluent-components --lib tab_order_tests --locked
 | `tab_cycles_between_the_panel_items` | 面板内 Tab 循环：第一项 → 第二项 → 回到第一项；移除陷阱后失败 |
 | `tab_never_reaches_the_element_behind_the_panel` | 连续四次 Tab 都不会逃到面板外；移除陷阱后失败 |
 | `shift_tab_wraps_backwards_inside_the_panel` | 第一项 Shift+Tab 回绕到最后一项；移除陷阱后失败 |
+| `down_then_enter_activates_the_first_row` 等 6 条 | 菜单方向键/Home/End/回绕/跳过禁用行；断言「哪个行的回调被触发」，因为当前项是视觉状态。移除 `Menu` 的焦点接线后全部失败 |
 | `opening_moves_focus_into_the_panel` | 打开时焦点移入面板；移除交接逻辑后失败 |
 | `closing_returns_focus_to_where_it_was` | 关闭时归还焦点；先断言打开确实移入了焦点，否则该测试在无交接时也会通过 |
 

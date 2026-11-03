@@ -1,43 +1,105 @@
 //! Fluent 2 `Menu` rendering.
 //!
-//! Metrics and colours come from [`fluent_core::spec::menu`]; this file only
-//! paints them. Trigger wiring and keyboard navigation live in later tasks.
+//! Metrics and colours come from [`fluent_core::spec::menu`]; this file paints
+//! them and owns the keyboard model.
+//!
+//! Keyboard navigation follows `aria-activedescendant`: the panel keeps focus and
+//! tracks which row is active, rather than moving focus row by row. That is what
+//! lets the popover's focus trap stay in charge of Tab while the arrow keys move
+//! inside the menu.
 
 use crate::icon::Icon;
+use crate::popover::OpenChangeHandler;
 use fluent_core::gpui_compat::Hsla;
 use fluent_core::gpui_compat::StyledExt as _;
 use fluent_core::gpui_compat::{
-    AnyElement, App, ClickEvent, ElementId, InteractiveElement, IntoElement, ParentElement,
-    RenderOnce, SharedString, StatefulInteractiveElement, StyleRefinement, Styled, Window, div, px,
+    AnyElement, App, ElementId, InteractiveElement, IntoElement, ParentElement, RenderOnce,
+    SharedString, StatefulInteractiveElement, StyleRefinement, Styled, Window, div, px,
 };
 use fluent_core::spec::feedback;
 use fluent_core::spec::menu::{self, MenuItemProps};
 use fluent_icons::FluentIcon;
 use fluent_theme::FluentTheme;
+use gpui::Role;
 use gpui::prelude::FluentBuilder as _;
 
-/// Click handler shape for menu items.
-pub type MenuHandler = Box<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;
+/// What a menu item does when chosen, by pointer or by keyboard.
+pub type MenuHandler = std::rc::Rc<dyn Fn(&mut Window, &mut App) + 'static>;
 
-/// A Fluent 2 menu panel. Place [`MenuItem`]s inside it.
+/// One row of a menu.
+///
+/// Typed entries are what make keyboard navigation possible: the panel has to
+/// know which rows are selectable to move between them. Anything pushed through
+/// `ParentElement::child` becomes [`Entry::Custom`] and is rendered but never
+/// reachable by the arrow keys.
+enum Entry {
+    Item(Box<MenuItem>),
+    Separator,
+    Header(MenuHeader),
+    Custom(AnyElement),
+}
+
+impl Entry {
+    /// Index into the selectable list, or `None` when the row cannot be chosen.
+    fn is_selectable(&self) -> bool {
+        matches!(self, Entry::Item(item) if !item.disabled)
+    }
+}
+
+/// A Fluent 2 menu panel.
+///
+/// The id is required because the active row has to survive redraws.
 #[derive(IntoElement)]
 pub struct Menu {
-    children: Vec<AnyElement>,
+    id: ElementId,
+    entries: Vec<Entry>,
+    /// Focus lands here so the menu's own key context is on the dispatch path.
+    /// The panel that hosts the menu is an *ancestor*, so a context set there
+    /// would not include the menu's bindings.
+    focus: Option<gpui::FocusHandle>,
     style: StyleRefinement,
 }
 
 impl Menu {
-    pub fn new() -> Self {
+    pub fn new(id: impl Into<ElementId>) -> Self {
         Self {
-            children: Vec::new(),
+            id: id.into(),
+            entries: Vec::new(),
+            focus: None,
             style: StyleRefinement::default(),
         }
+    }
+
+    /// Adds a selectable row.
+    pub fn item(mut self, item: MenuItem) -> Self {
+        self.entries.push(Entry::Item(Box::new(item)));
+        self
+    }
+
+    pub fn separator(mut self) -> Self {
+        self.entries.push(Entry::Separator);
+        self
+    }
+
+    pub fn header(mut self, header: MenuHeader) -> Self {
+        self.entries.push(Entry::Header(header));
+        self
+    }
+
+    /// Focus handle for keyboard navigation.
+    ///
+    /// Pass the same handle the hosting popover uses: the popover moves focus
+    /// here on open, and the menu needs it on the dispatch path for the arrow
+    /// keys to reach its handlers.
+    pub fn track_focus(mut self, focus: &gpui::FocusHandle) -> Self {
+        self.focus = Some(focus.clone());
+        self
     }
 }
 
 impl Default for Menu {
     fn default() -> Self {
-        Self::new()
+        Self::new("menu")
     }
 }
 
@@ -49,16 +111,49 @@ impl Styled for Menu {
 
 impl ParentElement for Menu {
     fn extend(&mut self, elements: impl IntoIterator<Item = AnyElement>) {
-        self.children.extend(elements);
+        self.entries.extend(elements.into_iter().map(Entry::Custom));
     }
 }
 
 impl RenderOnce for Menu {
-    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let theme = FluentTheme::global(cx);
         let surface = menu::surface(&theme);
         let shadow = feedback::tooltip(&theme).shadow.to_vec();
-        div()
+
+        // Which rows the arrow keys can land on, in render order.
+        let selectable: Vec<usize> = self
+            .entries
+            .iter()
+            .enumerate()
+            .filter(|(_, entry)| entry.is_selectable())
+            .map(|(index, _)| index)
+            .collect();
+
+        // Handlers are cloned out before the entries are consumed by rendering.
+        let handlers: Vec<Option<MenuHandler>> = self
+            .entries
+            .iter()
+            .map(|entry| match entry {
+                Entry::Item(item) => item.on_select.clone(),
+                _ => None,
+            })
+            .collect();
+
+        let active_state = window.use_keyed_state(
+            SharedString::from(format!("menu-active-{:?}", self.id)),
+            cx,
+            |_, _| None::<usize>,
+        );
+        let active = *active_state.read(cx);
+        let count = selectable.len();
+
+        // A row that is no longer selectable must not stay active; the count can
+        // change when the caller swaps the menu contents.
+        let active = active.filter(|index| *index < count);
+
+        let mut container = div()
+            .id(self.id)
             .flex()
             .flex_col()
             .gap(px(2.))
@@ -68,8 +163,81 @@ impl RenderOnce for Menu {
             .bg(surface.background)
             .text_color(surface.foreground)
             .shadow(shadow)
-            .children(self.children)
-            .refine_style(&self.style)
+            .key_context(crate::MENU_KEY_CONTEXT)
+            .role(Role::Menu)
+            .when_some(self.focus.clone(), |el, focus| el.track_focus(&focus))
+            .refine_style(&self.style);
+
+        if count > 0 {
+            let move_to = {
+                let active_state = active_state.clone();
+                move |cx: &mut App, next: Option<usize>| {
+                    active_state.update(cx, |active, cx| {
+                        if *active != next {
+                            *active = next;
+                            cx.notify();
+                        }
+                    });
+                }
+            };
+
+            let next = move_to.clone();
+            container = container.on_action(move |_: &crate::MenuNext, _, cx| {
+                let target = match active {
+                    None => Some(0),
+                    Some(index) => Some((index + 1) % count),
+                };
+                next(cx, target);
+            });
+            let prev = move_to.clone();
+            container = container.on_action(move |_: &crate::MenuPrev, _, cx| {
+                let target = match active {
+                    None | Some(0) => Some(count - 1),
+                    Some(index) => Some(index - 1),
+                };
+                prev(cx, target);
+            });
+            let first = move_to.clone();
+            container = container.on_action(move |_: &crate::MenuFirst, _, cx| first(cx, Some(0)));
+            let last = move_to.clone();
+            container =
+                container.on_action(move |_: &crate::MenuLast, _, cx| last(cx, Some(count - 1)));
+
+            let handlers = handlers.clone();
+            let selectable = selectable.clone();
+            container = container.on_action(move |_: &crate::MenuActivate, window, cx| {
+                let Some(index) = active else {
+                    return;
+                };
+                let Some(entry) = selectable.get(index) else {
+                    return;
+                };
+                if let Some(Some(handler)) = handlers.get(*entry) {
+                    handler(window, cx);
+                }
+            });
+        }
+
+        // Render rows, telling each item whether it is the active one.
+        let mut selectable_index = 0;
+        let children: Vec<AnyElement> = self
+            .entries
+            .into_iter()
+            .map(|entry| match entry {
+                Entry::Item(item) => {
+                    let is_active = active == Some(selectable_index);
+                    if !item.disabled {
+                        selectable_index += 1;
+                    }
+                    (*item).active(is_active).into_any_element()
+                }
+                Entry::Separator => MenuSeparator.into_any_element(),
+                Entry::Header(header) => header.into_any_element(),
+                Entry::Custom(element) => element,
+            })
+            .collect();
+
+        container.children(children)
     }
 }
 
@@ -84,33 +252,47 @@ impl RenderOnce for Menu {
 /// implemented yet, so the panel is reachable by pointer only.
 #[derive(IntoElement)]
 pub struct MenuDropdown {
-    popover: crate::Popover,
+    id: ElementId,
+    trigger: Option<AnyElement>,
+    menu: Menu,
+    open: Option<bool>,
+    default_open: bool,
+    focus: Option<gpui::FocusHandle>,
+    on_open_change: Option<OpenChangeHandler>,
 }
 
 impl MenuDropdown {
     pub fn new(id: impl Into<ElementId>, trigger: impl IntoElement, menu: Menu) -> Self {
         Self {
-            popover: crate::Popover::new(id)
-                .trigger(trigger)
-                .content(menu)
-                .default_open(false),
+            id: id.into(),
+            trigger: Some(trigger.into_any_element()),
+            menu,
+            open: None,
+            default_open: false,
+            focus: None,
+            on_open_change: None,
         }
     }
 
     /// Controlled open state, forwarded to the popover.
     pub fn open(mut self, open: bool) -> Self {
-        self.popover = self.popover.open(open);
+        self.open = Some(open);
         self
     }
 
     /// Uncontrolled initial state.
     pub fn default_open(mut self, open: bool) -> Self {
-        self.popover = self.popover.default_open(open);
+        self.default_open = open;
         self
     }
 
+    /// Focus handle shared by the popover and the menu.
+    ///
+    /// Both need it: the popover moves focus into the panel on open and hands it
+    /// back on close, and the menu needs it on the dispatch path for the arrow
+    /// keys to reach its handlers.
     pub fn track_focus(mut self, focus: &gpui::FocusHandle) -> Self {
-        self.popover = self.popover.track_focus(focus);
+        self.focus = Some(focus.clone());
         self
     }
 
@@ -118,14 +300,35 @@ impl MenuDropdown {
         mut self,
         handler: impl Fn(bool, &mut Window, &mut App) + 'static,
     ) -> Self {
-        self.popover = self.popover.on_open_change(handler);
+        self.on_open_change = Some(std::rc::Rc::new(handler));
         self
     }
 }
 
 impl RenderOnce for MenuDropdown {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
-        self.popover.render(window, cx)
+        let mut menu = self.menu;
+        if let Some(focus) = self.focus.as_ref() {
+            menu = menu.track_focus(focus);
+        }
+
+        let mut popover = crate::Popover::new(self.id)
+            .default_open(self.default_open)
+            .content(menu);
+        if let Some(trigger) = self.trigger {
+            popover = popover.trigger(trigger);
+        }
+        if let Some(open) = self.open {
+            popover = popover.open(open);
+        }
+        if let Some(focus) = self.focus.as_ref() {
+            popover = popover.track_focus(focus);
+        }
+        if let Some(handler) = self.on_open_change {
+            popover = popover.on_open_change(move |next, window, cx| handler(next, window, cx));
+        }
+
+        popover.render(window, cx)
     }
 }
 
@@ -141,7 +344,9 @@ pub struct MenuItem {
     radio: Option<bool>,
     disabled: bool,
     danger: bool,
-    on_click: Option<MenuHandler>,
+    /// Highlighted because the arrow keys are on this row.
+    active: bool,
+    on_select: Option<MenuHandler>,
     style: StyleRefinement,
 }
 
@@ -155,7 +360,8 @@ impl MenuItem {
             radio: None,
             disabled: false,
             danger: false,
-            on_click: None,
+            active: false,
+            on_select: None,
             style: StyleRefinement::default(),
         }
     }
@@ -189,11 +395,19 @@ impl MenuItem {
         self
     }
 
-    pub fn on_click(
-        mut self,
-        handler: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
-    ) -> Self {
-        self.on_click = Some(Box::new(handler));
+    /// Runs when the row is chosen, by pointer or by the keyboard.
+    ///
+    /// The callback does not receive a click event: a menu row chosen with Enter
+    /// has no pointer event to report, and callers act on "this row was chosen"
+    /// rather than on the event that chose it.
+    pub fn on_click(mut self, handler: impl Fn(&mut Window, &mut App) + 'static) -> Self {
+        self.on_select = Some(std::rc::Rc::new(handler));
+        self
+    }
+
+    /// Marks this row as the keyboard-active one. Set by [`Menu`].
+    pub(crate) fn active(mut self, active: bool) -> Self {
+        self.active = active;
         self
     }
 }
@@ -272,6 +486,13 @@ impl RenderOnce for MenuItem {
 
         let label = self.label.clone();
         let leading = self.leading_slot(&spec, foreground);
+        // The keyboard-active row uses the same fill as hover: Fluent has one
+        // "this row is under the pointer or the cursor" look, not two.
+        let background = if self.active && !self.disabled {
+            spec.hover_background
+        } else {
+            spec.background
+        };
         let mut el = div()
             .id(self.id)
             .flex()
@@ -280,13 +501,19 @@ impl RenderOnce for MenuItem {
             .px(spec.padding_x)
             .gap(spec.gap)
             .rounded(spec.radius)
-            .bg(spec.background)
+            .bg(background)
             .text_color(foreground)
             .text_size(spec.font_size)
             .line_height(spec.line_height)
+            .role(Role::MenuItem)
+            .aria_selected(self.active && !self.disabled)
             .child(leading)
             .child(label)
             .refine_style(&self.style);
+
+        // This GPUI version exposes no disabled state through accesskit, so a
+        // disabled row is announced like any other and only refuses activation.
+        // Recorded as a gap rather than worked around.
 
         if !self.disabled {
             el = el.cursor_pointer().hover(move |style| {
@@ -294,8 +521,8 @@ impl RenderOnce for MenuItem {
                     .bg(spec.hover_background)
                     .text_color(spec.hover_foreground)
             });
-            if let Some(handler) = self.on_click {
-                el = el.on_click(handler);
+            if let Some(handler) = self.on_select {
+                el = el.on_click(move |_, window, cx| handler(window, cx));
             }
         }
 
@@ -344,3 +571,6 @@ impl RenderOnce for MenuHeader {
             .child(self.text)
     }
 }
+
+#[cfg(test)]
+mod keyboard_tests;

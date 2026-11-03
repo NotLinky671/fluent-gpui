@@ -65,6 +65,40 @@ pub fn init(cx: &mut gpui::App) {
         fluent_components::Dismiss,
         Some(fluent_components::OVERLAY_KEY_CONTEXT),
     )]);
+    // Menu navigation. Scoped to the menu's own context so arrow keys stay
+    // available to text fields everywhere else in the window.
+    cx.bind_keys([
+        gpui::KeyBinding::new(
+            "down",
+            fluent_components::MenuNext,
+            Some(fluent_components::MENU_KEY_CONTEXT),
+        ),
+        gpui::KeyBinding::new(
+            "up",
+            fluent_components::MenuPrev,
+            Some(fluent_components::MENU_KEY_CONTEXT),
+        ),
+        gpui::KeyBinding::new(
+            "home",
+            fluent_components::MenuFirst,
+            Some(fluent_components::MENU_KEY_CONTEXT),
+        ),
+        gpui::KeyBinding::new(
+            "end",
+            fluent_components::MenuLast,
+            Some(fluent_components::MENU_KEY_CONTEXT),
+        ),
+        gpui::KeyBinding::new(
+            "enter",
+            fluent_components::MenuActivate,
+            Some(fluent_components::MENU_KEY_CONTEXT),
+        ),
+        gpui::KeyBinding::new(
+            "space",
+            fluent_components::MenuActivate,
+            Some(fluent_components::MENU_KEY_CONTEXT),
+        ),
+    ]);
     // Tab order inside `FluentRoot`. gpui-base's own binding is scoped to its
     // private root context, so it never fires under a Fluent application.
     cx.bind_keys([

@@ -17,9 +17,9 @@ use fluent_ui::prelude::*;
 use fluent_ui::{
     Appearance, Avatar, AvatarSize, Badge, BadgeAppearance, BadgeSize, Button, ButtonAppearance,
     ButtonShape, Checkbox, ControlSize, Divider, Field, FluentIcon, FluentRoot, FluentTheme,
-    FontMode, InputAppearance, Link, Menu, MenuDropdown, MenuHeader, MenuItem, MenuSeparator,
-    Popover, ProgressAppearance, ProgressBar, Radio, Switch, TextInput, Textarea,
-    TextareaAppearance, TooltipSurface, ValidationMessage,
+    FontMode, InputAppearance, Link, Menu, MenuDropdown, MenuHeader, MenuItem, Popover,
+    ProgressAppearance, ProgressBar, Radio, Switch, TextInput, Textarea, TextareaAppearance,
+    TooltipSurface, ValidationMessage,
 };
 
 const APPEARANCES: [ButtonAppearance; 5] = [
@@ -679,21 +679,21 @@ impl Render for Gallery {
                             ),
                     )
                     .child(
-                        Menu::new()
-                            .child(MenuHeader::new("Actions"))
-                            .child(MenuItem::new("menu-edit", "Edit").icon(FluentIcon::Settings))
-                            .child(MenuItem::new("menu-dup", "Duplicate"))
-                            .child(MenuSeparator)
-                            .child(MenuHeader::new("View"))
-                            .child(MenuItem::new("menu-wrap", "Word wrap").checked(true))
-                            .child(MenuItem::new("menu-minimap", "Minimap").checked(false))
-                            .child(MenuSeparator)
-                            .child(MenuHeader::new("Sort by"))
-                            .child(MenuItem::new("menu-sort-name", "Name").selected(true))
-                            .child(MenuItem::new("menu-sort-date", "Date").selected(false))
-                            .child(MenuSeparator)
-                            .child(MenuItem::new("menu-arch", "Archive").disabled(true))
-                            .child(MenuItem::new("menu-del", "Delete").danger(true)),
+                        Menu::new("menu-panel")
+                            .header(MenuHeader::new("Actions"))
+                            .item(MenuItem::new("menu-edit", "Edit").icon(FluentIcon::Settings))
+                            .item(MenuItem::new("menu-dup", "Duplicate"))
+                            .separator()
+                            .header(MenuHeader::new("View"))
+                            .item(MenuItem::new("menu-wrap", "Word wrap").checked(true))
+                            .item(MenuItem::new("menu-minimap", "Minimap").checked(false))
+                            .separator()
+                            .header(MenuHeader::new("Sort by"))
+                            .item(MenuItem::new("menu-sort-name", "Name").selected(true))
+                            .item(MenuItem::new("menu-sort-date", "Date").selected(false))
+                            .separator()
+                            .item(MenuItem::new("menu-arch", "Archive").disabled(true))
+                            .item(MenuItem::new("menu-del", "Delete").danger(true)),
                     ),
             )
             .child(
@@ -701,11 +701,11 @@ impl Render for Gallery {
                     MenuDropdown::new(
                         "menu-dropdown",
                         Button::new("menu-dropdown-trigger").child("Open menu"),
-                        Menu::new()
-                            .child(MenuItem::new("dd-rename", "Rename").icon(FluentIcon::Settings))
-                            .child(MenuItem::new("dd-copy", "Copy"))
-                            .child(MenuSeparator)
-                            .child(MenuItem::new("dd-delete", "Delete").danger(true)),
+                        Menu::new("menu-dropdown-panel")
+                            .item(MenuItem::new("dd-rename", "Rename").icon(FluentIcon::Settings))
+                            .item(MenuItem::new("dd-copy", "Copy"))
+                            .separator()
+                            .item(MenuItem::new("dd-delete", "Delete").danger(true)),
                     )
                     .default_open(true),
                 ),
