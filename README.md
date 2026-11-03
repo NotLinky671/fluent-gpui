@@ -19,11 +19,11 @@ This table describes implementation scope, not verification of every platform, i
 | `Checkbox` / `Radio` / `Switch` | Foundation | Controlled/uncontrolled modes; mouse hover/pressed wiring and colour transitions are implemented; full interaction verification remains pending |
 | `Link` / `Divider` | Foundation | Three link palettes, four divider appearances |
 | `Badge` / `Avatar` | Foundation | Seven badge appearances, four avatar sizes; Avatar renders initials only |
-| `ProgressBar` | Partial | Determinate progress and an indeterminate sweep; reduced-motion handling and pixel baselines for the indeterminate mode are pending |
+| `ProgressBar` | Partial | Determinate progress and an indeterminate sweep; both honour reduced motion; pixel baselines for the indeterminate mode are pending |
 | `Tooltip` | Foundation | `Button::tooltip` uses a root-hosted anchored overlay with a configured 4px gap; hover and flip placement still need manual verification |
 | `Popover` | Experimental | Anchored panel, controlled/uncontrolled open state, same-frame scroll positioning, outside-click dismissal, Escape, focus handover and a Tab focus trap when `track_focus` is supplied; the trap cycles between panel items and never reaches the page behind |
 | `Menu` / `MenuItem` | Partial | Panel, leading icons, check and radio rows, separators, headers, `MenuDropdown` trigger integration through `Popover`, arrow/Home/End navigation with disabled rows skipped, typeahead, and closing on Tab; submenus remain unfinished |
-| `Spinner` | Blocked | Not implemented; the current stroked-arc rendering approach is blocked |
+| `Spinner` | Foundation | Four sizes (16/20/28/32), accessible label via `Spinner::label`, honours reduced motion; stroke widths are approximations pending verification against official screenshots |
 
 ## Quick start
 
@@ -115,14 +115,13 @@ GPUI is pinned to an exact snapshot (`gpui-pre = 0.3.10`); a caret requirement w
 
 ## Known limitations
 
-- `Spinner` is not implemented; the current stroked-arc rendering approach is blocked
 - `Avatar` renders initials only; no images, no status badge
 - Mouse hover/pressed state wiring and colour transitions are implemented for Checkbox / Radio / Switch; full keyboard and pointer-cancellation behaviour is not yet verified
 - `Popover` dismissal is covered by behaviour tests: an outside press reports `false`, presses on the panel body or its interactive children do not, a press on the trigger reports one change, and a controlled caller that ignores the request stays open. With `track_focus`, opening moves focus into the panel and closing returns it when focus is still inside; Escape only fires while focus is inside. Focus lands on the panel container, not the first control, and viewport edges clamp the panel rather than flipping it above/below. The container does not have to be a Tab stop; if the caller marks it as one it joins the item cycle
 - `Badge` foregrounds are picked by contrast: each appearance uses whichever of the theme's static light/dark label tokens contrasts more with the badge background, so every appearance stays legible in light, dark and high contrast (previously Warning was white-on-yellow in dark and white-on-white in high contrast). The mapping is token-derived and verified by spec tests; native-window visual checks for the affected appearances are still pending. See the [fix record](docs/validation/badge-contrast-2026-11-03.md)
 - `Textarea` does not handle the mouse wheel in this GPUI snapshot; long bodies scroll with the caret/keyboard, and the scrollbar appears once the caret moves past the viewport
 - `MenuDropdown` composes `Menu` into `Popover`, so a menu inherits anchored placement and dismissal. Arrow keys, Home/End, Enter/Space and disabled-row skipping work, and mouse movement writes the same current row the keyboard does; layout changes under a stationary pointer do not change selection, and at most one row looks current. Typeahead matches a character prefix starting after the current row (600ms reset, repeated characters cycle), and Tab or Shift+Tab inside the menu closes it via `Dismiss`. Activating an item does not close the menu; the caller's action must close it explicitly (the notes app does this in every item). Submenus are unfinished, and this GPUI version exposes no accesskit disabled state
-- Reduced-motion handling and pixel baselines for indeterminate `ProgressBar` are pending
+- Pixel baselines for indeterminate `ProgressBar` and `Spinner` are pending; `Spinner` stroke widths and arc span are approximations not yet checked against official Fluent screenshots
 - `Button::tooltip` delegates flipping to the gpui-base overlay; hover/flip placement still needs manual verification. The generic `tooltip(text)` helper uses GPUI-native positioning without the same anchoring guarantee. Tests cover only that the root publishes the service, that its entity identity survives redraws, and that callers see `None` without a root
 - No RTL support, no letter-spacing control, no CSS `outline`
 - No live regions; nothing is announced to screen readers on change

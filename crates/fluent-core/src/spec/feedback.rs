@@ -163,6 +163,121 @@ pub fn avatar(theme: &FluentTheme, size: AvatarSize) -> AvatarSpec {
     }
 }
 
+/// Fluent spinner sizes.
+///
+/// Upstream ships eight steps (`extraTiny` 16 through `huge` 44). We take the
+/// four steps that match real layout densities — tiny (16), small (20), medium
+/// (28) and large (32) — skipping the oversized display steps (36/40/44) which
+/// are meant for full-page loading states that this library does not target
+/// yet.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum SpinnerSize {
+    Tiny,
+    Small,
+    #[default]
+    Medium,
+    Large,
+}
+
+/// Resolved spinner.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SpinnerSpec {
+    /// The full-ring track colour (`colorNeutralStrokeAlpha2`).
+    pub track: Hsla,
+    /// The sweeping arc colour (`colorBrandStroke2Contrast`).
+    pub indicator: Hsla,
+    /// Outer diameter.
+    pub diameter: Pixels,
+    /// Ring stroke width.
+    ///
+    /// Approximation: upstream derives the stroke width from the size ramp
+    /// rather than a single token; ~1/10 of the diameter reproduces the visual
+    /// weight in Fluent 2 screenshots. Verify against official screenshots.
+    pub stroke_width: Pixels,
+}
+
+/// Resolves a spinner.
+pub fn spinner(theme: &FluentTheme, size: SpinnerSize) -> SpinnerSpec {
+    let t = theme.tokens();
+    let c = &t.color;
+    let (diameter, stroke_width) = match size {
+        SpinnerSize::Tiny => (px(16.), px(1.5)),
+        SpinnerSize::Small => (px(20.), px(2.)),
+        SpinnerSize::Medium => (px(28.), px(3.)),
+        SpinnerSize::Large => (px(32.), px(3.5)),
+    };
+    SpinnerSpec {
+        track: c.neutral_stroke_alpha_2,
+        indicator: c.brand_stroke_2_contrast,
+        diameter,
+        stroke_width,
+    }
+}
+
+/// Arc end points of the spinner indicator on the unit circle.
+///
+/// `delta` is the animation phase in 0..1 (one full turn per period). The arc
+/// starts at `delta * 360°` and sweeps `SPINNER_ARC_DEGREES`, matching Fluent's
+/// indicator that covers about three quarters of the track. Angles are
+/// degrees clockwise from 12 o'clock; the returned points are on the unit
+/// circle centred on the origin (y down).
+pub fn spinner_arc_endpoints(delta: f32) -> [(f32, f32); 2] {
+    let start = (delta.rem_euclid(1.0)) * 360.0;
+    let end = start + SPINNER_ARC_DEGREES;
+    [circle_point(start), circle_point(end)]
+}
+
+/// Degrees of track the indicator arc covers.
+///
+/// Approximation: Fluent's spinner arc spans about three quarters of the ring;
+/// the exact upstream figure is not published as a token. Verify against
+/// official screenshots.
+pub const SPINNER_ARC_DEGREES: f32 = 270.0;
+
+/// Point on a unit circle at `degrees` clockwise from 12 o'clock (y down).
+fn circle_point(degrees: f32) -> (f32, f32) {
+    let rad = degrees.to_radians();
+    (rad.sin(), -rad.cos())
+}
+
+/// How far the indeterminate `ProgressBar` segment has travelled at `delta`.
+///
+/// `delta` is the animation phase in 0..1. The segment is `SEGMENT_WIDTH`
+/// (0.4) of the track wide and its start slides linearly from `-0.4` (fully
+/// off the left edge) to `1.0` (fully off the right edge). The returned
+/// `(left, right)` pair is clamped into the track so the rounded ends are
+/// never squared off by a clip.
+pub fn indeterminate_segment_insets(delta: f32) -> (f32, f32) {
+    let travel = -SEGMENT_WIDTH + delta * (1.0 + SEGMENT_WIDTH);
+    (travel.max(0.0), (travel + SEGMENT_WIDTH).min(1.0))
+}
+
+/// Fraction of the track the indeterminate segment occupies.
+const SEGMENT_WIDTH: f32 = 0.4;
+
+/// Whether the indeterminate `ProgressBar` may animate.
+///
+/// Under reduced motion the bar renders a static segment parked at the
+/// reduced-motion inset instead of sweeping.
+pub fn indeterminate_animation_allowed(reduce_motion: bool) -> bool {
+    !reduce_motion
+}
+
+/// Fixed `(left, right)` insets the indeterminate segment parks at under
+/// reduced motion: centred on the track.
+pub fn indeterminate_segment_reduced_insets() -> (f32, f32) {
+    let start = (1.0 - SEGMENT_WIDTH) / 2.0;
+    (start, start + SEGMENT_WIDTH)
+}
+
+/// Whether the `Spinner` may spin.
+///
+/// Under reduced motion the same ring + arc is drawn at phase 0 with no
+/// repeating animation.
+pub fn spinner_animation_allowed(reduce_motion: bool) -> bool {
+    !reduce_motion
+}
+
 /// Resolved tooltip surface.
 #[derive(Clone, Debug, PartialEq)]
 pub struct TooltipSpec {
@@ -304,6 +419,79 @@ mod tests {
             t.color.palette_red_background_3
         );
         assert_eq!(progress(&theme, ProgressAppearance::Default).height, px(4.));
+    }
+
+    #[test]
+    fn spinner_sizes_are_distinct() {
+        let theme = FluentTheme::web_light();
+        let diameters: Vec<_> = [
+            SpinnerSize::Tiny,
+            SpinnerSize::Small,
+            SpinnerSize::Medium,
+            SpinnerSize::Large,
+        ]
+        .iter()
+        .map(|s| spinner(&theme, *s).diameter)
+        .collect();
+        for pair in diameters.windows(2) {
+            assert!(pair[1] > pair[0], "sizes must strictly grow: {diameters:?}");
+        }
+    }
+
+    #[test]
+    fn spinner_colours_come_from_tokens() {
+        let t = Tokens::web_light();
+        let theme = FluentTheme::web_light();
+        let spec = spinner(&theme, SpinnerSize::Medium);
+        assert_eq!(spec.track, t.color.neutral_stroke_alpha_2);
+        assert_eq!(spec.indicator, t.color.brand_stroke_2_contrast);
+        assert!(spec.stroke_width > px(0.));
+    }
+
+    #[test]
+    fn spinner_arc_covers_about_three_quarters() {
+        let [start, end] = spinner_arc_endpoints(0.0);
+        // Phase 0 starts at 12 o'clock.
+        assert!((start.0 - 0.0).abs() < 1e-6 && (start.1 + 1.0).abs() < 1e-6);
+        // The arc end stays on the unit circle.
+        let len = (end.0 * end.0 + end.1 * end.1).sqrt();
+        assert!((len - 1.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn indeterminate_segment_stays_inside_the_track() {
+        for step in 0..=200 {
+            let delta = step as f32 / 200.0;
+            let (left, right) = indeterminate_segment_insets(delta);
+            assert!((0.0..=1.0).contains(&left), "left out of bounds at {delta}");
+            assert!(
+                right >= left && right <= 1.0,
+                "right out of bounds at {delta}"
+            );
+            // Edges clamp while the segment slides in or out; once fully on
+            // track the width is exactly SEGMENT_WIDTH.
+            let width = right - left;
+            assert!(
+                width <= SEGMENT_WIDTH + 1e-6,
+                "width {width} exceeds the segment at {delta}"
+            );
+            if (0.4 / 1.4..=1.0 / 1.4).contains(&delta) {
+                assert!(
+                    (width - SEGMENT_WIDTH).abs() < 1e-6,
+                    "width {width} drifted mid-travel at {delta}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn reduced_motion_parks_a_centred_static_segment() {
+        let (left, right) = indeterminate_segment_reduced_insets();
+        assert!((left - 0.3).abs() < 1e-6 && (right - 0.7).abs() < 1e-6);
+        assert!(!indeterminate_animation_allowed(true));
+        assert!(indeterminate_animation_allowed(false));
+        assert!(!spinner_animation_allowed(true));
+        assert!(spinner_animation_allowed(false));
     }
 
     #[test]

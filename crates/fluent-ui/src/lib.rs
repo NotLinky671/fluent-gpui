@@ -20,12 +20,14 @@
 pub use fluent_components::{
     Avatar, Badge, Button, Checkbox, Divider, Field, FluentIcon, FluentRoot, Icon, IconStyle,
     InputAppearance, Label, Link, Menu, MenuDropdown, MenuHeader, MenuItem, MenuSeparator, Popover,
-    ProgressBar, Radio, Switch, TextInput, Textarea, TextareaAppearance, TooltipSurface,
+    ProgressBar, Radio, Spinner, Switch, TextInput, Textarea, TextareaAppearance, TooltipSurface,
     TooltipView, ValidationMessage, tooltip,
 };
 pub use fluent_core::spec::ControlSize;
 pub use fluent_core::spec::button::{ButtonAppearance, ButtonShape, IconPosition};
-pub use fluent_core::spec::feedback::{AvatarSize, BadgeAppearance, BadgeSize, ProgressAppearance};
+pub use fluent_core::spec::feedback::{
+    AvatarSize, BadgeAppearance, BadgeSize, ProgressAppearance, SpinnerSize,
+};
 pub use fluent_core::spec::misc::{DividerAppearance, LinkAppearance};
 pub use fluent_theme::{Appearance, FluentTheme, FontMode};
 pub use fluent_tokens::Tokens;

@@ -18,8 +18,8 @@ use fluent_ui::{
     Appearance, Avatar, AvatarSize, Badge, BadgeAppearance, BadgeSize, Button, ButtonAppearance,
     ButtonShape, Checkbox, ControlSize, Divider, Field, FluentIcon, FluentRoot, FluentTheme,
     FontMode, InputAppearance, Link, Menu, MenuDropdown, MenuHeader, MenuItem, Popover,
-    ProgressAppearance, ProgressBar, Radio, Switch, TextInput, Textarea, TextareaAppearance,
-    TooltipSurface, ValidationMessage,
+    ProgressAppearance, ProgressBar, Radio, Spinner, SpinnerSize, Switch, TextInput, Textarea,
+    TextareaAppearance, TooltipSurface, ValidationMessage,
 };
 
 const APPEARANCES: [ButtonAppearance; 5] = [
@@ -749,6 +749,21 @@ impl Render for Gallery {
                     .child(Avatar::new("Grace Hopper"))
                     .child(Avatar::new("Alan Turing").size(AvatarSize::Large))
                     .child(Avatar::new("Katherine Johnson").size(AvatarSize::ExtraLarge)),
+            )
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(16.))
+                    .child(Spinner::new().size(SpinnerSize::Tiny))
+                    .child(Spinner::new().size(SpinnerSize::Small))
+                    .child(Spinner::new().size(SpinnerSize::Medium))
+                    .child(Spinner::new().size(SpinnerSize::Large))
+                    .child(
+                        Spinner::new()
+                            .size(SpinnerSize::Medium)
+                            .label("Loading your files"),
+                    ),
             );
 
         // `FLUENT_GALLERY_SECTION` narrows the gallery to one section; useful for

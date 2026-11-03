@@ -56,7 +56,7 @@ pub mod textarea;
 pub mod tooltip;
 
 pub use button::Button;
-pub use feedback::{Avatar, Badge, ProgressBar, TooltipSurface, TooltipView};
+pub use feedback::{Avatar, Badge, ProgressBar, Spinner, TooltipSurface, TooltipView};
 pub use field::{Field, Label, ValidationMessage};
 pub use fluent_core::spec::ControlSize;
 pub use fluent_core::spec::button::{ButtonAppearance, ButtonShape, IconPosition};
