@@ -74,6 +74,11 @@
 
 菜单之外单独使用 `MenuItem` 时没有上层菜单，此时保留局部 hover 样式（`pointer_activate` 为 `None`），不影响上述规则。
 
+### 输入字符与 Tab
+
+- **typeahead**：菜单在容器上挂 `on_key_down`，把单字符按键累积成前缀（600ms 后重置；重复同一字符时以前一字符重新开始，从而在多个同字母项之间循环）。匹配从**当前项之后**开始并环绕。
+- **Tab / Shift+Tab 关闭**：在 `MENU_KEY_CONTEXT` 内绑定到 `MenuTabOut`，它会派发 `Dismiss` 交给宿主 `Popover` 关闭。绑定放在菜单上下文里，是为了让更具体的上下文覆盖 ROOT 的 Tab 遍历——否则焦点会先移出菜单，面板留在原处。
+
 ### 当前项是身份，不是序号
 
 状态存的是行的 `ElementId`，不是它在可选行里的位置：
@@ -141,7 +146,7 @@ cargo test -p fluent-components --lib tab_order_tests --locked
 
 - 焦点陷阱的 Tab 循环已可自动化验证，见下方「写键盘测试的两个前提」。
 - 模态语义：`Role::Dialog` / `AlertDialog` 的 AccessKit 角色、背景内容是否真的不可交互
-- 菜单键盘的未完成项：typeahead、子菜单、Tab 离开即关闭
+- 菜单键盘的未完成项：子菜单
 - 当前项不使用 `aria-activedescendant`（焦点在容器本身，当前项通过 `aria-selected` 表达）；原生屏幕阅读器对这些属性的实际朗读效果未验证
 - AccessKit role/state 是否随焦点正确上报
 - 真实窗口中的 Tab 顺序（测试直接派发按键，不经过平台输入法或原生焦点环）

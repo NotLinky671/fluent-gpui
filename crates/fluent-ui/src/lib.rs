@@ -98,6 +98,19 @@ pub fn init(cx: &mut gpui::App) {
             fluent_components::MenuActivate,
             Some(fluent_components::MENU_KEY_CONTEXT),
         ),
+        // A menu closes when Tab leaves it. Scoping these to the menu context
+        // shadows the root traversal binding, which would otherwise move focus out
+        // and leave the panel open behind the pointer.
+        gpui::KeyBinding::new(
+            "tab",
+            fluent_components::MenuTabOut,
+            Some(fluent_components::MENU_KEY_CONTEXT),
+        ),
+        gpui::KeyBinding::new(
+            "shift-tab",
+            fluent_components::MenuTabOut,
+            Some(fluent_components::MENU_KEY_CONTEXT),
+        ),
     ]);
     // Tab order inside `FluentRoot`. gpui-base's own binding is scoped to its
     // private root context, so it never fires under a Fluent application.

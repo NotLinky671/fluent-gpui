@@ -10,8 +10,8 @@
 | `Button::tooltip` | Button 测量触发器并向根级 gpui-base `TooltipOverlay` 发送请求 | 不等于 GPUI 原生 `.tooltip()`，也不等于 Popover 定位器 |
 | 通用 `tooltip(text)` 助手 | 构建 `TooltipView` 的闭包，供 GPUI 原生 `InteractiveElement::tooltip` 使用 | 内容采用 Fluent 外观，不代表具有 Button overlay 的锚定与间隙配置 |
 | `Popover` | window keyed open state + 同帧测量 + 自研 deferred positioner + `on_mouse_down_out` 关闭 | 不依赖 TooltipService，也不是根级 PopoverHost；定位测试不证明关闭正确 |
-| `MenuDropdown` | 把 `Menu` 组合进 `Popover`，继承定位与关闭；键盘与鼠标移动共用菜单的当前项，布局变化不触发改选 | 不等于完整菜单协议：无 typeahead、无子菜单、Tab 离开不关闭 |
-| `Menu` / `MenuItem` | Fluent 菜单面板、菜单项、前导图标、勾选/单选行、方向键/Home/End/Enter 导航 | 键盘只覆盖已声明的 `.item()` 行；子菜单与 typeahead 未实现 |
+| `MenuDropdown` | 把 `Menu` 组合进 `Popover`，继承定位与关闭；键盘与鼠标移动共用菜单的当前项，布局变化不触发改选 | 不等于完整菜单协议：无子菜单 |
+| `Menu` / `MenuItem` | Fluent 菜单面板、菜单项、前导图标、勾选/单选行、方向键/Home/End/Enter 导航 | 键盘只覆盖已声明的 `.item()` 行；子菜单未实现 |
 
 **阅读顺序**：[公开导出](../../crates/fluent-ui/src/lib.rs) → 对应组件 → 状态/坐标读写者 → [现有测试](../../crates/fluent-components/src/popover/tests.rs)。
 

@@ -40,6 +40,19 @@ pub type MenuHandler = std::rc::Rc<dyn Fn(&mut Window, &mut App) + 'static>;
 /// Reports a mouse-move event over a row, so the menu can make it current.
 type PointerHandler = std::rc::Rc<dyn Fn(&mut App)>;
 
+/// Typed-prefix state for jumping to a row by its label.
+///
+/// A prefix older than the reset window is discarded, and typing the same
+/// character again restarts from that character instead of building "aa", so
+/// pressing a letter repeatedly cycles through the rows starting with it.
+#[derive(Clone, Default)]
+struct Typeahead {
+    prefix: String,
+    at: Option<std::time::Instant>,
+}
+
+const TYPEAHEAD_RESET: std::time::Duration = std::time::Duration::from_millis(600);
+
 /// The row the menu points at, and which input put it there.
 ///
 /// The source decides what happens when the pointer leaves the menu: a row the
@@ -165,6 +178,15 @@ impl RenderOnce for Menu {
                     _ => unreachable!("only items are selectable"),
                 };
                 (index, id)
+            })
+            .collect();
+
+        // Labels in the same order as `selectable`, for typed-prefix matching.
+        let labels: Vec<SharedString> = selectable
+            .iter()
+            .map(|(entry, _)| match &self.entries[*entry] {
+                Entry::Item(item) => item.label.clone(),
+                _ => unreachable!("only items are selectable"),
             })
             .collect();
 
@@ -317,6 +339,65 @@ impl RenderOnce for Menu {
             });
         }
 
+        // Tab leaves the menu, so it closes. The binding is scoped to the menu
+        // context, which shadows root traversal for this subtree.
+        container = container.on_action(|_: &crate::MenuTabOut, window, cx| {
+            window.dispatch_action(Box::new(crate::Dismiss), cx);
+        });
+
+        // Typed-prefix jump. Runs as a key listener rather than a binding because
+        // the keys are arbitrary characters; `Enter`, `Tab` and the arrows resolve
+        // to actions and never reach here as single characters.
+        if count > 0 {
+            let typeahead = window.use_keyed_state(
+                SharedString::from(format!("menu-typeahead-{}", menu_id)),
+                cx,
+                |_, _| Typeahead::default(),
+            );
+            let labels = labels.clone();
+            let selectable = selectable.clone();
+            let set_active = set_active.clone();
+            let resolve = resolve.clone();
+            container = container.on_key_down(move |event, _, cx| {
+                let Some(character) = typed_character(&event.keystroke) else {
+                    return;
+                };
+                let now = std::time::Instant::now();
+                let prefix = typeahead.update(cx, |state, _| {
+                    let expired = state
+                        .at
+                        .is_none_or(|at| now.duration_since(at) > TYPEAHEAD_RESET);
+                    // Repeating one character restarts from that character so it
+                    // cycles through matches instead of building an unmatchable
+                    // prefix like "oo".
+                    let repeating = !expired && state.prefix.chars().all(|c| c == character);
+                    if expired || repeating {
+                        state.prefix.clear();
+                    }
+                    state.prefix.push(character);
+                    state.at = Some(now);
+                    state.prefix.clone()
+                });
+
+                // Search from the row after the current one, wrapping, so repeated
+                // characters advance instead of staying on the first match.
+                let start = resolve(cx).map_or(0, |position| position + 1);
+                let mut target = None;
+                for offset in 0..count {
+                    let position = (start + offset) % count;
+                    if labels[position].to_lowercase().starts_with(&prefix) {
+                        target = Some(position);
+                        break;
+                    }
+                }
+                if let Some(position) = target
+                    && let Some((_, id)) = selectable.get(position)
+                {
+                    set_active(cx, Some(id.clone()), false);
+                }
+            });
+        }
+
         // Render rows, telling each item whether it is the current one. Inside a
         // menu the pointer writes the same state the keyboard does, so only one
         // row can ever look current and Enter always agrees with it.
@@ -370,6 +451,27 @@ impl RenderOnce for Menu {
     }
 }
 
+/// The single printable character a keystroke types, if it types one.
+///
+/// Named keys (`tab`, `enter`, `escape`) and shortcut combinations have no single
+/// character and are left to the action bindings.
+fn typed_character(keystroke: &gpui::Keystroke) -> Option<char> {
+    let modifiers = &keystroke.modifiers;
+    if modifiers.control || modifiers.alt || modifiers.platform || modifiers.function {
+        return None;
+    }
+    let text = keystroke
+        .key_char
+        .clone()
+        .unwrap_or_else(|| keystroke.key.clone());
+    let mut chars = text.chars();
+    let first = chars.next()?;
+    if chars.next().is_some() || first.is_control() {
+        return None;
+    }
+    first.to_lowercase().next()
+}
+
 /// Stable identity for a non-selectable row inside one menu.
 fn filler_id(menu: &SharedString, kind: &str, index: usize) -> SharedString {
     SharedString::from(format!("{menu}-{kind}-{index}"))
@@ -399,8 +501,8 @@ fn filler(clear: std::rc::Rc<dyn Fn(&mut App)>, id: SharedString) -> gpui::State
 /// skipping disabled rows. The pointer writes the same "current row" the keyboard
 /// does, so only one row is ever current and activation always matches it.
 ///
-/// Still missing: typeahead, submenus, closing when Tab leaves, and exposing a
-/// disabled state through accesskit (this GPUI version has no API for it).
+/// Tab closes the menu. Still missing: submenus, and exposing a disabled state
+/// through accesskit (this GPUI version has no API for it).
 #[derive(IntoElement)]
 pub struct MenuDropdown {
     id: ElementId,
@@ -757,3 +859,6 @@ mod keyboard_tests;
 
 #[cfg(test)]
 mod input_mode_tests;
+
+#[cfg(test)]
+mod typeahead_tests;

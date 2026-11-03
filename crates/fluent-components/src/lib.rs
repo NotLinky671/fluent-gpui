@@ -15,7 +15,8 @@ actions!(
         MenuPrev,
         MenuFirst,
         MenuLast,
-        MenuActivate
+        MenuActivate,
+        MenuTabOut
     ]
 );
 
