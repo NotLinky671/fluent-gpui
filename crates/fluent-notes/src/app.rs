@@ -12,9 +12,9 @@ use fluent_ui::gpui::{
 use fluent_ui::gpui_base::input::{InputState, TextareaState};
 use fluent_ui::prelude::*;
 use fluent_ui::{
-    Appearance, Badge, BadgeAppearance, BadgeSize, Button, ButtonAppearance, Checkbox, ControlSize,
-    Divider, Field, FluentIcon, FluentRoot, FluentTheme, Icon, Label, Menu, MenuDropdown,
-    MenuHeader, MenuItem, Popover, Radio, Switch, TextInput, Textarea,
+    AlertDialog, Appearance, Badge, BadgeAppearance, BadgeSize, Button, ButtonAppearance, Checkbox,
+    ControlSize, Dialog, Divider, Field, FluentIcon, FluentRoot, FluentTheme, Icon, Label, Menu,
+    MenuDropdown, MenuHeader, MenuItem, Popover, Radio, Switch, TextInput, Textarea,
 };
 
 use crate::model::{Note, NoteId, NoteTone, NotesModel};
@@ -463,6 +463,10 @@ impl NotesApp {
             .size_full()
             .child(self.render_top_bar(cx, narrow))
             .child(body)
+            // A pending decision mounts modal dialogs; they render themselves
+            // deferred above everything here, dim the page and trap focus.
+            // Both stay mounted so the closing frame can hand focus back.
+            .children(self.render_pending_dialogs(cx))
             .into_any_element()
     }
 
@@ -1001,10 +1005,6 @@ impl NotesApp {
             })
             .child(toolbar);
 
-        if let Some(pending) = self.render_pending(cx) {
-            panel = panel.child(pending);
-        }
-
         panel = panel
             .child(
                 div()
@@ -1021,136 +1021,147 @@ impl NotesApp {
         panel.into_any_element()
     }
 
-    fn render_pending(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
-        let pending = self.pending?;
+    /// The pending decision as real modal dialogs.
+    ///
+    /// `pending` is the controlled open state: a switch/new-note decision
+    /// drives a `Dialog`, a delete decision drives an `AlertDialog`. Both stay
+    /// mounted — a dialog element that unmounts while open can never run its
+    /// closing frame, which is where focus is handed back. Their content is
+    /// only laid out while open, so a closed dialog is a no-op element.
+    fn render_pending_dialogs(&self, cx: &mut Context<Self>) -> Vec<AnyElement> {
         let theme = FluentTheme::global(cx);
         let t = theme.tokens();
+        let pending = self.pending;
 
-        let (background, border, foreground, icon, message) = match pending {
-            PendingAction::SwitchTo(target) => {
-                let target_label = self
+        let switch_open = matches!(
+            pending,
+            Some(PendingAction::SwitchTo(_)) | Some(PendingAction::NewNote)
+        );
+        let delete_open = matches!(pending, Some(PendingAction::Delete(_)));
+
+        let (title, message, save_label, discard_label) = match pending {
+            Some(PendingAction::SwitchTo(target)) => {
+                let label = self
                     .model
                     .get(target)
                     .map(|note| note.display_title().to_string())
                     .unwrap_or_else(|| "目标便签".to_string());
                 (
-                    t.color.status_warning_background_1,
-                    t.color.status_warning_border_1,
-                    t.color.status_warning_foreground_1,
-                    FluentIcon::Warning,
-                    format!("当前便签有未保存的修改。切换到「{target_label}」前要保存吗？"),
+                    "切换便签",
+                    format!("当前便签有未保存的修改。切换到「{label}」前要保存吗？"),
+                    "保存并切换",
+                    "放弃修改并切换",
                 )
             }
-            PendingAction::NewNote => (
-                t.color.status_warning_background_1,
-                t.color.status_warning_border_1,
-                t.color.status_warning_foreground_1,
-                FluentIcon::Warning,
+            Some(PendingAction::NewNote) => (
+                "新建便签",
                 "当前便签有未保存的修改。新建便签前要保存吗？".to_string(),
+                "保存并新建",
+                "放弃修改并新建",
             ),
-            PendingAction::Delete(id) => {
-                let label = self
-                    .model
-                    .get(id)
-                    .map(|note| note.display_title().to_string())
-                    .unwrap_or_else(|| "该便签".to_string());
-                (
-                    t.color.status_danger_background_1,
-                    t.color.status_danger_border_1,
-                    t.color.status_danger_foreground_1,
-                    FluentIcon::Warning,
-                    format!(
-                        "删除「{label}」？删除后无法撤销；未保存的修改也会一起丢弃。（Dialog 尚未实现，这里使用页面内确认。）"
-                    ),
-                )
-            }
+            _ => ("", String::new(), "", ""),
         };
 
-        let mut actions = div().flex().flex_wrap().gap(px(8.));
-        match pending {
-            PendingAction::SwitchTo(_) | PendingAction::NewNote => {
-                let continue_label = match pending {
-                    PendingAction::SwitchTo(_) => "保存并切换",
-                    _ => "保存并新建",
-                };
-                let discard_label = match pending {
-                    PendingAction::SwitchTo(_) => "放弃修改并切换",
-                    _ => "放弃修改并新建",
-                };
-                actions =
-                    actions
-                        .child(
-                            Button::new("notes-pending-save")
-                                .appearance(ButtonAppearance::Primary)
-                                .on_click(cx.listener(|this, _, window, cx| {
-                                    this.save_and_continue(window, cx)
-                                }))
-                                .child(continue_label),
-                        )
-                        .child(
-                            Button::new("notes-pending-discard")
-                                .appearance(ButtonAppearance::Secondary)
-                                .on_click(cx.listener(|this, _, window, cx| {
-                                    this.confirm_pending(window, cx)
-                                }))
-                                .child(discard_label),
-                        )
-                        .child(
-                            Button::new("notes-pending-stay")
-                                .appearance(ButtonAppearance::Subtle)
-                                .on_click(cx.listener(|this, _, _, cx| this.cancel_pending(cx)))
-                                .child("留在当前"),
-                        );
-            }
-            PendingAction::Delete(_) => {
-                actions = actions
-                    .child(
-                        Button::new("notes-pending-delete")
-                            .appearance(ButtonAppearance::Secondary)
-                            .text_color(t.color.status_danger_foreground_1)
-                            .on_click(
-                                cx.listener(|this, _, window, cx| this.confirm_pending(window, cx)),
-                            )
-                            .child("确认删除"),
-                    )
-                    .child(
-                        Button::new("notes-pending-cancel")
-                            .appearance(ButtonAppearance::Secondary)
-                            .on_click(cx.listener(|this, _, _, cx| this.cancel_pending(cx)))
-                            .child("取消"),
-                    );
-            }
-        }
+        let weak = cx.entity().downgrade();
+        let weak_ok = weak.clone();
+        let weak_cancel = weak.clone();
+        let weak_change = weak.clone();
+        let switch_dialog = Dialog::new("notes-pending-switch")
+            .title(title)
+            .open(switch_open)
+            // Escape and a scrim press are "stay"; Enter takes the primary
+            // save path, matching the old bar's primary button. Both still go
+            // through the app handlers.
+            .on_ok(move |_, window, cx| {
+                weak_ok
+                    .update(cx, |this, cx| this.save_and_continue(window, cx))
+                    .is_ok()
+            })
+            .on_cancel(move |_, _, cx| {
+                weak_cancel
+                    .update(cx, |this, cx| this.cancel_pending(cx))
+                    .is_ok()
+            })
+            .on_open_change(move |open, _, _, cx| {
+                if !open {
+                    weak_change
+                        .update(cx, |this, cx| {
+                            this.pending = None;
+                            cx.notify();
+                        })
+                        .ok();
+                }
+            })
+            .child(message)
+            .footer_child(
+                Button::new("notes-pending-stay")
+                    .appearance(ButtonAppearance::Subtle)
+                    .on_click(cx.listener(|this, _, _, cx| this.cancel_pending(cx)))
+                    .child("留在当前"),
+            )
+            .footer_child(
+                Button::new("notes-pending-discard")
+                    .appearance(ButtonAppearance::Secondary)
+                    .on_click(cx.listener(|this, _, window, cx| this.confirm_pending(window, cx)))
+                    .child(discard_label),
+            )
+            .footer_child(
+                Button::new("notes-pending-save")
+                    .appearance(ButtonAppearance::Primary)
+                    .on_click(cx.listener(|this, _, window, cx| this.save_and_continue(window, cx)))
+                    .child(save_label),
+            )
+            .into_any_element();
 
-        Some(
-            div()
-                .flex()
-                .flex_col()
-                .gap(px(8.))
-                .p(px(10.))
-                .rounded(px(6.))
-                .border_1()
-                .border_color(border)
-                .bg(background)
-                .child(
-                    div()
-                        .flex()
-                        .items_start()
-                        .gap(px(8.))
-                        .child(Icon::new(icon).size(px(16.)).color(foreground))
-                        .child(
-                            div()
-                                .flex_1()
-                                .min_w(px(0.))
-                                .whitespace_normal()
-                                .text_size(px(12.))
-                                .text_color(t.color.neutral_foreground_1)
-                                .child(message),
-                        ),
-                )
-                .child(actions)
-                .into_any_element(),
-        )
+        let delete_label = match pending {
+            Some(PendingAction::Delete(id)) => self
+                .model
+                .get(id)
+                .map(|note| note.display_title().to_string())
+                .unwrap_or_else(|| "该便签".to_string()),
+            _ => String::new(),
+        };
+        let weak_ok = weak.clone();
+        let weak_change = weak.clone();
+        let delete_dialog = AlertDialog::new("notes-pending-delete")
+            .title("删除便签")
+            .open(delete_open)
+            // Enter counts as the destructive confirm; Escape and scrim
+            // presses cannot dismiss an alert dialog.
+            .on_ok(move |_, window, cx| {
+                weak_ok
+                    .update(cx, |this, cx| this.confirm_pending(window, cx))
+                    .is_ok()
+            })
+            .on_open_change(move |open, _, _, cx| {
+                if !open {
+                    weak_change
+                        .update(cx, |this, cx| {
+                            this.pending = None;
+                            cx.notify();
+                        })
+                        .ok();
+                }
+            })
+            .child(format!(
+                "删除「{delete_label}」？删除后无法撤销；未保存的修改也会一起丢弃。"
+            ))
+            .footer_child(
+                Button::new("notes-pending-cancel")
+                    .appearance(ButtonAppearance::Secondary)
+                    .on_click(cx.listener(|this, _, _, cx| this.cancel_pending(cx)))
+                    .child("取消"),
+            )
+            .footer_child(
+                Button::new("notes-pending-delete")
+                    .appearance(ButtonAppearance::Secondary)
+                    .text_color(t.color.status_danger_foreground_1)
+                    .on_click(cx.listener(|this, _, window, cx| this.confirm_pending(window, cx)))
+                    .child("确认删除"),
+            )
+            .into_any_element();
+
+        vec![switch_dialog, delete_dialog]
     }
 
     fn render_status(&self, counts: String, cx: &mut Context<Self>, narrow: bool) -> AnyElement {

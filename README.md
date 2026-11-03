@@ -24,6 +24,7 @@ This table describes implementation scope, not verification of every platform, i
 | `Popover` | Experimental | Anchored panel, controlled/uncontrolled open state, same-frame scroll positioning, outside-click dismissal, Escape, focus handover and a Tab focus trap when `track_focus` is supplied; the trap cycles between panel items and never reaches the page behind |
 | `Menu` / `MenuItem` | Partial | Panel, leading icons, check and radio rows, separators, headers, `MenuDropdown` trigger integration through `Popover`, arrow/Home/End navigation with disabled rows skipped, typeahead, and closing on Tab; submenus remain unfinished |
 | `Spinner` | Foundation | Four sizes following Fluent's ramp (16/20/24/28), accessible label via `Spinner::label`, honours reduced motion |
+| `Dialog` / `AlertDialog` | Foundation | Self-rendered deferred modal: Fluent scrim and card (background overlay, x-large radius, shadow64), controlled/uncontrolled open, focus enters on open and returns on close, Tab trapped inside; `AlertDialog` requires an explicit footer choice — no Escape or scrim dismissal |
 
 ## Quick start
 
@@ -59,13 +60,13 @@ fn main() {
 
 ## Integration app
 
-[`fluent-notes`](crates/fluent-notes) is a small native notes application that combines the current components in real flows: drafts, themes, menus, popovers, focus and confirmation bars. It complements the gallery's single-component matrix.
+[`fluent-notes`](crates/fluent-notes) is a small native notes application that combines the current components in real flows: drafts, themes, menus, popovers, focus and modal confirmations. It complements the gallery's single-component matrix.
 
 ```text
 cargo run -p fluent-notes
 ```
 
-Notes live in memory only and are lost when the window closes; there is no networking, account or persistence. Delete and unsaved-switch confirmation use in-page confirm/cancel bars until Dialog exists. Usage, the repeatable manual checklist, known limitations and M2 hookup points are in [docs/apps/notes.md](docs/apps/notes.md); this round's actual verification is in [docs/validation/notes-app-2026-11-03.md](docs/validation/notes-app-2026-11-03.md).
+Notes live in memory only and are lost when the window closes; there is no networking, account or persistence. Delete and unsaved-switch confirmation use real `AlertDialog` / `Dialog` modals. Usage, the repeatable manual checklist, known limitations and M2 hookup points are in [docs/apps/notes.md](docs/apps/notes.md); this round's actual verification is in [docs/validation/notes-app-2026-11-03.md](docs/validation/notes-app-2026-11-03.md).
 
 ## Controlled and uncontrolled
 

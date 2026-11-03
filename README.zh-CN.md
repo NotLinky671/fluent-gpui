@@ -24,6 +24,7 @@
 | `Popover` | 实验性 | 已有锚定浮层、受控/非受控开关、同帧滚动定位、外部点击关闭、Esc 关闭，以及提供 `track_focus` 时的焦点交接与 Tab 焦点陷阱；陷阱在面板项之间循环且不会逃到背后页面 |
 | `Menu` / `MenuItem` | 部分实现 | 面板、前导图标、勾选与单选行、分隔线、标题、经 `Popover` 的 `MenuDropdown` 触发器接线，方向键/Home/End 导航并跳过禁用行、typeahead，以及 Tab 离开即关闭；子菜单待完成 |
 | `Spinner` | 基础实现 | 四档尺寸按上游梯度（16/20/24/28），`Spinner::label` 提供无障碍名称，遵循 reduced motion |
+| `Dialog` / `AlertDialog` | 基础实现 | 自渲染 deferred 模态：Fluent scrim 与卡片（background overlay、x-large 圆角、shadow64），受控/非受控开关，打开移入焦点、关闭归还，Tab 约束在卡片内；`AlertDialog` 必须显式选择——无 Esc 与 scrim 关闭 |
 
 ## 快速开始
 
@@ -59,13 +60,13 @@ fn main() {
 
 ## 集成验证应用
 
-[`fluent-notes`](crates/fluent-notes) 是一个小型原生便签应用，用真实操作流程组合现有组件（草稿、主题、菜单、浮层、焦点与确认条），补充 Gallery 的单组件矩阵。
+[`fluent-notes`](crates/fluent-notes) 是一个小型原生便签应用，用真实操作流程组合现有组件（草稿、主题、菜单、浮层、焦点与模态确认），补充 Gallery 的单组件矩阵。
 
 ```text
 cargo run -p fluent-notes
 ```
 
-数据只保存在内存中，关闭窗口即丢失；不联网、不做账号或持久化。删除与未保存切换暂用页面内确认条，待 Dialog 可用后替换。使用说明、可重复的手工验收清单、已知限制与 M2 接入点见 [docs/apps/notes.md](docs/apps/notes.md)；本次实际验证记录见 [docs/validation/notes-app-2026-11-03.md](docs/validation/notes-app-2026-11-03.md)。
+数据只保存在内存中，关闭窗口即丢失；不联网、不做账号或持久化。删除与未保存切换已使用真正的 `AlertDialog` / `Dialog` 模态对话框。使用说明、可重复的手工验收清单、已知限制与 M2 接入点见 [docs/apps/notes.md](docs/apps/notes.md)；本次实际验证记录见 [docs/validation/notes-app-2026-11-03.md](docs/validation/notes-app-2026-11-03.md)。
 
 ## 受控与非受控
 

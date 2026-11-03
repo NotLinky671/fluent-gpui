@@ -877,3 +877,126 @@ fn menu_dropdown_trigger_click_opens_the_panel(cx: &mut TestAppContext) {
         );
     }
 }
+
+// ---------------------------------------------------------------------------
+// Pending decisions now arrive as real dialogs. These tests check the modal
+// paths the in-page bar could not offer: Escape/scrim cancellation for the
+// switch dialog, mandatory choice for the delete alert, and focus return.
+// ---------------------------------------------------------------------------
+
+fn press_escape(cx: &mut TestAppContext, window: Handle) {
+    cx.update_window(window.into(), |_, window, cx| {
+        window.dispatch_event(
+            PlatformInput::KeyDown(KeyDownEvent {
+                keystroke: Keystroke::parse("escape").unwrap(),
+                is_held: false,
+                prefer_character_input: false,
+            }),
+            cx,
+        );
+        window.refresh();
+        window.draw(cx).clear(cx);
+    })
+    .unwrap();
+    cx.run_until_parked();
+}
+
+fn click_scrim(cx: &mut TestAppContext, window: Handle) {
+    let mut visual = VisualTestContext::from_window(window.into(), cx);
+    // The dialog card is centred; a corner is always scrim.
+    visual.simulate_click(point(px(8.), px(8.)), Modifiers::default());
+    visual.run_until_parked();
+}
+
+#[gpui::test]
+fn escape_cancels_the_switch_dialog_and_keeps_the_draft(cx: &mut TestAppContext) {
+    let (window, app) = open(cx);
+    set_editor_text(cx, window, &app, "", "");
+    focus_title(cx, window, &app);
+    type_text(cx, window, "unsaved draft");
+    select(cx, window, &app, NoteId(2));
+    assert_eq!(pending(cx, &app), Some(PendingAction::SwitchTo(NoteId(2))));
+    settle(cx, window);
+
+    press_escape(cx, window);
+    assert_eq!(pending(cx, &app), None, "Escape must dismiss the dialog");
+    assert_eq!(selected(cx, &app), Some(NoteId(1)), "no switch happened");
+    assert_eq!(values(cx, &app).0, "unsaved draft", "the draft stays");
+}
+
+#[gpui::test]
+fn a_scrim_press_cancels_the_switch_dialog(cx: &mut TestAppContext) {
+    let (window, app) = open(cx);
+    set_editor_text(cx, window, &app, "", "");
+    focus_title(cx, window, &app);
+    type_text(cx, window, "unsaved draft");
+    select(cx, window, &app, NoteId(2));
+    assert!(pending(cx, &app).is_some());
+    settle(cx, window);
+
+    click_scrim(cx, window);
+    assert_eq!(
+        pending(cx, &app),
+        None,
+        "a scrim press must dismiss the switch dialog"
+    );
+    assert_eq!(selected(cx, &app), Some(NoteId(1)));
+    assert_eq!(values(cx, &app).0, "unsaved draft");
+}
+
+#[gpui::test]
+fn escape_does_not_dismiss_the_delete_alert(cx: &mut TestAppContext) {
+    let (window, app) = open(cx);
+    cx.update_window(window.into(), |_, _, cx| {
+        app.update(cx, |app, cx| app.request_delete(cx));
+    })
+    .unwrap();
+    cx.run_until_parked();
+    assert_eq!(pending(cx, &app), Some(PendingAction::Delete(NoteId(1))));
+    settle(cx, window);
+
+    press_escape(cx, window);
+    assert_eq!(
+        pending(cx, &app),
+        Some(PendingAction::Delete(NoteId(1))),
+        "an alert dialog requires an explicit choice"
+    );
+    click_scrim(cx, window);
+    assert_eq!(
+        pending(cx, &app),
+        Some(PendingAction::Delete(NoteId(1))),
+        "a scrim press must not dismiss the alert either"
+    );
+    assert!(note_snapshot(cx, &app, NoteId(1)).is_some());
+}
+
+#[gpui::test]
+fn the_pending_dialog_traps_and_returns_focus(cx: &mut TestAppContext) {
+    let (window, app) = open(cx);
+    set_editor_text(cx, window, &app, "", "");
+    focus_title(cx, window, &app);
+    type_text(cx, window, "unsaved draft");
+    select(cx, window, &app, NoteId(2));
+    settle(cx, window);
+
+    assert!(
+        !title_focused(cx, window, &app),
+        "opening the dialog moves focus into it"
+    );
+
+    // Tab cycles inside the dialog and never returns to the title field.
+    for _ in 0..4 {
+        press(cx, window, "tab");
+        assert!(
+            !title_focused(cx, window, &app),
+            "Tab must not reach the page behind the dialog"
+        );
+    }
+
+    press_escape(cx, window);
+    assert_eq!(pending(cx, &app), None);
+    assert!(
+        title_focused(cx, window, &app),
+        "closing returns focus to the title field that had it"
+    );
+}
