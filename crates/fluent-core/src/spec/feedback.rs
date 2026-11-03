@@ -167,9 +167,10 @@ pub fn avatar(theme: &FluentTheme, size: AvatarSize) -> AvatarSpec {
 ///
 /// Upstream ships eight steps, `extra-tiny` 16 through `huge` 44
 /// (`useSpinnerStyles.styles.ts` in `@fluentui/react-spinner`). We take the
-/// first four steps under their upstream names — `Tiny` 16, `ExtraSmall` 20,
-/// `Small` 24 and `Medium` 28 — skipping the larger display sizes meant for
-/// full-page loading states that this library does not target yet.
+/// first four steps — upstream `extra-tiny` 16, `tiny` 20, `extra-small` 24
+/// and `small` 28 — under simplified variant names, skipping the larger
+/// display sizes meant for full-page loading states that this library does
+/// not target yet.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum SpinnerSize {
     /// 16px — upstream `extra-tiny`.
