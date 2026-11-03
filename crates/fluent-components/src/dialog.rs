@@ -135,6 +135,12 @@ macro_rules! dialog_builders {
         }
 
         /// Adds one footer child.
+        ///
+        /// The component does not choose appearances for you. Fluent's dialog
+        /// contract is a **bordered secondary** button for the dismissing
+        /// action and a primary one for the confirming action; a borderless
+        /// button reads as a third, less important choice and is not what the
+        /// footer should look like.
         pub fn footer_child(mut self, child: impl IntoElement) -> Self {
             self.config.footer.push(child.into_any_element());
             self

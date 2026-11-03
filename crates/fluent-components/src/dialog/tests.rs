@@ -516,7 +516,7 @@ fn an_open_dialogs_footer_buttons_hold_state_across_repaints(cx: &mut TestAppCon
                         .child("Dialogs dim the page, take focus and return it on close.")
                         .footer_child(
                             Button::new("flicker-cancel")
-                                .appearance(ButtonAppearance::Subtle)
+                                .appearance(ButtonAppearance::Secondary)
                                 .child("Cancel"),
                         )
                         .footer_child(

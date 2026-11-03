@@ -1095,7 +1095,7 @@ impl NotesApp {
             .child(message)
             .footer_child(
                 Button::new("notes-pending-stay")
-                    .appearance(ButtonAppearance::Subtle)
+                    .appearance(ButtonAppearance::Secondary)
                     .on_click(cx.listener(|this, _, _, cx| this.cancel_pending(cx)))
                     .child("留在当前"),
             )

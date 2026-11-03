@@ -836,7 +836,9 @@ impl Render for Gallery {
                         .child("Dialogs dim the page, take focus and return it on close.")
                         .footer_child(
                             Button::new("gallery-dialog-cancel")
-                                .appearance(ButtonAppearance::Subtle)
+                                // Fluent's dialog dismiss action is a bordered
+                                // secondary button, not a borderless one.
+                                .appearance(ButtonAppearance::Secondary)
                                 .on_click({
                                     let close = close_dialog.clone();
                                     move |_, _, cx| close(false, cx)
