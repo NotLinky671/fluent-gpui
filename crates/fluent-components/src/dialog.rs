@@ -19,10 +19,10 @@ use fluent_core::gpui_compat::{
 use fluent_core::spec;
 use fluent_theme::FluentTheme;
 use gpui::prelude::FluentBuilder as _;
-use gpui_base::{DialogBackdrop, DialogChangeReason, DialogHandle, DialogPopup};
+use gpui_base::{DialogBackdrop, DialogChangeReason, DialogPopup};
 
 /// Called with the new open state and the reason whenever the dialog requests
-/// a change or the handle moves.
+/// a change (confirm, cancel, escape, backdrop, or uncontrolled toggle).
 pub type DialogOpenChange =
     std::rc::Rc<dyn Fn(bool, DialogChangeReason, &mut Window, &mut App) + 'static>;
 
@@ -127,8 +127,8 @@ macro_rules! dialog_builders {
         /// Footer actions: buttons and labels supplied by the caller.
         ///
         /// Each child lands in a right-aligned row under the body. A button
-        /// that should close the dialog calls [`DialogHandle::close`] or the
-        /// app's own state update from its `on_click`.
+        /// that should close the dialog updates the app's own state (or relies
+        /// on the uncontrolled store) from its `on_click`.
         pub fn footer(mut self, children: impl IntoIterator<Item = AnyElement>) -> Self {
             self.config.footer.extend(children);
             self
@@ -271,8 +271,9 @@ fn render_dialog(
 
     // Report every request through the caller's callback first, then drive the
     // uncontrolled store; a controlled caller decides itself by re-rendering
-    // with a new `open` value. `Dialog::handle` copies this onto the handle, so
-    // handle-driven opens (e.g. a trigger) reach the same path.
+    // with a new `open` value. Callers that need the base's imperative handle
+    // can drive `gpui_base::Dialog` themselves; the wrapper exposes no handle.
+
     let report = {
         let store = store.clone();
         let on_change = config.on_open_change.clone();
@@ -355,7 +356,6 @@ fn render_dialog(
             gpui_base::AlertDialog::new(cx)
                 .open(is_open)
                 .on_open_change(report)
-                .handle(DialogHandle::new(is_open))
                 .focus_handle(panel_focus)
                 .backdrop(backdrop)
                 .popup(popup)
@@ -366,7 +366,6 @@ fn render_dialog(
             gpui_base::Dialog::new(cx)
                 .open(is_open)
                 .on_open_change(report)
-                .handle(DialogHandle::new(is_open))
                 .focus_handle(panel_focus)
                 .backdrop(backdrop)
                 .popup(popup)
