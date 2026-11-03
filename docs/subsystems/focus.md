@@ -54,12 +54,34 @@
 
 ## 菜单键盘
 
-菜单用「容器持有焦点 + 索引标记当前项」的模型，而不是让焦点在行之间移动。这样焦点陷阱仍然掌控 Tab，方向键只在菜单内部移动高亮。
+菜单用「容器持有焦点 + 当前项」的模型，而不是让焦点在行之间移动。这样焦点陷阱仍然掌控 Tab，方向键只在菜单内部移动高亮。
 
 - `Menu::new(id)` 要求显式 id：当前项要跨重绘保存，存在 window keyed state 里。
 - 行必须用 `.item()` / `.separator()` / `.header()` 声明。走 `ParentElement::child` 的内容会渲染但**不参与**键盘导航——面板无法知道自定义内容里哪些可选。
 - `Menu` 与宿主 `Popover` 必须共用同一个 `FocusHandle`（`Menu::track_focus` + `Popover::track_focus`）。焦点落在菜单容器上时，`MENU_KEY_CONTEXT` 才在派发路径上；只设在 Popover 面板上不行，因为面板是菜单的祖先，而不是它本身。
 - 按键绑定限定在 `MENU_KEY_CONTEXT`，所以方向键不会从文本框被抢走。
+
+### 指针与键盘只写一个「当前项」
+
+行上的 `on_mouse_move` **写入菜单的当前项状态**，而不是只改该行样式。不能用 `on_hover` 代替：GPUI 在布局变化让另一行移到静止指针下时也会调用它，这会无输入地覆盖当前项。拖动或按住鼠标时不接管。于是：
+
+- 任何时刻只有一行呈现「当前项」外观：外观由 `spec::menu::row_background` 计算，而它只接受 `active`，不接受 hover 输入。
+- Enter / Space 激活的永远就是看起来是当前项的那一行。
+- 谁最后动谁说了算：指针不动时方向键移动当前项；指针移动时指针接管。
+- 指针**离开菜单**、或移到**不可选行**（标题、分隔线、禁用行）上时，若当前项由指针选中则清除；由键盘选中的不受影响。清空与保留都取决于当前项是谁写的，不能用「每帧清空」来实现。
+- 标题与分隔线因此也需要上报指针（各自包一层带 id 的容器）；禁用行同样要上报，但上报的是「清除」而不是「选中我」。否则指针停在这些位置上时，上一行会继续保持「当前项」外观。
+- 禁用行不写入当前项，也不能成为激活目标。
+
+菜单之外单独使用 `MenuItem` 时没有上层菜单，此时保留局部 hover 样式（`pointer_activate` 为 `None`），不影响上述规则。
+
+### 当前项是身份，不是序号
+
+状态存的是行的 `ElementId`，不是它在可选行里的位置：
+
+- 前面的行插入、删除或禁用时，只要当前行仍然存在且可用，它保持当前。
+- 当前行被删除或禁用时，**没有激活目标**：Enter/Space 不执行任何动作，而不是顺位激活邻居；下一次导航键会重新选一个。
+
+这是刻意的选择。「顺位激活邻居」在没有明确契约时最危险——用户按下的键会执行一个他从未选中的动作。
 
 ## 写键盘测试的两个前提
 
@@ -98,6 +120,20 @@ cargo test -p fluent-components --lib tab_order_tests --locked
 | `tab_never_reaches_the_element_behind_the_panel` | 连续四次 Tab 都不会逃到面板外；移除陷阱后失败 |
 | `shift_tab_wraps_backwards_inside_the_panel` | 第一项 Shift+Tab 回绕到最后一项；移除陷阱后失败 |
 | `down_then_enter_activates_the_first_row` 等 6 条 | 菜单方向键/Home/End/回绕/跳过禁用行；断言「哪个行的回调被触发」，因为当前项是视觉状态。移除 `Menu` 的焦点接线后全部失败 |
+| `hovering_moves_the_row_that_enter_activates` / `space_also_follows_the_hovered_row` / `keyboard_continues_from_the_hovered_row` | 指针与键盘共用同一个当前项。在基线 `0fa65a4` 上这三条失败 |
+| `hovering_a_disabled_row_changes_nothing` / `a_disabled_row_is_never_activated_by_enter` | 禁用行既不能被指针选中，也不能被键盘激活 |
+| `redrawing_keeps_the_current_row` | 无输入重绘后当前项仍在（不是每帧清空来规避问题） |
+| `disabling_an_earlier_row_keeps_the_current_row` | 前面的行禁用后当前项身份不变。基线 `0fa65a4` 上失败（会顺位激活邻居） |
+| `disabling_the_current_row_leaves_no_action` / `removing_the_current_row_leaves_no_action` | 分别禁用和真正删除当前行，验证没有激活目标；删除后没有当前行背景 |
+| `removing_an_earlier_row_under_a_stationary_pointer_keeps_identity` / `inserting_before_the_current_row_under_a_stationary_pointer_keeps_identity` | 真实增删行，指针不动时当前身份保持；检查更新后的首次绘制及后续绘制位置和 Enter/Space 激活目标 |
+| `keyboard_and_pointer_paint_one_current_row` | 检查真实行背景 quad 的数量、颜色及缩放后的坐标，并验证键盘→指针→键盘→同一行内移动时只有一个高亮且激活一致 |
+| `leaving_the_menu_clears_a_pointer_selected_row` | 指针离开菜单后当前项清除，并断言**真实绘制**已无行背景。移除离开清除逻辑后，失败发生在填充断言上 |
+| `a_pointer_leave_does_not_wipe_out_a_keyboard_selection` | 指针仅从菜单外经过时不清除键盘选择，绘制断言仍保留该行背景 |
+| `keyboard_navigation_after_leaving_starts_from_the_top` | 指针选中被清除后，下一次 Down 从首行重新开始 |
+| `hovering_a_header_clears_a_pointer_selected_row` | 指针移到标题行时当前项清除（绘制断言：行填充数 0）。移除标题的指针上报后该测试失败 |
+| `a_header_does_not_clear_a_keyboard_selection` | 标题不会清除键盘选择（绘制断言：仍为 1 行填充） |
+| `hovering_a_disabled_row_clears_a_pointer_selected_row` | 指针移到禁用行时清除指针选中的当前项，且禁用行本身不被选中；绘制断言由 1 变 0，Enter 无动作。禁用行改回不上报指针后该测试失败 |
+| `a_disabled_row_does_not_clear_a_keyboard_selection` | 禁用行不会清除键盘选择（绘制断言：仍为 1 行填充） |
 | `opening_moves_focus_into_the_panel` | 打开时焦点移入面板；移除交接逻辑后失败 |
 | `closing_returns_focus_to_where_it_was` | 关闭时归还焦点；先断言打开确实移入了焦点，否则该测试在无交接时也会通过 |
 
@@ -105,7 +141,8 @@ cargo test -p fluent-components --lib tab_order_tests --locked
 
 - 焦点陷阱的 Tab 循环已可自动化验证，见下方「写键盘测试的两个前提」。
 - 模态语义：`Role::Dialog` / `AlertDialog` 的 AccessKit 角色、背景内容是否真的不可交互
-- 方向键在菜单项之间的移动、`aria-activedescendant`
+- 菜单键盘的未完成项：typeahead、子菜单、Tab 离开即关闭
+- 当前项不使用 `aria-activedescendant`（焦点在容器本身，当前项通过 `aria-selected` 表达）；原生屏幕阅读器对这些属性的实际朗读效果未验证
 - AccessKit role/state 是否随焦点正确上报
 - 真实窗口中的 Tab 顺序（测试直接派发按键，不经过平台输入法或原生焦点环）
 - 禁用控件是否被跳过（依赖 gpui-base 的 `tab_index`，本项目未设置）

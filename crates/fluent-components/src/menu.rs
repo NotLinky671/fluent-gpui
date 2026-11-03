@@ -3,10 +3,21 @@
 //! Metrics and colours come from [`fluent_core::spec::menu`]; this file paints
 //! them and owns the keyboard model.
 //!
-//! Keyboard navigation follows `aria-activedescendant`: the panel keeps focus and
-//! tracks which row is active, rather than moving focus row by row. That is what
-//! lets the popover's focus trap stay in charge of Tab while the arrow keys move
-//! inside the menu.
+//! Keyboard navigation keeps focus on the menu container and tracks which row is
+//! current, rather than moving focus row by row. That is what lets the popover's
+//! focus trap stay in charge of Tab while the arrow keys move inside the menu.
+//!
+//! The current row is one piece of state written by both the keyboard and the
+//! pointer, so only one row can look current and Enter always agrees with it. It
+//! is stored by row identity rather than by position, so rows being inserted,
+//! removed or disabled above it do not silently retarget activation.
+//!
+//! The state also records which input wrote it: a row the pointer selected stops
+//! looking current when the pointer leaves the menu, while a row the keyboard
+//! selected survives that, so drifting the mouse away does not undo a key press.
+//!
+//! This model does not use `aria-activedescendant`: focus itself is on the
+//! container, and the current row is reported through `aria-selected`.
 
 use crate::icon::Icon;
 use crate::popover::OpenChangeHandler;
@@ -25,6 +36,20 @@ use gpui::prelude::FluentBuilder as _;
 
 /// What a menu item does when chosen, by pointer or by keyboard.
 pub type MenuHandler = std::rc::Rc<dyn Fn(&mut Window, &mut App) + 'static>;
+
+/// Reports a mouse-move event over a row, so the menu can make it current.
+type PointerHandler = std::rc::Rc<dyn Fn(&mut App)>;
+
+/// The row the menu points at, and which input put it there.
+///
+/// The source decides what happens when the pointer leaves the menu: a row the
+/// pointer selected stops looking current, while a row the keyboard selected has
+/// to survive the pointer passing over and out.
+#[derive(Clone, PartialEq)]
+struct CurrentRow {
+    id: ElementId,
+    from_pointer: bool,
+}
 
 /// One row of a menu.
 ///
@@ -120,14 +145,27 @@ impl RenderOnce for Menu {
         let theme = FluentTheme::global(cx);
         let surface = menu::surface(&theme);
         let shadow = feedback::tooltip(&theme).shadow.to_vec();
+        // Captured before the id is moved into the container element: non-selectable
+        // rows need ids of their own, unique within this menu.
+        let menu_id = SharedString::from(format!("{:?}", self.id));
 
-        // Which rows the arrow keys can land on, in render order.
-        let selectable: Vec<usize> = self
+        // Rows the arrow keys can land on, in render order, paired with the entry
+        // they came from. Identity is the row's ElementId, not this position: the
+        // caller may insert, remove or disable rows above the current one, and a
+        // saved position would silently start pointing at a different action.
+        let selectable: Vec<(usize, ElementId)> = self
             .entries
             .iter()
             .enumerate()
             .filter(|(_, entry)| entry.is_selectable())
-            .map(|(index, _)| index)
+            .map(|(index, entry)| {
+                let id = match entry {
+                    Entry::Item(item) => item.id.clone(),
+                    // `is_selectable` only returns true for items.
+                    _ => unreachable!("only items are selectable"),
+                };
+                (index, id)
+            })
             .collect();
 
         // Handlers are cloned out before the entries are consumed by rendering.
@@ -140,17 +178,61 @@ impl RenderOnce for Menu {
             })
             .collect();
 
+        // The current row is stored by identity, so it survives rows being
+        // inserted, removed or disabled above it.
         let active_state = window.use_keyed_state(
             SharedString::from(format!("menu-active-{:?}", self.id)),
             cx,
-            |_, _| None::<usize>,
+            |_, _| None::<CurrentRow>,
         );
-        let active = *active_state.read(cx);
         let count = selectable.len();
 
-        // A row that is no longer selectable must not stay active; the count can
-        // change when the caller swaps the menu contents.
-        let active = active.filter(|index| *index < count);
+        // A stored row that is gone, or that has since been disabled, resolves to
+        // nothing. Activating whatever slid into its position would run an action
+        // the user never selected, so an unresolved current row simply has no
+        // target until the next navigation key picks one.
+        let resolve = {
+            let active_state = active_state.clone();
+            let selectable = selectable.clone();
+            move |cx: &App| -> Option<usize> {
+                let stored = active_state.read(cx).clone();
+                stored.and_then(|current| {
+                    selectable
+                        .iter()
+                        .position(|(_, candidate)| candidate == &current.id)
+                })
+            }
+        };
+        let active: Option<ElementId> =
+            resolve(cx).and_then(|position| selectable.get(position).map(|(_, id)| id.clone()));
+
+        let set_active = {
+            let active_state = active_state.clone();
+            move |cx: &mut App, next: Option<ElementId>, from_pointer: bool| {
+                let next = next.map(|id| CurrentRow { id, from_pointer });
+                active_state.update(cx, |active, cx| {
+                    if *active != next {
+                        *active = next;
+                        cx.notify();
+                    }
+                });
+            }
+        };
+
+        // Leaving the menu clears a pointer-selected row. It must not clear a
+        // keyboard-selected one: the pointer would otherwise wipe out the key the
+        // user just pressed by drifting across and off the panel.
+        let clear_pointer_row: std::rc::Rc<dyn Fn(&mut App)> = {
+            let active_state = active_state.clone();
+            std::rc::Rc::new(move |cx: &mut App| {
+                active_state.update(cx, |active, cx| {
+                    if active.as_ref().is_some_and(|row| row.from_pointer) {
+                        *active = None;
+                        cx.notify();
+                    }
+                });
+            })
+        };
 
         let mut container = div()
             .id(self.id)
@@ -166,50 +248,67 @@ impl RenderOnce for Menu {
             .key_context(crate::MENU_KEY_CONTEXT)
             .role(Role::Menu)
             .when_some(self.focus.clone(), |el, focus| el.track_focus(&focus))
+            .on_hover({
+                let clear_pointer_row = clear_pointer_row.clone();
+                move |hovered, _, cx| {
+                    if !*hovered {
+                        clear_pointer_row(cx);
+                    }
+                }
+            })
             .refine_style(&self.style);
 
         if count > 0 {
-            let move_to = {
-                let active_state = active_state.clone();
-                move |cx: &mut App, next: Option<usize>| {
-                    active_state.update(cx, |active, cx| {
-                        if *active != next {
-                            *active = next;
-                            cx.notify();
-                        }
-                    });
+            let go_to = {
+                let set_active = set_active.clone();
+                let selectable = selectable.clone();
+                move |cx: &mut App, position: usize| {
+                    if let Some((_, id)) = selectable.get(position) {
+                        // Navigation is keyboard input, so the pointer no longer
+                        // owns the current row.
+                        set_active(cx, Some(id.clone()), false);
+                    }
                 }
             };
 
-            let next = move_to.clone();
-            container = container.on_action(move |_: &crate::MenuNext, _, cx| {
-                let target = match active {
-                    None => Some(0),
-                    Some(index) => Some((index + 1) % count),
-                };
-                next(cx, target);
-            });
-            let prev = move_to.clone();
-            container = container.on_action(move |_: &crate::MenuPrev, _, cx| {
-                let target = match active {
-                    None | Some(0) => Some(count - 1),
-                    Some(index) => Some(index - 1),
-                };
-                prev(cx, target);
-            });
-            let first = move_to.clone();
-            container = container.on_action(move |_: &crate::MenuFirst, _, cx| first(cx, Some(0)));
-            let last = move_to.clone();
-            container =
-                container.on_action(move |_: &crate::MenuLast, _, cx| last(cx, Some(count - 1)));
+            let step_next = {
+                let resolve = resolve.clone();
+                let go_to = go_to.clone();
+                move |cx: &mut App| {
+                    let position = match resolve(cx) {
+                        None => 0,
+                        Some(position) => (position + 1) % count,
+                    };
+                    go_to(cx, position);
+                }
+            };
+            container = container.on_action(move |_: &crate::MenuNext, _, cx| step_next(cx));
 
+            let resolve_prev = resolve.clone();
+            let go_to_prev = go_to.clone();
+            container = container.on_action(move |_: &crate::MenuPrev, _, cx| {
+                let position = match resolve_prev(cx) {
+                    None | Some(0) => count - 1,
+                    Some(position) => position - 1,
+                };
+                go_to_prev(cx, position);
+            });
+
+            let go_to_first = go_to.clone();
+            container = container.on_action(move |_: &crate::MenuFirst, _, cx| go_to_first(cx, 0));
+
+            let go_to_last = go_to.clone();
+            container =
+                container.on_action(move |_: &crate::MenuLast, _, cx| go_to_last(cx, count - 1));
+
+            let resolve_activate = resolve.clone();
             let handlers = handlers.clone();
             let selectable = selectable.clone();
             container = container.on_action(move |_: &crate::MenuActivate, window, cx| {
-                let Some(index) = active else {
+                let Some(position) = resolve_activate(cx) else {
                     return;
                 };
-                let Some(entry) = selectable.get(index) else {
+                let Some((entry, _)) = selectable.get(position) else {
                     return;
                 };
                 if let Some(Some(handler)) = handlers.get(*entry) {
@@ -218,27 +317,75 @@ impl RenderOnce for Menu {
             });
         }
 
-        // Render rows, telling each item whether it is the active one.
-        let mut selectable_index = 0;
+        // Render rows, telling each item whether it is the current one. Inside a
+        // menu the pointer writes the same state the keyboard does, so only one
+        // row can ever look current and Enter always agrees with it.
         let children: Vec<AnyElement> = self
             .entries
             .into_iter()
-            .map(|entry| match entry {
+            .enumerate()
+            .map(|(index, entry)| match entry {
                 Entry::Item(item) => {
-                    let is_active = active == Some(selectable_index);
-                    if !item.disabled {
-                        selectable_index += 1;
-                    }
-                    (*item).active(is_active).into_any_element()
+                    let id = item.id.clone();
+                    let is_active = active.as_ref() == Some(&id);
+                    let hover: Option<PointerHandler> = if item.disabled {
+                        // Not selectable, but still a place the pointer can be. Report
+                        // "clear", so the row the pointer selected a moment ago stops
+                        // looking current instead of lingering.
+                        Some(clear_pointer_row.clone())
+                    } else {
+                        let set_active = set_active.clone();
+                        Some(std::rc::Rc::new(move |cx: &mut App| {
+                            set_active(cx, Some(id.clone()), true)
+                        }) as PointerHandler)
+                    };
+                    (*item)
+                        .active(is_active)
+                        .pointer_activate(hover)
+                        .into_any_element()
                 }
-                Entry::Separator => MenuSeparator.into_any_element(),
-                Entry::Header(header) => header.into_any_element(),
+                // Rows that cannot be chosen still have to report the pointer:
+                // otherwise moving onto a header or a separator leaves the last
+                // hovered row looking current, because nothing told the menu that
+                // the pointer is now somewhere that is not a row.
+                Entry::Separator => {
+                    let mut wrapper =
+                        filler(clear_pointer_row.clone(), filler_id(&menu_id, "sep", index));
+                    wrapper = wrapper.child(MenuSeparator);
+                    wrapper.into_any_element()
+                }
+                Entry::Header(header) => {
+                    let mut wrapper = filler(
+                        clear_pointer_row.clone(),
+                        filler_id(&menu_id, "header", index),
+                    );
+                    wrapper = wrapper.child(header);
+                    wrapper.into_any_element()
+                }
                 Entry::Custom(element) => element,
             })
             .collect();
 
         container.children(children)
     }
+}
+
+/// Stable identity for a non-selectable row inside one menu.
+fn filler_id(menu: &SharedString, kind: &str, index: usize) -> SharedString {
+    SharedString::from(format!("{menu}-{kind}-{index}"))
+}
+
+/// Wraps a non-selectable row so the pointer reports over it.
+fn filler(clear: std::rc::Rc<dyn Fn(&mut App)>, id: SharedString) -> gpui::Stateful<gpui::Div> {
+    div()
+        .id(id)
+        .flex()
+        .flex_col()
+        .on_mouse_move(move |event, _, cx| {
+            if event.pressed_button.is_none() && !cx.has_active_drag() {
+                clear(cx);
+            }
+        })
 }
 
 /// A [`Menu`] that opens from a trigger.
@@ -248,8 +395,12 @@ impl RenderOnce for Menu {
 /// new interaction model: the popover owns open state and dismissal, the menu
 /// owns the rows.
 ///
-/// Keyboard navigation *inside* the menu (arrow keys, Home/End, submenus) is not
-/// implemented yet, so the panel is reachable by pointer only.
+/// Keyboard navigation covers arrow keys, Home/End, Enter/Space activation and
+/// skipping disabled rows. The pointer writes the same "current row" the keyboard
+/// does, so only one row is ever current and activation always matches it.
+///
+/// Still missing: typeahead, submenus, closing when Tab leaves, and exposing a
+/// disabled state through accesskit (this GPUI version has no API for it).
 #[derive(IntoElement)]
 pub struct MenuDropdown {
     id: ElementId,
@@ -346,6 +497,10 @@ pub struct MenuItem {
     danger: bool,
     /// Highlighted because the arrow keys are on this row.
     active: bool,
+    /// Set by [`Menu`]: reports mouse movement over this row, so the menu can
+    /// make it the one current row. `None` when the item is used outside a menu,
+    /// which falls back to a purely local hover style.
+    pointer_activate: Option<PointerHandler>,
     on_select: Option<MenuHandler>,
     style: StyleRefinement,
 }
@@ -361,6 +516,7 @@ impl MenuItem {
             disabled: false,
             danger: false,
             active: false,
+            pointer_activate: None,
             on_select: None,
             style: StyleRefinement::default(),
         }
@@ -408,6 +564,12 @@ impl MenuItem {
     /// Marks this row as the keyboard-active one. Set by [`Menu`].
     pub(crate) fn active(mut self, active: bool) -> Self {
         self.active = active;
+        self
+    }
+
+    /// Called on mouse movement over this row. Set by [`Menu`].
+    pub(crate) fn pointer_activate(mut self, handler: Option<PointerHandler>) -> Self {
+        self.pointer_activate = handler;
         self
     }
 }
@@ -475,9 +637,6 @@ impl RenderOnce for MenuItem {
             },
         );
 
-        // Hover is applied as a style rather than through tracked state: with
-        // tracked state the highlight flickered (the state was observed
-        // resetting while the pointer was still over the row).
         let foreground = if self.disabled {
             spec.disabled_foreground
         } else {
@@ -486,13 +645,8 @@ impl RenderOnce for MenuItem {
 
         let label = self.label.clone();
         let leading = self.leading_slot(&spec, foreground);
-        // The keyboard-active row uses the same fill as hover: Fluent has one
-        // "this row is under the pointer or the cursor" look, not two.
-        let background = if self.active && !self.disabled {
-            spec.hover_background
-        } else {
-            spec.background
-        };
+        // One row can look current, and this is the only input to that decision.
+        let background = menu::row_background(&spec, self.active && !self.disabled);
         let mut el = div()
             .id(self.id)
             .flex()
@@ -515,12 +669,38 @@ impl RenderOnce for MenuItem {
         // disabled row is announced like any other and only refuses activation.
         // Recorded as a gap rather than worked around.
 
+        // Pointer reporting is installed even for disabled rows: moving onto one has
+        // to tell the menu that the pointer is now over a row it cannot select, so a
+        // pointer-selected row stops looking current. What the handler does is
+        // decided by `Menu`, which passes "select me" or "clear the current row".
+        match self.pointer_activate {
+            // Inside a menu the pointer reports into the menu's own current-row
+            // state. Painting hover locally as well would put a second row in
+            // the "current" look while Enter still used the keyboard's row.
+            Some(report) => {
+                // on_hover also fires when layout moves a different row under
+                // a stationary pointer. Only actual mouse-move events may take
+                // over selection; on_mouse_move already checks the row hitbox.
+                el = el.on_mouse_move(move |event, _, cx| {
+                    if event.pressed_button.is_none() && !cx.has_active_drag() {
+                        report(cx);
+                    }
+                });
+            }
+            // Standalone (no menu above it) keeps a local hover style.
+            None => {
+                if !self.disabled {
+                    el = el.hover(move |style| {
+                        style
+                            .bg(spec.hover_background)
+                            .text_color(spec.hover_foreground)
+                    });
+                }
+            }
+        }
+
         if !self.disabled {
-            el = el.cursor_pointer().hover(move |style| {
-                style
-                    .bg(spec.hover_background)
-                    .text_color(spec.hover_foreground)
-            });
+            el = el.cursor_pointer();
             if let Some(handler) = self.on_select {
                 el = el.on_click(move |_, window, cx| handler(window, cx));
             }
@@ -574,3 +754,6 @@ impl RenderOnce for MenuHeader {
 
 #[cfg(test)]
 mod keyboard_tests;
+
+#[cfg(test)]
+mod input_mode_tests;

@@ -109,7 +109,7 @@ GPUI 精确锁定在快照版本（`gpui-pre = 0.3.10`）；用 caret 版本会�
 - `Avatar` 只渲染首字母，无图片与状态徽标
 - Checkbox / Radio / Switch 已接入鼠标 hover / pressed 状态及颜色过渡；完整键盘与指针取消行为尚未验证
 - `Popover` 的关闭路径已有行为测试：外部按下上报 `false`，面板本体与面板内交互子元素上的按下不上报，按下触发器只上报一次变化，受控调用方忽略请求时保持打开。Esc 绑定到 `fluent_components::Dismiss`，仅在焦点位于浮层内时生效，因此需要 `track_focus`。焦点进入与归还未实现；窗口边缘采用限位而非上下自动翻转
-- `MenuDropdown` 把 `Menu` 组合进 `Popover`，因此菜单继承锚定定位与关闭语义。键盘导航、无障碍及子菜单仍未实现，菜单目前只能用指针操作
+- `MenuDropdown` 把 `Menu` 组合进 `Popover`，因此菜单继承锚定定位与关闭语义。方向键、Home/End、Enter/Space 与跳过禁用行均已可用；鼠标移动时写入的当前行与键盘一致，静止指针下的布局变化不会改选；至多一行呈现当前项外观。typeahead、子菜单与 Tab 离开关闭待完成，且本版 GPUI 未提供 accesskit 的禁用状态
 - `ProgressBar` 不定态的 reduced-motion 支持及像素基线待补
 - `Button::tooltip` 的翻转由 gpui-base overlay 提供，悬停与翻转位置尚待人工验证；通用 `tooltip(text)` 助手使用 GPUI 原生定位，不提供相同锚定保证。测试只覆盖：根是否发布 service、实体身份是否跨重绘稳定、无根时调用方拿到 `None`
 - 不支持 RTL 布局、`letter_spacing`、CSS `outline`

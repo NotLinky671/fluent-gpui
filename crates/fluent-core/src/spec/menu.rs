@@ -79,6 +79,20 @@ pub fn item(theme: &FluentTheme, props: &MenuItemProps) -> MenuItemSpec {
     }
 }
 
+/// Background of one row.
+///
+/// Takes no hover input on purpose. Inside a menu the pointer reports into the
+/// same current-row state the keyboard writes, so exactly one row can be painted
+/// as current; a second hover-driven fill is what produced two rows that both
+/// looked selected while Enter used only one of them.
+pub fn row_background(spec: &MenuItemSpec, active: bool) -> Hsla {
+    if active {
+        spec.hover_background
+    } else {
+        spec.background
+    }
+}
+
 /// Resolves the panel.
 pub fn surface(theme: &FluentTheme) -> MenuSurfaceSpec {
     let t = theme.tokens();
@@ -128,5 +142,14 @@ mod tests {
         let spec = surface(&t);
         assert_eq!(spec.background, t.tokens().color.neutral_background_1);
         assert_eq!(spec.radius, px(4.));
+    }
+
+    #[test]
+    fn only_the_current_row_is_drawn_as_current() {
+        let t = theme();
+        let spec = item(&t, &MenuItemProps::default());
+        assert_eq!(row_background(&spec, true), spec.hover_background);
+        assert_eq!(row_background(&spec, false), spec.background);
+        assert_ne!(spec.background, spec.hover_background);
     }
 }
