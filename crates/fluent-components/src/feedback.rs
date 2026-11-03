@@ -193,6 +193,7 @@ const SPINNER_PERIOD: Duration = Duration::from_millis(1500);
 /// A Fluent 2 spinner: a stroked ring with a sweeping brand arc.
 #[derive(IntoElement)]
 pub struct Spinner {
+    id: Option<ElementId>,
     size: SpinnerSize,
     label: Option<SharedString>,
     style: StyleRefinement,
@@ -201,10 +202,19 @@ pub struct Spinner {
 impl Spinner {
     pub fn new() -> Self {
         Self {
+            id: None,
             size: SpinnerSize::Medium,
             label: None,
             style: StyleRefinement::default(),
         }
+    }
+
+    /// An explicit element id. Only needed when the derived default
+    /// (`spinner-{size}-{label}`) could collide, e.g. two spinners that share
+    /// both size and label.
+    pub fn id(mut self, id: impl Into<ElementId>) -> Self {
+        self.id = Some(id.into());
+        self
     }
 
     pub fn size(mut self, size: SpinnerSize) -> Self {
@@ -250,9 +260,14 @@ impl RenderOnce for Spinner {
 
         // `div()` becomes a StatefulInteractiveElement once it carries an id;
         // the id is also what accesskit needs before `role`/`aria_label`
-        // produce a node.
+        // produce a node. A shared literal id would collide when more than one
+        // spinner is on screen, so the default derives from size + label and
+        // callers can still override with `Spinner::id`.
+        let id = self
+            .id
+            .unwrap_or_else(|| spinner_element_id(self.size, self.label.as_ref()));
         let mut el = div()
-            .id("spinner")
+            .id(id)
             .size(spec.diameter)
             .role(gpui::accesskit::Role::ProgressIndicator);
         if let Some(label) = self.label {
@@ -314,6 +329,21 @@ fn paint_spinner(
     if let Ok(path) = arc.build() {
         window.paint_path(path, spec.indicator);
     }
+}
+
+/// Default element id: `spinner-{size}-{label}`.
+///
+/// Pure so callers can predict it; `Spinner::id` overrides. Two spinners that
+/// share both size and label still collide, which is why the explicit builder
+/// exists.
+fn spinner_element_id(size: SpinnerSize, label: Option<&SharedString>) -> ElementId {
+    let name = match label {
+        Some(label) if !label.is_empty() => {
+            format!("spinner-{size:?}-{}", label.as_ref())
+        }
+        _ => format!("spinner-{size:?}"),
+    };
+    ElementId::Name(name.into())
 }
 
 /// A Fluent 2 avatar showing initials.

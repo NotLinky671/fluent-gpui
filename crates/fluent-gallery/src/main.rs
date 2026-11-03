@@ -756,9 +756,9 @@ impl Render for Gallery {
                     .items_center()
                     .gap(px(16.))
                     .child(Spinner::new().size(SpinnerSize::Tiny))
+                    .child(Spinner::new().size(SpinnerSize::ExtraSmall))
                     .child(Spinner::new().size(SpinnerSize::Small))
                     .child(Spinner::new().size(SpinnerSize::Medium))
-                    .child(Spinner::new().size(SpinnerSize::Large))
                     .child(
                         Spinner::new()
                             .size(SpinnerSize::Medium)

@@ -165,18 +165,22 @@ pub fn avatar(theme: &FluentTheme, size: AvatarSize) -> AvatarSpec {
 
 /// Fluent spinner sizes.
 ///
-/// Upstream ships eight steps (`extraTiny` 16 through `huge` 44). We take the
-/// four steps that match real layout densities — tiny (16), small (20), medium
-/// (28) and large (32) — skipping the oversized display steps (36/40/44) which
-/// are meant for full-page loading states that this library does not target
-/// yet.
+/// Upstream ships eight steps, `extra-tiny` 16 through `huge` 44
+/// (`useSpinnerStyles.styles.ts` in `@fluentui/react-spinner`). We take the
+/// first four steps under their upstream names — `Tiny` 16, `ExtraSmall` 20,
+/// `Small` 24 and `Medium` 28 — skipping the larger display sizes meant for
+/// full-page loading states that this library does not target yet.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum SpinnerSize {
+    /// 16px — upstream `extra-tiny`.
     Tiny,
+    /// 20px — upstream `tiny`.
+    ExtraSmall,
+    /// 24px — upstream `extra-small`.
     Small,
+    /// 28px — upstream `small`.
     #[default]
     Medium,
-    Large,
 }
 
 /// Resolved spinner.
@@ -188,11 +192,9 @@ pub struct SpinnerSpec {
     pub indicator: Hsla,
     /// Outer diameter.
     pub diameter: Pixels,
-    /// Ring stroke width.
-    ///
-    /// Approximation: upstream derives the stroke width from the size ramp
-    /// rather than a single token; ~1/10 of the diameter reproduces the visual
-    /// weight in Fluent 2 screenshots. Verify against official screenshots.
+    /// Ring stroke width (`strokeWidthThick` for all four of our sizes per
+    /// `useSpinnerStyles.styles.ts`; `strokeWidthThicker` only starts at the
+    /// 32px upstream `medium`, which we do not implement).
     pub stroke_width: Pixels,
 }
 
@@ -201,10 +203,10 @@ pub fn spinner(theme: &FluentTheme, size: SpinnerSize) -> SpinnerSpec {
     let t = theme.tokens();
     let c = &t.color;
     let (diameter, stroke_width) = match size {
-        SpinnerSize::Tiny => (px(16.), px(1.5)),
-        SpinnerSize::Small => (px(20.), px(2.)),
-        SpinnerSize::Medium => (px(28.), px(3.)),
-        SpinnerSize::Large => (px(32.), px(3.5)),
+        SpinnerSize::Tiny => (px(16.), t.stroke_width.thick),
+        SpinnerSize::ExtraSmall => (px(20.), t.stroke_width.thick),
+        SpinnerSize::Small => (px(24.), t.stroke_width.thick),
+        SpinnerSize::Medium => (px(28.), t.stroke_width.thick),
     };
     SpinnerSpec {
         track: c.neutral_stroke_alpha_2,
@@ -426,15 +428,34 @@ mod tests {
         let theme = FluentTheme::web_light();
         let diameters: Vec<_> = [
             SpinnerSize::Tiny,
+            SpinnerSize::ExtraSmall,
             SpinnerSize::Small,
             SpinnerSize::Medium,
-            SpinnerSize::Large,
         ]
         .iter()
         .map(|s| spinner(&theme, *s).diameter)
         .collect();
         for pair in diameters.windows(2) {
             assert!(pair[1] > pair[0], "sizes must strictly grow: {diameters:?}");
+        }
+    }
+
+    #[test]
+    fn spinner_sizes_match_the_upstream_ramp() {
+        // extra-tiny 16 / tiny 20 / extra-small 24 / small 28, all
+        // strokeWidthThick (2px), per useSpinnerStyles.styles.ts.
+        let theme = FluentTheme::web_light();
+        let t = Tokens::web_light();
+        let cases = [
+            (SpinnerSize::Tiny, px(16.)),
+            (SpinnerSize::ExtraSmall, px(20.)),
+            (SpinnerSize::Small, px(24.)),
+            (SpinnerSize::Medium, px(28.)),
+        ];
+        for (size, diameter) in cases {
+            let spec = spinner(&theme, size);
+            assert_eq!(spec.diameter, diameter);
+            assert_eq!(spec.stroke_width, t.stroke_width.thick);
         }
     }
 

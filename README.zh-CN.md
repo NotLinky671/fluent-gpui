@@ -23,7 +23,7 @@
 | `Tooltip` | 基础实现 | `Button::tooltip` 接入根级锚定 overlay，配置 4px 间隙；悬停与翻转位置尚待人工验证 |
 | `Popover` | 实验性 | 已有锚定浮层、受控/非受控开关、同帧滚动定位、外部点击关闭、Esc 关闭，以及提供 `track_focus` 时的焦点交接与 Tab 焦点陷阱；陷阱在面板项之间循环且不会逃到背后页面 |
 | `Menu` / `MenuItem` | 部分实现 | 面板、前导图标、勾选与单选行、分隔线、标题、经 `Popover` 的 `MenuDropdown` 触发器接线，方向键/Home/End 导航并跳过禁用行、typeahead，以及 Tab 离开即关闭；子菜单待完成 |
-| `Spinner` | 基础实现 | 四档尺寸（16/20/28/32），`Spinner::label` 提供无障碍名称，遵循 reduced motion；描边宽度为近似值，待与官方截图核对 |
+| `Spinner` | 基础实现 | 四档尺寸按上游梯度（16/20/24/28），`Spinner::label` 提供无障碍名称，遵循 reduced motion |
 
 ## 快速开始
 
@@ -121,7 +121,7 @@ GPUI 精确锁定在快照版本（`gpui-pre = 0.3.10`）；用 caret 版本会�
 - `Badge` 前景按对比度选取：每种外观取主题的一对静态深/浅标签 token 中与徽标背景对比更高的一个，因此在 light、dark 与 high-contrast 下文字都可辨（此前 Warning 在 dark 是白字黄底、高对比度是白底白字）。映射仍取自 token 且有 spec 断言覆盖；受影响外观的原生窗口视觉检查尚待进行。见[修复记录](docs/validation/badge-contrast-2026-11-03.md)
 - `Textarea` 在本版 GPUI 快照中不处理鼠标滚轮；长正文可用光标/键盘滚动，滚动条会随光标出现
 - `MenuDropdown` 把 `Menu` 组合进 `Popover`，因此菜单继承锚定定位与关闭语义。方向键、Home/End、Enter/Space 与跳过禁用行均已可用；鼠标移动时写入的当前行与键盘一致，静止指针下的布局变化不会改选；至多一行呈现当前项外观。typeahead 从当前行之后开始匹配字符前缀（600ms 重置，重复同一字符在同字母项间循环），菜单内的 Tab / Shift+Tab 经 `Dismiss` 关闭菜单。item 激活后菜单不会自动关闭，调用方必须在动作中显式关闭（便签应用每个 item 都这样做）。子菜单待完成，且本版 GPUI 未提供 accesskit 的禁用状态
-- `ProgressBar` 不定态与 `Spinner` 的像素基线待补；`Spinner` 描边宽度与弧度跨度为近似值，尚未与官方 Fluent 截图核对
+- `ProgressBar` 不定态与 `Spinner` 的像素基线待补；`Spinner` 弧度跨度与旋转周期为近似值，尚未与官方 Fluent 截图核对
 - `Button::tooltip` 的翻转由 gpui-base overlay 提供，悬停与翻转位置尚待人工验证；通用 `tooltip(text)` 助手使用 GPUI 原生定位，不提供相同锚定保证。测试只覆盖：根是否发布 service、实体身份是否跨重绘稳定、无根时调用方拿到 `None`
 - 不支持 RTL 布局、`letter_spacing`、CSS `outline`
 - 无 live region；状态变化不会主动播报给屏幕阅读器

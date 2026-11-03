@@ -3,7 +3,15 @@
 - 基准 SHA：`b4d1306`（`fix(badge): keep badge text legible in dark and high contrast`）
 - 工作区：本次交付前的未提交改动即本记录所列文件
 
-## 变更文件
+## 变更文件（修正后）
+
+- `crates/fluent-core/src/spec/feedback.rs` — 新增 `SpinnerSize`（Tiny 16 / ExtraSmall 20 / Small 24 / Medium 28，沿用上游命名）、`SpinnerSpec`、`spinner()`；新增纯函数 `spinner_arc_endpoints`、`indeterminate_segment_insets`、`indeterminate_animation_allowed`、`indeterminate_segment_reduced_insets`、`spinner_animation_allowed`；新增 spec 单测。
+- `crates/fluent-components/src/feedback.rs` — 新增 `Spinner` 组件（`canvas` + `PathBuilder::stroke` 画 track 整圈与约 270° 指示弧，`Animation::repeat_synced` 旋转）；每个 Spinner 元素 id 默认派生为 `spinner-{size}-{label}`、`Spinner::id` 可覆盖；ProgressBar 不定态改为 `cx.reduce_motion()` 时渲染居中静态分段；新增 `feedback/tests.rs` GPUI 行为测试。
+- `crates/fluent-components/src/lib.rs`、`crates/fluent-ui/src/lib.rs` — 导出 `Spinner` / `SpinnerSize`。
+- `crates/fluent-gallery/src/main.rs` — feedback 区块新增四档 Spinner 与一个带 `label` 的示例；未加入 `fixtures.rs` / 像素基线。
+- `README.md`、`README.zh-CN.md`、`docs/subsystems/README.md`、`plan/specs/feedback.md`、`task/M2/T-041-spinner-progress.md` — 状态与限制说明同步。
+
+## 变更文件（首版记录，已被上方替代）
 
 - `crates/fluent-core/src/spec/feedback.rs` — 新增 `SpinnerSize`/`SpinnerSpec`/`spinner()`；新增纯函数 `spinner_arc_endpoints`、`indeterminate_segment_insets`、`indeterminate_animation_allowed`、`indeterminate_segment_reduced_insets`、`spinner_animation_allowed`；新增 spec 单测。
 - `crates/fluent-components/src/feedback.rs` — 新增 `Spinner` 组件（`canvas` + `PathBuilder::stroke` 画 track 整圈与约 270° 指示弧，`Animation::repeat_synced` 旋转）；ProgressBar 不定态改为 `cx.reduce_motion()` 时渲染居中静态分段；新增 `feedback/tests.rs` GPUI 行为测试。
@@ -16,6 +24,10 @@
 - 修改前：`Spinner` 不存在；`ProgressBar::indeterminate` 在任何 reduced-motion 设置下都持续循环动画。
 - 修改后：`Spinner::new()` 渲染一个描边环 + 品牌色扫弧，`.size(SpinnerSize)` 四档、`.label(...)` 提供 `Role::ProgressIndicator` 下的 `aria_label`；`cx.reduce_motion()` 为真时 Spinner 冻结在相位 0、ProgressBar 不定态渲染居中静态分段，均不再循环。reduced-motion 为假时行为与此前一致。
 
+## 尺寸与来源
+
+上游来源（本次可直接读取）：`@fluentui/react-spinner` 的 `useSpinnerStyles.styles.ts`（microsoft/fluentui master）——extra-tiny 16 / tiny 20 / extra-small 24 / small 28 / medium 32 / large 36 / extra-large 40 / huge 44；16–28 各档 stroke width 均为 `strokeWidthThick`（2px），`Thicker` 从 32 起。本实现取前四档并沿用上游命名。
+
 ## token
 
 - track：`neutral_stroke_alpha_2`（对应上游 `colorNeutralStrokeAlpha2`）
@@ -23,9 +35,16 @@
 
 ## 近似值（未与官方核对）
 
-- 描边宽度 1.5 / 2 / 3 / 3.5 px（约直径的 1/10）
 - 指示弧跨度 270°
 - 旋转周期 1.5s
+
+（描边宽度首版为近似值；修正后取上游 `strokeWidthThick` = 2px，不再是近似值。）
+
+## 元素 id 规则
+
+- 首版所有 Spinner 共用 `div().id("spinner")`，多个带 label 的 Spinner 会在 accesskit 树中碰撞。
+- 修正后默认 id 为 `spinner-{size}-{label}`（如 `spinner-Medium-Uploading files`），`Spinner::id(impl Into<ElementId>)` 可覆盖；同 size+label 仍碰撞时需调用方显式指定。
+- accesskit 的 active flag 由平台 AT 请求驱动，测试环境不可切换；`debug_a11y_tree_json` 在测试窗口中返回 `None`，因此 id 唯一性靠构造保证而非运行时断言，该限制记录在案。
 
 ## 验证命令与结果
 

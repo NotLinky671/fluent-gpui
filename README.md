@@ -23,7 +23,7 @@ This table describes implementation scope, not verification of every platform, i
 | `Tooltip` | Foundation | `Button::tooltip` uses a root-hosted anchored overlay with a configured 4px gap; hover and flip placement still need manual verification |
 | `Popover` | Experimental | Anchored panel, controlled/uncontrolled open state, same-frame scroll positioning, outside-click dismissal, Escape, focus handover and a Tab focus trap when `track_focus` is supplied; the trap cycles between panel items and never reaches the page behind |
 | `Menu` / `MenuItem` | Partial | Panel, leading icons, check and radio rows, separators, headers, `MenuDropdown` trigger integration through `Popover`, arrow/Home/End navigation with disabled rows skipped, typeahead, and closing on Tab; submenus remain unfinished |
-| `Spinner` | Foundation | Four sizes (16/20/28/32), accessible label via `Spinner::label`, honours reduced motion; stroke widths are approximations pending verification against official screenshots |
+| `Spinner` | Foundation | Four sizes following Fluent's ramp (16/20/24/28), accessible label via `Spinner::label`, honours reduced motion |
 
 ## Quick start
 
@@ -121,7 +121,7 @@ GPUI is pinned to an exact snapshot (`gpui-pre = 0.3.10`); a caret requirement w
 - `Badge` foregrounds are picked by contrast: each appearance uses whichever of the theme's static light/dark label tokens contrasts more with the badge background, so every appearance stays legible in light, dark and high contrast (previously Warning was white-on-yellow in dark and white-on-white in high contrast). The mapping is token-derived and verified by spec tests; native-window visual checks for the affected appearances are still pending. See the [fix record](docs/validation/badge-contrast-2026-11-03.md)
 - `Textarea` does not handle the mouse wheel in this GPUI snapshot; long bodies scroll with the caret/keyboard, and the scrollbar appears once the caret moves past the viewport
 - `MenuDropdown` composes `Menu` into `Popover`, so a menu inherits anchored placement and dismissal. Arrow keys, Home/End, Enter/Space and disabled-row skipping work, and mouse movement writes the same current row the keyboard does; layout changes under a stationary pointer do not change selection, and at most one row looks current. Typeahead matches a character prefix starting after the current row (600ms reset, repeated characters cycle), and Tab or Shift+Tab inside the menu closes it via `Dismiss`. Activating an item does not close the menu; the caller's action must close it explicitly (the notes app does this in every item). Submenus are unfinished, and this GPUI version exposes no accesskit disabled state
-- Pixel baselines for indeterminate `ProgressBar` and `Spinner` are pending; `Spinner` stroke widths and arc span are approximations not yet checked against official Fluent screenshots
+- Pixel baselines for indeterminate `ProgressBar` and `Spinner` are pending; `Spinner` arc span and rotation period are approximations not yet checked against official Fluent screenshots
 - `Button::tooltip` delegates flipping to the gpui-base overlay; hover/flip placement still needs manual verification. The generic `tooltip(text)` helper uses GPUI-native positioning without the same anchoring guarantee. Tests cover only that the root publishes the service, that its entity identity survives redraws, and that callers see `None` without a root
 - No RTL support, no letter-spacing control, no CSS `outline`
 - No live regions; nothing is announced to screen readers on change

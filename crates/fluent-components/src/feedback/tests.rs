@@ -24,9 +24,19 @@ impl Render for FeedbackView {
             .flex_col()
             .gap(gpui::px(8.))
             .child(Spinner::new().size(SpinnerSize::Tiny))
-            .child(Spinner::new().size(SpinnerSize::Small))
-            .child(Spinner::new().size(SpinnerSize::Medium).label("Loading"))
-            .child(Spinner::new().size(SpinnerSize::Large))
+            .child(Spinner::new().size(SpinnerSize::ExtraSmall))
+            .child(Spinner::new().size(SpinnerSize::Small).label("Loading"))
+            .child(Spinner::new().size(SpinnerSize::Medium))
+            .child(
+                Spinner::new()
+                    .size(SpinnerSize::Medium)
+                    .label("Uploading files"),
+            )
+            .child(
+                Spinner::new()
+                    .size(SpinnerSize::Medium)
+                    .label("Downloading files"),
+            )
             .child(ProgressBar::new(40.).indeterminate())
             .child(ProgressBar::new(40.))
     }
