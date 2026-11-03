@@ -160,10 +160,25 @@ impl RenderOnce for Button {
         // Hover and press drive animated colours: gpui-base's own .hover() and
         // .active() restyle instantly, which reads as a hard snap next to the
         // rest of the system.
+        //
+        // `on_hover`'s reported edge is unreliable inside `deferred`: its
+        // bootstrap reads `is_hovered` against the *previous* frame's
+        // `mouse_hit_test`, so a freshly repainted hitbox reports a spurious
+        // `false` for one frame even with a stationary pointer — that edge is
+        // the footer flicker. Keep `on_hover` as the occlusion-aware source of
+        // real enter/leave edges, but latch `true`: a `false` edge is only
+        // accepted when the live pointer is actually outside the button's
+        // recorded bounds, so a stale-read `false` cannot flash the surface
+        // while the pointer is still on it.
         let hover_state = window.use_keyed_state(
             SharedString::from(format!("button-hovered-{:?}", self.id)),
             cx,
             |_, _| false,
+        );
+        let hover_bounds = window.use_keyed_state(
+            SharedString::from(format!("button-bounds-{:?}", self.id)),
+            cx,
+            |_, _| std::rc::Rc::new(std::cell::Cell::new(None::<gpui::Bounds<gpui::Pixels>>)),
         );
         let press_state = window.use_keyed_state(
             SharedString::from(format!("button-pressed-{:?}", self.id)),
@@ -268,27 +283,40 @@ impl RenderOnce for Button {
         if let Some(label) = self.a11y_label {
             el = el.accessibility_label(label);
         }
-        let mut tooltip_slot: Option<
+
+        let tooltip_bounds: Option<
             std::rc::Rc<std::cell::Cell<Option<gpui::Bounds<gpui::Pixels>>>>,
-        > = None;
+        > = self
+            .tooltip
+            .as_ref()
+            .map(|_| std::rc::Rc::new(std::cell::Cell::new(None::<gpui::Bounds<gpui::Pixels>>)));
         if let Some(text) = self.tooltip {
-            let slot: std::rc::Rc<std::cell::Cell<Option<gpui::Bounds<gpui::Pixels>>>> =
-                std::rc::Rc::new(std::cell::Cell::new(None));
-            let slot_hover = slot.clone();
-            let hover_probe = hover_state.clone();
-            el = el.on_hover(move |hovered, window, cx| {
-                // One on_hover per element: this listener carries both the colour
-                // state and the tooltip, so it must run before the early return.
-                hover_probe.update(cx, |state, cx| {
-                    if *state != *hovered {
-                        *state = *hovered;
+            let slot_hover = tooltip_bounds.clone().unwrap();
+            let bounds_for_edge = hover_bounds.read(cx).clone();
+            let state_for_edge = hover_state.clone();
+            let last_requested = std::rc::Rc::new(std::cell::Cell::new(false));
+            let requested = last_requested.clone();
+            el = el.on_hover(move |reported, window, cx| {
+                // The reported edge can be a one-frame stale-read `false` while
+                // the pointer is still on the button; only honour a `false`
+                // when the pointer is genuinely outside the recorded bounds.
+                window.refresh();
+                let inside = bounds_for_edge
+                    .get()
+                    .map(|b| b.contains(&window.mouse_position()))
+                    .unwrap_or(false);
+                let genuine = *reported || inside;
+                state_for_edge.update(cx, |state, cx| {
+                    if *state != genuine {
+                        *state = genuine;
                         cx.notify();
                     }
                 });
                 let Some(overlay) = crate::tooltip::overlay(cx) else {
                     return;
                 };
-                if *hovered {
+                if genuine && !requested.get() {
+                    requested.set(true);
                     let Some(bounds) = slot_hover.get() else {
                         return;
                     };
@@ -306,17 +334,24 @@ impl RenderOnce for Button {
                             cx,
                         );
                     });
-                } else {
+                } else if !genuine && requested.get() {
+                    requested.set(false);
                     overlay.update(cx, |overlay, cx| overlay.request_hide(window, cx));
                 }
             });
-            tooltip_slot = Some(slot);
         } else if !is_disabled {
-            let hover_listener = hover_state.clone();
-            el = el.on_hover(move |is_hovered, _, cx| {
-                hover_listener.update(cx, |state, cx| {
-                    if *state != *is_hovered {
-                        *state = *is_hovered;
+            let bounds_for_edge = hover_bounds.read(cx).clone();
+            let state_for_edge = hover_state.clone();
+            el = el.on_hover(move |reported, window, cx| {
+                window.refresh();
+                let inside = bounds_for_edge
+                    .get()
+                    .map(|b| b.contains(&window.mouse_position()))
+                    .unwrap_or(false);
+                let genuine = *reported || inside;
+                state_for_edge.update(cx, |state, cx| {
+                    if *state != genuine {
+                        *state = genuine;
                         cx.notify();
                     }
                 });
@@ -345,17 +380,21 @@ impl RenderOnce for Button {
                 el = el.child(icon);
             }
         }
-
-        if let Some(slot) = tooltip_slot {
-            return div()
-                .on_children_prepainted(move |children, _, _| {
-                    if let Some(bounds) = children.first() {
+        // Always wrap so `on_children_prepainted` records the base button's
+        // painted bounds (the geometry the `on_hover` edge is validated
+        // against) and, when present, `tooltip_bounds` (where it anchors).
+        let hover_bounds_out = hover_bounds.read(cx).clone();
+        let tooltip_bounds_out = tooltip_bounds.clone();
+        div()
+            .on_children_prepainted(move |children, _, _| {
+                if let Some(bounds) = children.first() {
+                    hover_bounds_out.set(Some(*bounds));
+                    if let Some(slot) = &tooltip_bounds_out {
                         slot.set(Some(*bounds));
                     }
-                })
-                .child(el)
-                .into_any_element();
-        }
-        el.into_any_element()
+                }
+            })
+            .child(el)
+            .into_any_element()
     }
 }
