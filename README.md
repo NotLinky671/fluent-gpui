@@ -21,7 +21,7 @@ This table describes implementation scope, not verification of every platform, i
 | `Badge` / `Avatar` | Foundation | Seven badge appearances, four avatar sizes; Avatar renders initials only |
 | `ProgressBar` | Partial | Determinate progress and an indeterminate sweep; reduced-motion handling and pixel baselines for the indeterminate mode are pending |
 | `Tooltip` | Foundation | `Button::tooltip` uses a root-hosted anchored overlay with a configured 4px gap; hover and flip placement still need manual verification |
-| `Popover` | Experimental | Anchored panel, controlled/uncontrolled open state, same-frame scroll positioning, outside-click dismissal, Escape, focus handover and a Tab focus trap when `track_focus` is supplied; the trap's stop order is unverified |
+| `Popover` | Experimental | Anchored panel, controlled/uncontrolled open state, same-frame scroll positioning, outside-click dismissal, Escape, focus handover and a Tab focus trap when `track_focus` is supplied; the trap cycles between panel items and never reaches the page behind |
 | `Menu` / `MenuItem` | Partial | Panel, clickable items, leading icons, check and radio rows, separators, headers, and `MenuDropdown` trigger integration through `Popover`; keyboard navigation, accessibility and submenus remain unfinished |
 | `Spinner` | Blocked | Not implemented; the current stroked-arc rendering approach is blocked |
 

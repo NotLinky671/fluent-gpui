@@ -52,6 +52,24 @@
 
 不直接复用 gpui-base 的 context，是因为那个字符串是私有实现细节；自己绑定语义明确，也不受上游改动影响。
 
+## 写键盘测试的两个前提
+
+这两点曾让焦点陷阱的测试全部变成空测试，务必记住：
+
+**1. `FocusHandle` 默认不是 tab stop。**
+
+`FocusHandle::new` 里 `tab_stop: false`，而导航会跳过非 stop 的条目。测试里用 `cx.focus_handle()` 建出的句柄**不可达**，Tab 永远不会停在上面——测试看起来通过，其实什么都没验证。必须写：
+
+```rust
+let handle = cx.focus_handle().tab_stop(true);
+```
+
+**2. tab stop 在绘制时登记，下一帧才对 `focus_next` 可见。**
+
+`track_focus` 的 div 在 paint 阶段写入 `next_frame.tab_stops`，而 `focus_next` 读的是 `rendered_frame.tab_stops`。所以测试必须先聚焦、再绘制两次（或分多次 `update_window` + `run_until_parked`），然后才能派发 Tab。
+
+deferred 面板（Popover 的内容）同样会进入 tab 顺序，不需要特殊处理。
+
 ## 验证入口
 
 ```text
@@ -66,12 +84,16 @@ cargo test -p fluent-components --lib tab_order_tests --locked
 | `pressing_inside_again_keeps_focus` | 再次点击内部不误失焦 |
 | `tab_moves_focus_to_the_next_field` | Tab 在两个字段间前进；移除 `FluentRoot` 的 context 后失败 |
 | `shift_tab_moves_focus_backwards` | Shift+Tab 反向移动 |
+| `tab_advances_between_boxes_in_a_plain_tree` / `..._inside_a_popover_panel` | 普通树与 deferred 面板内容都能参与 Tab 顺序（探针） |
+| `tab_cycles_between_the_panel_items` | 面板内 Tab 循环：第一项 → 第二项 → 回到第一项；移除陷阱后失败 |
+| `tab_never_reaches_the_element_behind_the_panel` | 连续四次 Tab 都不会逃到面板外；移除陷阱后失败 |
+| `shift_tab_wraps_backwards_inside_the_panel` | 第一项 Shift+Tab 回绕到最后一项；移除陷阱后失败 |
 | `opening_moves_focus_into_the_panel` | 打开时焦点移入面板；移除交接逻辑后失败 |
 | `closing_returns_focus_to_where_it_was` | 关闭时归还焦点；先断言打开确实移入了焦点，否则该测试在无交接时也会通过 |
 
 ## 尚未覆盖
 
-- **陷阱内的推进顺序未验证**：`TestAppContext` 里 `focus_next` 在陷阱容器存在时不会推进到下一个子元素（实测停在第一个 stop），因此无法用自动化断言「Tab 依次经过每个菜单项」。曾写过两条只断言"不逃逸"的测试，但移除陷阱后它们仍然通过，属于空测试，已删除。
+- 焦点陷阱的 Tab 循环已可自动化验证，见下方「写键盘测试的两个前提」。
 - 模态语义：`Role::Dialog` / `AlertDialog` 的 AccessKit 角色、背景内容是否真的不可交互
 - 方向键在菜单项之间的移动、`aria-activedescendant`
 - AccessKit role/state 是否随焦点正确上报

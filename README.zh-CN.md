@@ -21,7 +21,7 @@
 | `Badge` / `Avatar` | 基础实现 | 7 种 Badge 外观、4 档 Avatar；Avatar 仅首字母 |
 | `ProgressBar` | 部分实现 | 确定进度与不定态滑动动画；不定态 reduced-motion 支持及像素基线待补 |
 | `Tooltip` | 基础实现 | `Button::tooltip` 接入根级锚定 overlay，配置 4px 间隙；悬停与翻转位置尚待人工验证 |
-| `Popover` | 实验性 | 已有锚定浮层、受控/非受控开关、同帧滚动定位、外部点击关闭、Esc 关闭，以及提供 `track_focus` 时的焦点交接与 Tab 焦点陷阱；陷阱内的推进顺序尚未验证 |
+| `Popover` | 实验性 | 已有锚定浮层、受控/非受控开关、同帧滚动定位、外部点击关闭、Esc 关闭，以及提供 `track_focus` 时的焦点交接与 Tab 焦点陷阱；陷阱在面板项之间循环且不会逃到背后页面 |
 | `Menu` / `MenuItem` | 部分实现 | 面板、可点击菜单项、前导图标、勾选与单选行、分隔线、标题，以及经 `Popover` 的 `MenuDropdown` 触发器接线；键盘导航、无障碍及子菜单待完成 |
 | `Spinner` | 受阻 | 尚未实现；当前圆弧绘制方案受阻 |
 

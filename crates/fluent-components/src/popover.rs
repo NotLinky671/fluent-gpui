@@ -410,4 +410,8 @@ impl RenderOnce for Popover {
 #[cfg(test)]
 mod dismissal_tests;
 #[cfg(test)]
+mod focus_probe_tests;
+#[cfg(test)]
+mod focus_trap_tests;
+#[cfg(test)]
 mod tests;
