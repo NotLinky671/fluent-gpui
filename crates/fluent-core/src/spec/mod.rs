@@ -5,6 +5,7 @@
 //! render layer only applies them.
 
 pub mod button;
+pub mod dialog;
 pub mod feedback;
 pub mod field;
 pub mod input;

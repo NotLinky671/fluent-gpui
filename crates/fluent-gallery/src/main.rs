@@ -15,11 +15,11 @@ use fluent_ui::gpui::{
 use fluent_ui::gpui_base::input::{InputState, TextareaState};
 use fluent_ui::prelude::*;
 use fluent_ui::{
-    Appearance, Avatar, AvatarSize, Badge, BadgeAppearance, BadgeSize, Button, ButtonAppearance,
-    ButtonShape, Checkbox, ControlSize, Divider, Field, FluentIcon, FluentRoot, FluentTheme,
-    FontMode, InputAppearance, Link, Menu, MenuDropdown, MenuHeader, MenuItem, Popover,
-    ProgressAppearance, ProgressBar, Radio, Spinner, SpinnerSize, Switch, TextInput, Textarea,
-    TextareaAppearance, TooltipSurface, ValidationMessage,
+    AlertDialog, Appearance, Avatar, AvatarSize, Badge, BadgeAppearance, BadgeSize, Button,
+    ButtonAppearance, ButtonShape, Checkbox, ControlSize, Dialog, Divider, Field, FluentIcon,
+    FluentRoot, FluentTheme, FontMode, InputAppearance, Link, Menu, MenuDropdown, MenuHeader,
+    MenuItem, Popover, ProgressAppearance, ProgressBar, Radio, Spinner, SpinnerSize, Switch,
+    TextInput, Textarea, TextareaAppearance, TooltipSurface, ValidationMessage,
 };
 
 const APPEARANCES: [ButtonAppearance; 5] = [
@@ -62,6 +62,8 @@ struct Gallery {
     radio_choice: usize,
     switch_a: bool,
     switch_b: bool,
+    dialog_open: bool,
+    alert_open: bool,
     /// Keeps the OS appearance observer alive for the window's lifetime.
     _appearance_sub: Option<Subscription>,
 }
@@ -105,6 +107,8 @@ impl Gallery {
             radio_choice: 1,
             switch_a: true,
             switch_b: false,
+            dialog_open: false,
+            alert_open: false,
             fixture,
             _appearance_sub: sub,
         }
@@ -766,6 +770,122 @@ impl Render for Gallery {
                     ),
             );
 
+        let dialog_section = {
+            let weak = cx.entity().downgrade();
+            let open_dialog = {
+                let weak = weak.clone();
+                move |open: bool, cx: &mut App| {
+                    weak.update(cx, |this, cx| {
+                        this.dialog_open = open;
+                        cx.notify();
+                    })
+                    .ok();
+                }
+            };
+            let open_alert = {
+                let weak = weak.clone();
+                move |open: bool, cx: &mut App| {
+                    weak.update(cx, |this, cx| {
+                        this.alert_open = open;
+                        cx.notify();
+                    })
+                    .ok();
+                }
+            };
+            let close_dialog = open_dialog.clone();
+            let close_alert = open_alert.clone();
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(12.))
+                .p(px(16.))
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(12.))
+                        .child(
+                            Button::new("gallery-dialog-open")
+                                .appearance(ButtonAppearance::Primary)
+                                .on_click(move |_, _, cx| open_dialog(true, cx))
+                                .child("Open dialog"),
+                        )
+                        .child(
+                            Button::new("gallery-alert-open")
+                                .appearance(ButtonAppearance::Secondary)
+                                .on_click(move |_, _, cx| open_alert(true, cx))
+                                .child("Open alert dialog"),
+                        )
+                        .child(
+                            div()
+                                .text_size(px(12.))
+                                .text_color(t.color.neutral_foreground_3)
+                                .child(
+                                    "Esc / scrim dismiss the first; the alert requires a choice",
+                                ),
+                        ),
+                )
+                .child(
+                    Dialog::new("gallery-dialog")
+                        .title("Edit details")
+                        .open(self.dialog_open)
+                        .on_open_change({
+                            let close = close_dialog.clone();
+                            move |open, _, _, cx| close(open, cx)
+                        })
+                        .child("Dialogs dim the page, take focus and return it on close.")
+                        .footer_child(
+                            Button::new("gallery-dialog-cancel")
+                                .appearance(ButtonAppearance::Subtle)
+                                .on_click({
+                                    let close = close_dialog.clone();
+                                    move |_, _, cx| close(false, cx)
+                                })
+                                .child("Cancel"),
+                        )
+                        .footer_child(
+                            Button::new("gallery-dialog-save")
+                                .appearance(ButtonAppearance::Primary)
+                                .on_click({
+                                    let close = close_dialog.clone();
+                                    move |_, _, cx| close(false, cx)
+                                })
+                                .child("Save"),
+                        ),
+                )
+                .child(
+                    AlertDialog::new("gallery-alert")
+                        .title("Discard draft?")
+                        .open(self.alert_open)
+                        .on_open_change({
+                            let close = close_alert.clone();
+                            move |open, _, _, cx| close(open, cx)
+                        })
+                        .child(
+                            "An alert dialog has no Escape or scrim dismissal: choose an action.",
+                        )
+                        .footer_child(
+                            Button::new("gallery-alert-keep")
+                                .appearance(ButtonAppearance::Secondary)
+                                .on_click({
+                                    let close = close_alert.clone();
+                                    move |_, _, cx| close(false, cx)
+                                })
+                                .child("Keep editing"),
+                        )
+                        .footer_child(
+                            Button::new("gallery-alert-discard")
+                                .appearance(ButtonAppearance::Secondary)
+                                .text_color(t.color.status_danger_foreground_1)
+                                .on_click({
+                                    let close = close_alert.clone();
+                                    move |_, _, cx| close(false, cx)
+                                })
+                                .child("Discard"),
+                        ),
+                )
+        };
+
         // `FLUENT_GALLERY_SECTION` narrows the gallery to one section; useful for
         // screenshots and pixel baselines that would otherwise be below the fold.
         let want = |name: &str| match std::env::var("FLUENT_GALLERY_SECTION") {
@@ -796,6 +916,9 @@ impl Render for Gallery {
         }
         if want("feedback") {
             sections.push(feedback_section.into_any_element());
+        }
+        if want("dialog") {
+            sections.push(dialog_section.into_any_element());
         }
         FluentRoot::new()
             .flex()

@@ -10,6 +10,7 @@
 | `Button::tooltip` | Button 测量触发器并向根级 gpui-base `TooltipOverlay` 发送请求 | 不等于 GPUI 原生 `.tooltip()`，也不等于 Popover 定位器 |
 | 通用 `tooltip(text)` 助手 | 构建 `TooltipView` 的闭包，供 GPUI 原生 `InteractiveElement::tooltip` 使用 | 内容采用 Fluent 外观，不代表具有 Button overlay 的锚定与间隙配置 |
 | `Popover` | window keyed open state + 同帧测量 + 自研 deferred positioner + `on_mouse_down_out` 关闭 | 不依赖 TooltipService，也不是根级 PopoverHost；定位测试不证明关闭正确 |
+| `Dialog` / `AlertDialog` | gpui-base `Dialog`/`AlertDialog` 宿主 + Fluent scrim/卡片 + window keyed 状态 + 焦点交接 | 自己 deferred 渲染，无 root host；不走 Popover 定位器 |
 | `MenuDropdown` | 把 `Menu` 组合进 `Popover`，继承定位与关闭；键盘与鼠标移动共用菜单的当前项，布局变化不触发改选 | 不等于完整菜单协议：无子菜单 |
 | `Menu` / `MenuItem` | Fluent 菜单面板、菜单项、前导图标、勾选/单选行、方向键/Home/End/Enter 导航 | 键盘只覆盖已声明的 `.item()` 行；子菜单未实现 |
 
@@ -74,6 +75,20 @@ deferred positioner prepaint：读取同一共享值，结合面板尺寸和视�
 - `Escape` 通过 `fluent_components::Dismiss` 关闭：`fluent_ui::init` 把它绑定到 `escape` 并限定在 `OVERLAY_KEY_CONTEXT`，Popover 在触发器包装层与面板上都设置该 context 并挂 `on_action`。**只有焦点位于浮层内时才会触发**，所以调用方必须通过 `track_focus` 提供焦点句柄。焦点进入/归还与约束仍未实现。
 - 关闭行为已有测试覆盖：外部按下上报 `false`；面板本体、面板内交互子元素上的按下不上报且不穿透；按下触发器只上报一次变化（触发器自身的切换与“点击外部”不会重复上报）；受控调用方忽略请求时保持打开。
 - 当前没有完整焦点进入/归还/约束或嵌套多浮层协调机制。Menu 也没有补全这些能力，见[菜单实现](../../crates/fluent-components/src/menu.rs)。
+
+## Dialog / AlertDialog：模态卡片
+
+源码：[dialog.rs](../../crates/fluent-components/src/dialog.rs)、[spec](../../crates/fluent-core/src/spec/dialog.rs)。
+
+**渲染路径**。组件把 gpui-base `Dialog`/`AlertDialog` 宿主拼好后交给它自己渲染：宿主在 render 里产出 `deferred(anchored(...))`，priority `10 + layer`，因此不需要任何根级 overlay host——`FluentRoot` 只负责提供 trap 感知的 Tab 遍历 context。关闭状态下宿主渲染一个空 `div()`，所以对话框元素可以一直挂在树里。
+
+**scrim 与卡片**。scrim 由调用方（本组件）以 `DialogBackdrop` 提供，铺满宿主并填 `colorBackgroundOverlay`（web_light 40% 黑，web_dark 50%）。卡片是 `DialogPopup`：neutral background 1 底、`x_large` 圆角、`s64` 阴影、24px padding、16px 内容间距、8px footer 间距，标题/正文用 `base_500`/`base_300` 字号与行高。卡片 `occlude()`，落在卡片上的按下不会到达 scrim；scrim 上的按下对普通 Dialog 走 `Cancel` 路径。
+
+**状态与关闭**。`.open(bool)` 为受控；`default_open` 仅初始化 window keyed store。Escape / scrim 按下 / `DialogHandle::close` 统一经 `DialogChangeReason::{Cancel,BackdropPress,Imperative}` 上报给 `on_open_change`，再（非受控时）写 keyed store 并 `cx.notify`。`on_ok`/`on_cancel` 返回 `false` 可否决；Enter 绑定到宿主的 `Confirm` 走 `on_ok`。`AlertDialog` 由 gpui-base 特化：`Role::AlertDialog`、无 scrim 关闭；本组件再叠加 `close_on_escape(false)`，因此必须点击 footer 动作。
+
+**焦点**。宿主自带 `focus_trap`，配合 `FluentRoot` 的 `advance_focus` 让 Tab 在卡片内循环。gpui-base 不记忆旧焦点，本组件在 wrapper 里用 keyed state 复刻 Popover 的交接：打开首帧记录 `window.focused` 并聚焦宿主句柄，关闭首帧在焦点仍位于对话框内时归还。**如果调用方在关闭的同一帧直接把对话框元素卸载，归还永远不会发生**——组件必须保持挂载并用受控 `open` 驱动，notes 应用就是这么接的。
+
+**命令入口**：`cargo test -p fluent-components --lib dialog --locked`。
 
 ## 验证入口与尚未覆盖的场景
 

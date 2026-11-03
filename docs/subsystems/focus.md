@@ -9,6 +9,7 @@
 | `FluentRoot` | 携带 `ROOT_KEY_CONTEXT`，并处理 `FocusNext` / `FocusPrev` | 不等于 gpui-base 的 `Root` 视图；两者 context 不同 |
 | `TextInput` / `Textarea` | 点击自身聚焦；`on_mouse_down_out` 失焦 | 不包含 Tab 遍历与焦点陷阱 |
 | `Popover` | `track_focus` 提供面板焦点句柄；打开时移入、关闭时归还；Escape 依赖它 | 不包含焦点陷阱；面板内控件需自己可聚焦 |
+| `Dialog` / `AlertDialog` | 宿主自带 `focus_trap`；wrapper 记录旧焦点并在关闭帧归还 | 打开时焦点落在对话框宿主而非首个控件 |
 
 ## 失焦时机
 
@@ -145,7 +146,7 @@ cargo test -p fluent-components --lib tab_order_tests --locked
 ## 尚未覆盖
 
 - 焦点陷阱的 Tab 循环已可自动化验证，见下方「写键盘测试的两个前提」。
-- 模态语义：`Role::Dialog` / `AlertDialog` 的 AccessKit 角色、背景内容是否真的不可交互
+- 模态语义：`Dialog` 打开时焦点进入宿主、Tab 在卡片内循环、关闭归还，均有行为测试；`Role::Dialog`/`Role::AlertDialog` 设在宿主内层 div 上，但本快照里 deferred 外层的 `a11y_role` 返回 `None`，role 是否到达 accesskit 树未验证；背景内容被 scrim 命中遮挡已由点击测试覆盖，屏幕阅读器视角的「不可交互」未验证
 - 菜单键盘的未完成项：子菜单
 - 当前项不使用 `aria-activedescendant`（焦点在容器本身，当前项通过 `aria-selected` 表达）；原生屏幕阅读器对这些属性的实际朗读效果未验证
 - AccessKit role/state 是否随焦点正确上报

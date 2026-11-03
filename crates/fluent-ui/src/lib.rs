@@ -18,10 +18,10 @@
 //! `Cargo.toml`: two different gpui crates have incompatible types.
 
 pub use fluent_components::{
-    Avatar, Badge, Button, Checkbox, Divider, Field, FluentIcon, FluentRoot, Icon, IconStyle,
-    InputAppearance, Label, Link, Menu, MenuDropdown, MenuHeader, MenuItem, MenuSeparator, Popover,
-    ProgressBar, Radio, Spinner, Switch, TextInput, Textarea, TextareaAppearance, TooltipSurface,
-    TooltipView, ValidationMessage, tooltip,
+    AlertDialog, Avatar, Badge, Button, Checkbox, Dialog, DialogOpenChange, Divider, Field,
+    FluentIcon, FluentRoot, Icon, IconStyle, InputAppearance, Label, Link, Menu, MenuDropdown,
+    MenuHeader, MenuItem, MenuSeparator, Popover, ProgressBar, Radio, Spinner, Switch, TextInput,
+    Textarea, TextareaAppearance, TooltipSurface, TooltipView, ValidationMessage, tooltip,
 };
 pub use fluent_core::spec::ControlSize;
 pub use fluent_core::spec::button::{ButtonAppearance, ButtonShape, IconPosition};

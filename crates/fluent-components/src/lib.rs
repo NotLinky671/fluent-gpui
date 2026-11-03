@@ -41,6 +41,7 @@ pub const ROOT_KEY_CONTEXT: &str = "FluentRoot";
 pub const MENU_KEY_CONTEXT: &str = "FluentMenu";
 
 pub mod button;
+pub mod dialog;
 pub mod feedback;
 pub mod field;
 pub mod icon;
@@ -56,6 +57,7 @@ pub mod textarea;
 pub mod tooltip;
 
 pub use button::Button;
+pub use dialog::{AlertDialog, Dialog, DialogOpenChange};
 pub use feedback::{Avatar, Badge, ProgressBar, Spinner, TooltipSurface, TooltipView};
 pub use field::{Field, Label, ValidationMessage};
 pub use fluent_core::spec::ControlSize;
