@@ -37,18 +37,43 @@ pub struct BadgeSpec {
 }
 
 /// Resolves a badge.
+///
+/// Foreground selection is contrast-driven, not a literal copy of upstream's
+/// mapping. Fluent's CSS pairs `paletteYellowBackground3` with
+/// `neutralForeground1`, but that breaks under the bundled token sets: in
+/// `web_dark` the pair is yellow text-adjacent white-on-yellow (ratio ~1.3) and
+/// in `teamsHighContrastTheme` both tokens resolve to `#ffffff`, making the
+/// label invisible. So each badge resolves its foreground as whichever of the
+/// theme's two static label tokens — `neutralForeground1Static` (dark ink) or
+/// `neutralForegroundStaticInverted` (light ink) — contrasts more with the
+/// chosen background. On `web_light` and `web_dark` this reproduces upstream's
+/// choices (dark ink on yellow, white ink elsewhere); on the high-contrast set,
+/// where every badge background is `#ffffff`, it lands on
+/// `neutralForeground1Static` (`#000000`). Per ADR-0002, rendered legibility
+/// outranks the CSS constant.
 pub fn badge(theme: &FluentTheme, appearance: BadgeAppearance, size: BadgeSize) -> BadgeSpec {
     let t = theme.tokens();
     let c = &t.color;
-    let (background, foreground) = match appearance {
-        BadgeAppearance::Brand => (c.brand_background, c.neutral_foreground_on_brand),
-        BadgeAppearance::Danger => (c.palette_red_background_3, c.neutral_foreground_on_brand),
-        BadgeAppearance::Success => (c.palette_green_background_3, c.neutral_foreground_on_brand),
-        BadgeAppearance::Warning => (c.palette_yellow_background_3, c.neutral_foreground_1),
-        BadgeAppearance::Important => (c.neutral_foreground_1, c.neutral_foreground_on_brand),
-        BadgeAppearance::Informative => (c.neutral_background_5, c.neutral_foreground_1),
-        BadgeAppearance::Subtle => (c.neutral_background_1, c.neutral_foreground_1),
+    let background = match appearance {
+        BadgeAppearance::Brand => c.brand_background,
+        BadgeAppearance::Danger => c.palette_red_background_3,
+        BadgeAppearance::Success => c.palette_green_background_3,
+        BadgeAppearance::Warning => c.palette_yellow_background_3,
+        BadgeAppearance::Important => c.neutral_foreground_1,
+        BadgeAppearance::Informative => c.neutral_background_5,
+        BadgeAppearance::Subtle => c.neutral_background_1,
     };
+    let foreground = [
+        c.neutral_foreground_1_static,
+        c.neutral_foreground_static_inverted,
+    ]
+    .into_iter()
+    .max_by(|a, b| {
+        contrast_ratio(*a, background)
+            .partial_cmp(&contrast_ratio(*b, background))
+            .unwrap()
+    })
+    .unwrap();
     let (height, min_width, padding_x, font_size) = match size {
         BadgeSize::Small => (px(16.), px(16.), px(4.), t.font_size.base_200),
         BadgeSize::Medium => (px(20.), px(20.), px(6.), t.font_size.base_200),
@@ -170,10 +195,62 @@ pub fn tooltip(theme: &FluentTheme) -> TooltipSpec {
         shadow: t.shadow.s4.clone(),
     }
 }
+
+/// WCAG relative luminance of an `Hsla` color.
+fn relative_luminance(color: Hsla) -> f32 {
+    let c = color.to_rgb();
+    fn channel(v: f32) -> f32 {
+        if v <= 0.04045 {
+            v / 12.92
+        } else {
+            ((v + 0.055) / 1.055).powf(2.4)
+        }
+    }
+    0.2126 * channel(c.r) + 0.7152 * channel(c.g) + 0.0722 * channel(c.b)
+}
+
+/// WCAG contrast ratio between two colors (1..=21).
+fn contrast_ratio(a: Hsla, b: Hsla) -> f32 {
+    let (la, lb) = (relative_luminance(a), relative_luminance(b));
+    let (hi, lo) = (la.max(lb), la.min(lb));
+    (hi + 0.05) / (lo + 0.05)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use fluent_tokens::Tokens;
+
+    #[test]
+    fn badge_foreground_contrasts_with_background_on_every_theme() {
+        let appearances = [
+            BadgeAppearance::Brand,
+            BadgeAppearance::Danger,
+            BadgeAppearance::Success,
+            BadgeAppearance::Warning,
+            BadgeAppearance::Important,
+            BadgeAppearance::Informative,
+            BadgeAppearance::Subtle,
+        ];
+        let themes = [
+            ("web_light", FluentTheme::web_light()),
+            ("web_dark", FluentTheme::web_dark()),
+            ("high_contrast", FluentTheme::high_contrast()),
+        ];
+        let mut failures = Vec::new();
+        for (theme_name, theme) in &themes {
+            for appearance in appearances {
+                let spec = badge(theme, appearance, BadgeSize::Medium);
+                let ratio = contrast_ratio(spec.foreground, spec.background);
+                if ratio < 4.5 {
+                    failures.push(format!(
+                        "{appearance:?} on {theme_name}: contrast {ratio:.2} < 4.5"
+                    ));
+                }
+            }
+        }
+        assert!(failures.is_empty(), "{}", failures.join("\n"));
+    }
 
     #[test]
     fn badge_sizes_match_fluent() {

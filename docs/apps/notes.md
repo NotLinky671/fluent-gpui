@@ -48,7 +48,7 @@ $env:FLUENT_NOTES_APPEARANCE = "dark"; cargo run -p fluent-notes
 | `Tooltip` | 可用（Button 路径） | 新建、设置、更多、删除等图标按钮 | 悬停触发；键盘聚焦不显示 Tooltip，见已知限制 |
 | `Popover` | 实验性，可用 | 设置浮层与便签属性浮层；`track_focus` 提供焦点交接、Esc 和 Tab 陷阱 | 边缘限位而非翻转；打开时焦点进入面板容器，但容器不作为 Tab 停靠点；Tab 只在面板控件间循环 |
 | `Menu` / `MenuDropdown` | 部分实现 | 编辑器“更多”菜单：置顶勾选项、禁用项、分隔线、删除 | 方向键/Home/End/Enter/Space 与禁用跳过已有测试；typeahead 按字符前缀匹配，Tab / Shift+Tab 关闭菜单；item 激活后不会自动关闭，应用在动作中显式关闭；子菜单未实现 |
-| `Divider` / `Badge` | 可用 | 分区、内存提示、置顶标记 | `Badge` 的 Warning 前景在 dark/high-contrast 下对比不足，见问题记录；应用不依赖它表达未保存状态 |
+| `Divider` / `Badge` | 可用 | 分区、内存提示、置顶标记 | `Badge` 前景对比缺陷已按对比度映射修复，见[修复记录](../validation/badge-contrast-2026-11-03.md)；应用仍不依赖它表达未保存状态 |
 | `Dialog` / `AlertDialog` | 未实现 | 不接入；删除/切换用页面内确认条 | 任务 T-046 |
 | `Tabs` / `Sheet` / `ContextMenu` / `Select` | 未实现 | 不接入；记录为后续接入点 | 任务 T-044/T-047/T-048，及 M2 范围之外 |
 | `Spinner` | 受阻 | 不接入 | 见 README 已知限制 |
@@ -207,7 +207,7 @@ FluentRoot
   Esc 只在焦点位于浮层内时生效（本应用为两个浮层都传了 `track_focus`）。
 - **Tooltip**：由指针悬停触发；键盘聚焦不显示；翻转/定位仍只有有限的自动测试，需要原生窗口复核。
 - **Radio 组**：Radio 支持 Tab 到达与 Enter/Space 切换，但没有组内方向键；主题选择用 Tab 或指针切换。
-- **未保存状态**：标题栏用文本显示“编辑中 · 未保存/已保存”。不再使用 Warning Badge 表达该状态：该外观在 dark 下是白字黄底、在高对比度下是白底白字；组件缺陷保留在[验证记录](../validation/notes-app-2026-11-03.md#问题与复现)，应用不以低对比徽标作为唯一信号。
+- **未保存状态**：标题栏用文本显示“编辑中 · 未保存/已保存”。虽然 Warning Badge 的前景对比缺陷已修复（见[修复记录](../validation/badge-contrast-2026-11-03.md)），应用仍保留文本表达：不以单一颜色徽标作为唯一状态信号。
 - **长正文滚动**：本版 GPUI 快照的 Textarea 不处理鼠标滚轮；光标/键盘移动会把视图带到目标位置并显示滚动条。应用不包一层假滚动容器来掩盖该缺口。
 - **无障碍**：无 live region，保存/删除结果不会主动播报；菜单位置与当前项不通过 `aria-activedescendant` 表达；
   禁用 MenuItem 的 accesskit 状态缺失。真实屏幕阅读器未验证。

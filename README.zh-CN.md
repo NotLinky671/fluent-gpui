@@ -119,7 +119,7 @@ GPUI 精确锁定在快照版本（`gpui-pre = 0.3.10`）；用 caret 版本会�
 - `Avatar` 只渲染首字母，无图片与状态徽标
 - Checkbox / Radio / Switch 已接入鼠标 hover / pressed 状态及颜色过渡；完整键盘与指针取消行为尚未验证
 - `Popover` 的关闭路径已有行为测试：外部按下上报 `false`，面板本体与面板内交互子元素上的按下不上报，按下触发器只上报一次变化，受控调用方忽略请求时保持打开。提供 `track_focus` 时，打开会把焦点移入面板，关闭且焦点仍在面板内时归还；Esc 仅在焦点位于浮层内时生效。焦点进入的是面板容器，不自动进入第一个控件；窗口边缘采用限位而非上下自动翻转。面板容器不必标记为 Tab 停靠点；若调用方标记，它会加入控件循环
-- `Badge` 的 Warning 前景在 dark 与 high-contrast 下对比不足：dark 是白字黄底，高对比度是白底白字。便签应用改用文本表达未保存状态；组件缺陷仍未修复，见[验证记录](docs/validation/notes-app-2026-11-03.md#问题与复现)
+- `Badge` 前景按对比度选取：每种外观取主题的一对静态深/浅标签 token 中与徽标背景对比更高的一个，因此在 light、dark 与 high-contrast 下文字都可辨（此前 Warning 在 dark 是白字黄底、高对比度是白底白字）。映射仍取自 token 且有 spec 断言覆盖；受影响外观的原生窗口视觉检查尚待进行。见[修复记录](docs/validation/badge-contrast-2026-11-03.md)
 - `Textarea` 在本版 GPUI 快照中不处理鼠标滚轮；长正文可用光标/键盘滚动，滚动条会随光标出现
 - `MenuDropdown` 把 `Menu` 组合进 `Popover`，因此菜单继承锚定定位与关闭语义。方向键、Home/End、Enter/Space 与跳过禁用行均已可用；鼠标移动时写入的当前行与键盘一致，静止指针下的布局变化不会改选；至多一行呈现当前项外观。typeahead 从当前行之后开始匹配字符前缀（600ms 重置，重复同一字符在同字母项间循环），菜单内的 Tab / Shift+Tab 经 `Dismiss` 关闭菜单。item 激活后菜单不会自动关闭，调用方必须在动作中显式关闭（便签应用每个 item 都这样做）。子菜单待完成，且本版 GPUI 未提供 accesskit 的禁用状态
 - `ProgressBar` 不定态的 reduced-motion 支持及像素基线待补
