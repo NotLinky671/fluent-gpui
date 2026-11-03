@@ -1560,6 +1560,14 @@ name = "fluent-icons"
 version = "0.1.0"
 
 [[package]]
+name = "fluent-notes"
+version = "0.1.0"
+dependencies = [
+ "fluent-ui",
+ "gpui-pre",
+]
+
+[[package]]
 name = "fluent-theme"
 version = "0.1.0"
 dependencies = [

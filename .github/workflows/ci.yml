@@ -84,6 +84,14 @@ jobs:
         env:
           FLUENT_GALLERY_SMOKE: "1"
 
+      # The integration app composes menus, popovers and inputs in one tree; a
+      # boot panic here would not be caught by the gallery matrix.
+      - name: Notes app boot smoke
+        if: runner.os == 'Windows'
+        run: cargo run -p fluent-notes
+        env:
+          FLUENT_NOTES_SMOKE: "1"
+
       # Screenshots are scratch: only committed pixel baselines may be tracked.
       - name: No stray images
         shell: bash

@@ -22,7 +22,7 @@ This table describes implementation scope, not verification of every platform, i
 | `ProgressBar` | Partial | Determinate progress and an indeterminate sweep; reduced-motion handling and pixel baselines for the indeterminate mode are pending |
 | `Tooltip` | Foundation | `Button::tooltip` uses a root-hosted anchored overlay with a configured 4px gap; hover and flip placement still need manual verification |
 | `Popover` | Experimental | Anchored panel, controlled/uncontrolled open state, same-frame scroll positioning, outside-click dismissal, Escape, focus handover and a Tab focus trap when `track_focus` is supplied; the trap cycles between panel items and never reaches the page behind |
-| `Menu` / `MenuItem` | Partial | Panel, leading icons, check and radio rows, separators, headers, `MenuDropdown` trigger integration through `Popover`, and arrow/Home/End navigation with disabled rows skipped; typeahead, submenus and Tab-to-close remain unfinished |
+| `Menu` / `MenuItem` | Partial | Panel, leading icons, check and radio rows, separators, headers, `MenuDropdown` trigger integration through `Popover`, arrow/Home/End navigation with disabled rows skipped, typeahead, and closing on Tab; submenus remain unfinished |
 | `Spinner` | Blocked | Not implemented; the current stroked-arc rendering approach is blocked |
 
 ## Quick start
@@ -56,6 +56,16 @@ fn main() {
 ```
 
 `FluentRoot` applies the theme's background, foreground and font, and hosts the tooltip overlay, so the outermost element of an application should be wrapped in it.
+
+## Integration app
+
+[`fluent-notes`](crates/fluent-notes) is a small native notes application that combines the current components in real flows: drafts, themes, menus, popovers, focus and confirmation bars. It complements the gallery's single-component matrix.
+
+```text
+cargo run -p fluent-notes
+```
+
+Notes live in memory only and are lost when the window closes; there is no networking, account or persistence. Delete and unsaved-switch confirmation use in-page confirm/cancel bars until Dialog exists. Usage, the repeatable manual checklist, known limitations and M2 hookup points are in [docs/apps/notes.md](docs/apps/notes.md); this round's actual verification is in [docs/validation/notes-app-2026-11-03.md](docs/validation/notes-app-2026-11-03.md).
 
 ## Controlled and uncontrolled
 
@@ -108,8 +118,10 @@ GPUI is pinned to an exact snapshot (`gpui-pre = 0.3.10`); a caret requirement w
 - `Spinner` is not implemented; the current stroked-arc rendering approach is blocked
 - `Avatar` renders initials only; no images, no status badge
 - Mouse hover/pressed state wiring and colour transitions are implemented for Checkbox / Radio / Switch; full keyboard and pointer-cancellation behaviour is not yet verified
-- `Popover` dismissal is covered by behaviour tests: an outside press reports `false`, presses on the panel body or its interactive children do not, a press on the trigger reports one change, and a controlled caller that ignores the request stays open. Escape is bound to `fluent_components::Dismiss` and only fires while focus is inside the popover, so `track_focus` is required. Focus entry and restoration are still unimplemented, and viewport edges clamp the panel rather than flipping it above/below
-- `MenuDropdown` composes `Menu` into `Popover`, so a menu inherits anchored placement and dismissal. Arrow keys, Home/End, Enter/Space and disabled-row skipping work, and mouse movement writes the same current row the keyboard does; layout changes under a stationary pointer do not change selection, and at most one row looks current. Typeahead, submenus and Tab-to-close are unfinished, and this GPUI version exposes no accesskit disabled state
+- `Popover` dismissal is covered by behaviour tests: an outside press reports `false`, presses on the panel body or its interactive children do not, a press on the trigger reports one change, and a controlled caller that ignores the request stays open. With `track_focus`, opening moves focus into the panel and closing returns it when focus is still inside; Escape only fires while focus is inside. Focus lands on the panel container, not the first control, and viewport edges clamp the panel rather than flipping it above/below. The container does not have to be a Tab stop; if the caller marks it as one it joins the item cycle
+- `Badge` Warning foreground has insufficient contrast in dark and high contrast: white on yellow in dark, white on white in high contrast. The notes app expresses saved/unsaved state as text instead; the component defect remains open and is recorded in the [verification record](docs/validation/notes-app-2026-11-03.md#问题与复现)
+- `Textarea` does not handle the mouse wheel in this GPUI snapshot; long bodies scroll with the caret/keyboard, and the scrollbar appears once the caret moves past the viewport
+- `MenuDropdown` composes `Menu` into `Popover`, so a menu inherits anchored placement and dismissal. Arrow keys, Home/End, Enter/Space and disabled-row skipping work, and mouse movement writes the same current row the keyboard does; layout changes under a stationary pointer do not change selection, and at most one row looks current. Typeahead matches a character prefix starting after the current row (600ms reset, repeated characters cycle), and Tab or Shift+Tab inside the menu closes it via `Dismiss`. Activating an item does not close the menu; the caller's action must close it explicitly (the notes app does this in every item). Submenus are unfinished, and this GPUI version exposes no accesskit disabled state
 - Reduced-motion handling and pixel baselines for indeterminate `ProgressBar` are pending
 - `Button::tooltip` delegates flipping to the gpui-base overlay; hover/flip placement still needs manual verification. The generic `tooltip(text)` helper uses GPUI-native positioning without the same anchoring guarantee. Tests cover only that the root publishes the service, that its entity identity survives redraws, and that callers see `None` without a root
 - No RTL support, no letter-spacing control, no CSS `outline`
@@ -135,6 +147,7 @@ cargo xtask gen-icons --check
 
 ```text
 cargo run -p fluent-gallery
+cargo run -p fluent-notes
 cargo test -p fluent-gallery --features screenshot --test baselines --locked
 ```
 

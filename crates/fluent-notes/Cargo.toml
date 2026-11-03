@@ -1,0 +1,19 @@
+[package]
+name = "fluent-notes"
+description = "In-memory notes app that exercises fluent-ui components in a real flow."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[[bin]]
+name = "fluent-notes"
+path = "src/main.rs"
+
+[dependencies]
+fluent-ui.workspace = true
+
+[dev-dependencies]
+# Behaviour tests use GPUI's TestAppContext; the feature must be enabled on the
+# same gpui package graph as fluent-ui. Production builds do not depend on it.
+gpui = { workspace = true, features = ["test-support"] }

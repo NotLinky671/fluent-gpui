@@ -22,7 +22,7 @@
 | `ProgressBar` | 部分实现 | 确定进度与不定态滑动动画；不定态 reduced-motion 支持及像素基线待补 |
 | `Tooltip` | 基础实现 | `Button::tooltip` 接入根级锚定 overlay，配置 4px 间隙；悬停与翻转位置尚待人工验证 |
 | `Popover` | 实验性 | 已有锚定浮层、受控/非受控开关、同帧滚动定位、外部点击关闭、Esc 关闭，以及提供 `track_focus` 时的焦点交接与 Tab 焦点陷阱；陷阱在面板项之间循环且不会逃到背后页面 |
-| `Menu` / `MenuItem` | 部分实现 | 面板、前导图标、勾选与单选行、分隔线、标题、经 `Popover` 的 `MenuDropdown` 触发器接线，以及方向键/Home/End 导航并跳过禁用行；typeahead、子菜单与 Tab 离开关闭待完成 |
+| `Menu` / `MenuItem` | 部分实现 | 面板、前导图标、勾选与单选行、分隔线、标题、经 `Popover` 的 `MenuDropdown` 触发器接线，方向键/Home/End 导航并跳过禁用行、typeahead，以及 Tab 离开即关闭；子菜单待完成 |
 | `Spinner` | 受阻 | 尚未实现；当前圆弧绘制方案受阻 |
 
 ## 快速开始
@@ -56,6 +56,16 @@ fn main() {
 ```
 
 `FluentRoot` 负责应用主题的背景色、前景色、字体，并托管 Tooltip 浮层——应用的最外层应当用它包裹。
+
+## 集成验证应用
+
+[`fluent-notes`](crates/fluent-notes) 是一个小型原生便签应用，用真实操作流程组合现有组件（草稿、主题、菜单、浮层、焦点与确认条），补充 Gallery 的单组件矩阵。
+
+```text
+cargo run -p fluent-notes
+```
+
+数据只保存在内存中，关闭窗口即丢失；不联网、不做账号或持久化。删除与未保存切换暂用页面内确认条，待 Dialog 可用后替换。使用说明、可重复的手工验收清单、已知限制与 M2 接入点见 [docs/apps/notes.md](docs/apps/notes.md)；本次实际验证记录见 [docs/validation/notes-app-2026-11-03.md](docs/validation/notes-app-2026-11-03.md)。
 
 ## 受控与非受控
 
@@ -108,8 +118,10 @@ GPUI 精确锁定在快照版本（`gpui-pre = 0.3.10`）；用 caret 版本会�
 - `Spinner` 尚未实现：当前描边圆弧绘制方案受阻
 - `Avatar` 只渲染首字母，无图片与状态徽标
 - Checkbox / Radio / Switch 已接入鼠标 hover / pressed 状态及颜色过渡；完整键盘与指针取消行为尚未验证
-- `Popover` 的关闭路径已有行为测试：外部按下上报 `false`，面板本体与面板内交互子元素上的按下不上报，按下触发器只上报一次变化，受控调用方忽略请求时保持打开。Esc 绑定到 `fluent_components::Dismiss`，仅在焦点位于浮层内时生效，因此需要 `track_focus`。焦点进入与归还未实现；窗口边缘采用限位而非上下自动翻转
-- `MenuDropdown` 把 `Menu` 组合进 `Popover`，因此菜单继承锚定定位与关闭语义。方向键、Home/End、Enter/Space 与跳过禁用行均已可用；鼠标移动时写入的当前行与键盘一致，静止指针下的布局变化不会改选；至多一行呈现当前项外观。typeahead、子菜单与 Tab 离开关闭待完成，且本版 GPUI 未提供 accesskit 的禁用状态
+- `Popover` 的关闭路径已有行为测试：外部按下上报 `false`，面板本体与面板内交互子元素上的按下不上报，按下触发器只上报一次变化，受控调用方忽略请求时保持打开。提供 `track_focus` 时，打开会把焦点移入面板，关闭且焦点仍在面板内时归还；Esc 仅在焦点位于浮层内时生效。焦点进入的是面板容器，不自动进入第一个控件；窗口边缘采用限位而非上下自动翻转。面板容器不必标记为 Tab 停靠点；若调用方标记，它会加入控件循环
+- `Badge` 的 Warning 前景在 dark 与 high-contrast 下对比不足：dark 是白字黄底，高对比度是白底白字。便签应用改用文本表达未保存状态；组件缺陷仍未修复，见[验证记录](docs/validation/notes-app-2026-11-03.md#问题与复现)
+- `Textarea` 在本版 GPUI 快照中不处理鼠标滚轮；长正文可用光标/键盘滚动，滚动条会随光标出现
+- `MenuDropdown` 把 `Menu` 组合进 `Popover`，因此菜单继承锚定定位与关闭语义。方向键、Home/End、Enter/Space 与跳过禁用行均已可用；鼠标移动时写入的当前行与键盘一致，静止指针下的布局变化不会改选；至多一行呈现当前项外观。typeahead 从当前行之后开始匹配字符前缀（600ms 重置，重复同一字符在同字母项间循环），菜单内的 Tab / Shift+Tab 经 `Dismiss` 关闭菜单。item 激活后菜单不会自动关闭，调用方必须在动作中显式关闭（便签应用每个 item 都这样做）。子菜单待完成，且本版 GPUI 未提供 accesskit 的禁用状态
 - `ProgressBar` 不定态的 reduced-motion 支持及像素基线待补
 - `Button::tooltip` 的翻转由 gpui-base overlay 提供，悬停与翻转位置尚待人工验证；通用 `tooltip(text)` 助手使用 GPUI 原生定位，不提供相同锚定保证。测试只覆盖：根是否发布 service、实体身份是否跨重绘稳定、无根时调用方拿到 `None`
 - 不支持 RTL 布局、`letter_spacing`、CSS `outline`
@@ -135,6 +147,7 @@ cargo xtask gen-icons --check
 
 ```text
 cargo run -p fluent-gallery
+cargo run -p fluent-notes
 cargo test -p fluent-gallery --features screenshot --test baselines --locked
 ```
 
