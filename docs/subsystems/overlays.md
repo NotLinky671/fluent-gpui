@@ -24,6 +24,7 @@
 2. 带 tooltip 的 Button 为触发边界建立共享 slot，在子元素 prepaint 后更新；hover 回调读取 slot。没有 service 或尚无测量值时不请求显示。
 3. hover 进入时用 `TooltipRequest::new(bounds.dilate(px(4.)), ...)` 提交内容，配置 Fluent 的 4px 间隙；定位/翻转交给 gpui-base overlay。hover 离开时请求隐藏。
 4. tooltip 分支同时维护按钮颜色所需的 hover 状态；修改这一回调时不能只保留 Tooltip 而遗漏状态更新。
+5. 「已请求显示」的标志存在 window keyed state 里，不能放在 render 局部变量中：show 之后的这次重绘会把局部标志重新初始化成 `false`，离开边沿于是看不到未完成的请求，不会发隐藏，Tooltip 就留在屏幕上。
 
 **约束与边界**：
 

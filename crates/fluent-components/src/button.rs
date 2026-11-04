@@ -216,6 +216,9 @@ impl RenderOnce for Button {
             cx,
         );
 
+        // The element id is consumed by the base button; keyed state below the
+        // tooltip wiring still needs it.
+        let element_id = self.id.clone();
         let mut el = gpui_base::Button::new(self.id)
             .disabled(is_disabled)
             .bg(background)
@@ -294,8 +297,16 @@ impl RenderOnce for Button {
             let slot_hover = tooltip_bounds.clone().unwrap();
             let bounds_for_edge = hover_bounds.read(cx).clone();
             let state_for_edge = hover_state.clone();
-            let last_requested = std::rc::Rc::new(std::cell::Cell::new(false));
-            let requested = last_requested.clone();
+            // Whether the overlay currently holds a request from this button.
+            // This has to outlive a repaint: a render-local flag starts as `false`
+            // again on the repaint that follows the show, so the leave edge would
+            // see `requested == false` and never ask for a hide — the tooltip then
+            // stays on screen after the pointer is gone.
+            let tooltip_shown = window.use_keyed_state(
+                SharedString::from(format!("button-tooltip-shown-{:?}", element_id)),
+                cx,
+                |_, _| false,
+            );
             el = el.on_hover(move |reported, window, cx| {
                 // The reported edge can be a one-frame stale-read `false` while
                 // the pointer is still on the button; only honour a `false`
@@ -315,11 +326,15 @@ impl RenderOnce for Button {
                 let Some(overlay) = crate::tooltip::overlay(cx) else {
                     return;
                 };
-                if genuine && !requested.get() {
-                    requested.set(true);
+                let shown = *tooltip_shown.read(cx);
+                if genuine && !shown {
                     let Some(bounds) = slot_hover.get() else {
                         return;
                     };
+                    tooltip_shown.update(cx, |shown, cx| {
+                        *shown = true;
+                        cx.notify();
+                    });
                     let text = text.clone();
                     overlay.update(cx, |overlay, cx| {
                         overlay.request_show(
@@ -334,8 +349,11 @@ impl RenderOnce for Button {
                             cx,
                         );
                     });
-                } else if !genuine && requested.get() {
-                    requested.set(false);
+                } else if !genuine && shown {
+                    tooltip_shown.update(cx, |shown, cx| {
+                        *shown = false;
+                        cx.notify();
+                    });
                     overlay.update(cx, |overlay, cx| overlay.request_hide(window, cx));
                 }
             });
@@ -401,3 +419,6 @@ impl RenderOnce for Button {
 
 #[cfg(test)]
 mod hover_tests;
+
+#[cfg(test)]
+mod tooltip_tests;
