@@ -95,6 +95,9 @@ pub struct Menu {
     /// The panel that hosts the menu is an *ancestor*, so a context set there
     /// would not include the menu's bindings.
     focus: Option<gpui::FocusHandle>,
+    /// Bumped by [`MenuDropdown`] each time the menu opens; a new generation
+    /// replays the reveal. Standalone menus keep generation 0 and reveal once.
+    reveal: Option<u64>,
     style: StyleRefinement,
 }
 
@@ -104,6 +107,7 @@ impl Menu {
             id: id.into(),
             entries: Vec::new(),
             focus: None,
+            reveal: None,
             style: StyleRefinement::default(),
         }
     }
@@ -131,6 +135,12 @@ impl Menu {
     /// keys to reach its handlers.
     pub fn track_focus(mut self, focus: &gpui::FocusHandle) -> Self {
         self.focus = Some(focus.clone());
+        self
+    }
+
+    /// Restarts the reveal animation when the generation changes.
+    pub(crate) fn reveal_generation(mut self, generation: u64) -> Self {
+        self.reveal = Some(generation);
         self
     }
 }
@@ -447,7 +457,56 @@ impl RenderOnce for Menu {
             })
             .collect();
 
-        container.children(children)
+        let container = container.children(children);
+
+        // Reveal: the panel appears at its final size and fades in. Measuring the
+        // Fluent docs menu shows width, edges and top staying constant while only
+        // the opacity ramps, so this is a fade and not a grow.
+        //
+        // Only a menu that a dropdown opens reveals. A menu sitting in a page is
+        // already there; fading it in on mount would flash every time its host
+        // rebuilt the tree.
+        let Some(generation) = self.reveal else {
+            return container.into_any_element();
+        };
+        if cx.reduce_motion() {
+            return container.into_any_element();
+        }
+
+        let reveal_state = window.use_keyed_state(
+            SharedString::from(format!("menu-reveal-{}", menu_id)),
+            cx,
+            |_, _| (u64::MAX, None::<std::time::Instant>),
+        );
+        let now = cx.background_executor().now();
+        let (stored_generation, stored_start) = *reveal_state.read(cx);
+        let started = match stored_start {
+            Some(start) if stored_generation == generation => start,
+            _ => {
+                reveal_state.update(cx, |state, _| {
+                    state.0 = generation;
+                    state.1 = Some(now);
+                });
+                now
+            }
+        };
+        let elapsed = now.saturating_duration_since(started).as_secs_f32();
+        let duration = fluent_core::spec::motion::DURATION_MENU_REVEAL.as_secs_f32();
+        let progress = (elapsed / duration).clamp(0.0, 1.0);
+        if progress >= 1.0 {
+            return container.into_any_element();
+        }
+        window.request_animation_frame();
+        let opacity = fluent_core::spec::motion::menu_reveal_opacity(progress);
+        // Measured from the same recording: the content also settles downward by a
+        // few pixels, so it starts slightly closer to the trigger and drops into
+        // place while the opacity ramps.
+        let rise = fluent_core::spec::motion::menu_reveal_offset(progress);
+        container
+            .relative()
+            .top(px(rise))
+            .opacity(opacity)
+            .into_any_element()
     }
 }
 
@@ -560,13 +619,25 @@ impl MenuDropdown {
 
 impl RenderOnce for MenuDropdown {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
-        let mut menu = self.menu;
+        // Each open bumps the generation so the reveal replays; the menu is
+        // unmounted while closed, so a stable generation would animate only once
+        // per window.
+        let generation = window.use_keyed_state(
+            SharedString::from(format!("menu-reveal-generation-{:?}", self.id)),
+            cx,
+            |_, _| 0_u64,
+        );
+
+        let mut menu = self.menu.reveal_generation(*generation.read(cx));
         if let Some(focus) = self.focus.as_ref() {
             menu = menu.track_focus(focus);
         }
 
         let mut popover = crate::Popover::new(self.id)
             .default_open(self.default_open)
+            // The menu IS the surface: a panel chrome around it would stack a
+            // second card and inset every row.
+            .draw_panel_surface(false)
             .content(menu);
         if let Some(trigger) = self.trigger {
             popover = popover.trigger(trigger);
@@ -577,8 +648,23 @@ impl RenderOnce for MenuDropdown {
         if let Some(focus) = self.focus.as_ref() {
             popover = popover.track_focus(focus);
         }
-        if let Some(handler) = self.on_open_change {
-            popover = popover.on_open_change(move |next, window, cx| handler(next, window, cx));
+        let bump = generation.clone();
+        match self.on_open_change {
+            Some(handler) => {
+                popover = popover.on_open_change(move |next, window, cx| {
+                    if next {
+                        bump.update(cx, |value, _| *value += 1);
+                    }
+                    handler(next, window, cx);
+                });
+            }
+            None => {
+                popover = popover.on_open_change(move |next, _, cx| {
+                    if next {
+                        bump.update(cx, |value, _| *value += 1);
+                    }
+                });
+            }
         }
 
         popover.render(window, cx)
@@ -862,3 +948,9 @@ mod input_mode_tests;
 
 #[cfg(test)]
 mod typeahead_tests;
+
+#[cfg(test)]
+mod surface_tests;
+
+#[cfg(test)]
+mod reveal_tests;

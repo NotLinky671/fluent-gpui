@@ -148,6 +148,8 @@ pub struct Popover {
     id: ElementId,
     trigger: Option<AnyElement>,
     content: Option<AnyElement>,
+    /// Whether `Popover` draws the panel surface, or the content brings its own.
+    draw_surface: bool,
     open: Option<bool>,
     default_open: bool,
     on_open_change: Option<OpenChangeHandler>,
@@ -161,6 +163,7 @@ impl Popover {
             id: id.into(),
             trigger: None,
             content: None,
+            draw_surface: true,
             open: None,
             default_open: false,
             on_open_change: None,
@@ -178,6 +181,16 @@ impl Popover {
     /// The floating panel's body.
     pub fn content(mut self, content: impl IntoElement) -> Self {
         self.content = Some(content.into_any_element());
+        self
+    }
+
+    /// Whether `Popover` draws the panel surface behind the content.
+    ///
+    /// Panels that bring their own surface ([`Menu`](crate::Menu) does) must turn
+    /// this off: otherwise the panel padding, radius, background and shadow stack
+    /// a second card around the content and inset its rows.
+    pub fn draw_panel_surface(mut self, draw: bool) -> Self {
+        self.draw_surface = draw;
         self
     }
 
@@ -222,6 +235,7 @@ impl RenderOnce for Popover {
         let theme = FluentTheme::global(cx);
         let surface = feedback::tooltip(&theme);
         let shadow = surface.shadow.to_vec();
+        let draw_surface = self.draw_surface;
 
         let store = window.use_keyed_state(
             SharedString::from(format!("popover-open-{:?}", self.id)),
@@ -325,14 +339,16 @@ impl RenderOnce for Popover {
         div()
             .child(anchor)
             .when(is_open, |el| {
-                let mut panel = div()
-                    .min_w(px(160.))
-                    .whitespace_nowrap()
-                    .rounded(px(4.))
-                    .bg(surface.background)
-                    .text_color(surface.foreground)
-                    .p(px(12.))
-                    .shadow(shadow);
+                let mut panel = div().whitespace_nowrap();
+                if draw_surface {
+                    panel = panel
+                        .min_w(px(160.))
+                        .rounded(px(4.))
+                        .bg(surface.background)
+                        .text_color(surface.foreground)
+                        .p(px(12.))
+                        .shadow(shadow);
+                }
                 // Blocking here is what makes "clicks inside the panel keep it
                 // open" true rather than merely intended by paint order.
                 panel = panel.occlude().key_context(crate::OVERLAY_KEY_CONTEXT);

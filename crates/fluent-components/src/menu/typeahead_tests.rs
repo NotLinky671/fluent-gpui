@@ -223,6 +223,11 @@ fn open_dropdown(cx: &mut TestAppContext) -> (AnyWindowHandle, Changes) {
     // The popover moves focus into the panel on open; focusing again is harmless
     // and makes the precondition explicit.
     focus_and_settle(cx, any, &focus);
+    // Settle the open reveal: these tests assert steady state, not the animation.
+    cx.executor()
+        .advance_clock(std::time::Duration::from_millis(200));
+    cx.run_until_parked();
+    settle(cx, any);
     (any, changes)
 }
 

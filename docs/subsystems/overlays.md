@@ -75,6 +75,7 @@ deferred positioner prepaint：读取同一共享值，结合面板尺寸和视�
 - **绘制在上方不等于鼠标命中遮挡。** 面板容器调用 `InteractiveElement::occlude`（`HitboxBehavior::BlockMouse`）阻断其下命中，因此面板上的点击不会落到下方控件。行为测试用一块垫底元素验证了这一点：移除 `occlude` 后“面板内点击不穿透”的两条测试会失败。
 - `Escape` 通过 `fluent_components::Dismiss` 关闭：`fluent_ui::init` 把它绑定到 `escape` 并限定在 `OVERLAY_KEY_CONTEXT`，Popover 在触发器包装层与面板上都设置该 context 并挂 `on_action`。**只有焦点位于浮层内时才会触发**，所以调用方必须通过 `track_focus` 提供焦点句柄。焦点进入/归还与约束仍未实现。
 - 关闭行为已有测试覆盖：外部按下上报 `false`；面板本体、面板内交互子元素上的按下不上报且不穿透；按下触发器只上报一次变化（触发器自身的切换与“点击外部”不会重复上报）；受控调用方忽略请求时保持打开。
+- **表面归属**：`Popover` 默认给面板画卡片（内边距 12、圆角、背景、阴影）。内容自带表面时必须用 `draw_panel_surface(false)` 关掉，否则会叠出第二张卡片并把内容内缩一层——`Menu` 就是自带表面的例子，`MenuDropdown` 已经这样接线。打开动画由 `Menu` 自己做：下拉打开时把「代号」加一，菜单按 `now - opened_at` 在 350ms 内把**不透明度**从 0 抬到 1（四分 ease-out），同时整体向下归位约 4px（帧间互相关测得，30fps 录屏，精度 ±1–2px），所以观感是从按钮底部往下落定；独立摆在页面里的菜单不播这个动画。
 - 当前没有完整焦点进入/归还/约束或嵌套多浮层协调机制。Menu 也没有补全这些能力，见[菜单实现](../../crates/fluent-components/src/menu.rs)。
 
 ## Dialog / AlertDialog：模态卡片

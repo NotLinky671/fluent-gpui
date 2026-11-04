@@ -205,3 +205,64 @@ mod tests {
         assert!(DURATION_FASTER < DURATION_NORMAL && DURATION_NORMAL < DURATION_SLOW);
     }
 }
+
+/// Opacity for a menu surface appearing.
+///
+/// Measured from a recording of the Fluent docs menu: the panel appears at its
+/// final size and position and only its opacity changes, reaching ~0.76 of the
+/// way in the first 100 ms of a roughly 350 ms ramp and then trailing off. A
+/// quartic ease-out reproduces those samples within a few percent.
+pub fn menu_reveal_opacity(progress: f32) -> f32 {
+    let progress = progress.clamp(0.0, 1.0);
+    1.0 - (1.0 - progress).powi(4)
+}
+
+/// How long the menu surface takes to fade in.
+pub const DURATION_MENU_REVEAL: Duration = Duration::from_millis(350);
+
+#[test]
+fn the_menu_reveal_matches_the_recorded_fade() {
+    // Samples taken from a recording of the Fluent docs menu: opacity against
+    // elapsed time over a 350 ms ramp.
+    let recorded = [
+        (0.000_f32, 0.000_f32),
+        (0.094, 0.338),
+        (0.286, 0.758),
+        (0.571, 0.928),
+        (1.000, 1.000),
+    ];
+    for (progress, expected) in recorded {
+        let actual = menu_reveal_opacity(progress);
+        assert!(
+            (actual - expected).abs() < 0.05,
+            "at progress {progress} expected about {expected}, got {actual}"
+        );
+    }
+    assert_eq!(menu_reveal_opacity(0.0), 0.0);
+    assert_eq!(menu_reveal_opacity(1.0), 1.0);
+}
+
+#[test]
+fn the_menu_reveal_only_rises() {
+    let mut previous = menu_reveal_opacity(0.0);
+    for step in 1..=20 {
+        let value = menu_reveal_opacity(step as f32 / 20.0);
+        assert!(value >= previous, "opacity dipped at step {step}");
+        previous = value;
+    }
+}
+
+/// Vertical offset of a menu surface while it fades in.
+///
+/// Frame differencing of the Fluent docs recording puts the menu about 4 px
+/// higher early in the fade and back at its resting place by the end, so the
+/// surface settles downward rather than appearing in place. The recording runs at
+/// 30 fps, so the magnitude is only known to a couple of pixels.
+///
+/// Runs on the same curve as [`menu_reveal_opacity`] so the surface reaches its
+/// resting place and full opacity at the same moment. Driving the offset linearly
+/// over the same duration read as "fade in first, then slide", because the quartic
+/// opacity is nearly finished while a linear offset is still halfway.
+pub fn menu_reveal_offset(progress: f32) -> f32 {
+    -4.0 * (1.0 - menu_reveal_opacity(progress))
+}
