@@ -323,7 +323,7 @@ impl RenderOnce for Button {
                         cx.notify();
                     }
                 });
-                let Some(overlay) = crate::tooltip::overlay(cx) else {
+                let Some(overlay) = crate::tooltip::overlay(window, cx) else {
                     return;
                 };
                 let shown = *tooltip_shown.read(cx);

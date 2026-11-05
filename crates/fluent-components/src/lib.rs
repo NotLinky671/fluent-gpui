@@ -87,4 +87,3 @@ pub use sheet::{Sheet, SheetOpenChange};
 pub use switch::Switch;
 pub use tabs::{TabItem, TabList};
 pub use textarea::Textarea;
-pub use tooltip::TooltipService;
