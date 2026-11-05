@@ -78,7 +78,7 @@ cargo test -p fluent-components --lib hover_tests --locked
 
 先读[浮层专题](overlays.md)，区分 Button 的根级 Tooltip overlay、通用原生 tooltip 助手及自研 Popover。不要因为名称相似就假设它们共用定位、事件或焦点机制。
 Dialog 与 Sheet 都复用 gpui-base 的模态宿主与焦点陷阱，但前者在自己的 deferred 卡片里渲染，后者由宿主做边缘锚定并用 `Presence` 驱动滑动；两者的关闭与焦点归还时机不同。
-菜单面板的视觉与点击实现见 [Menu](../../crates/fluent-components/src/menu.rs)；它不等于完整菜单触发、键盘导航或嵌套浮层协议。
+菜单面板的视觉与点击实现见 [Menu](../../crates/fluent-components/src/menu.rs)；嵌套菜单的数据、状态与事件协议见 [menus.md](menus.md)。
 
 ## 焦点
 

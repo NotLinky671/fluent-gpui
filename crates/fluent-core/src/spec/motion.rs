@@ -58,6 +58,13 @@ pub fn reveal_policy() -> Transition {
 }
 
 /// A focus indicator retracting: Fluent uses the faster duration here.
+/// How long the pointer must rest on a submenu row before it opens.
+///
+/// Fluent opens submenus on a short hover delay so that sweeping the pointer
+/// across a menu does not flash every branch on the way. The value is a
+/// documented default rather than a measured one: no official capture of the
+/// delay was available.
+pub const DURATION_MENU_HOVER_OPEN: std::time::Duration = std::time::Duration::from_millis(300);
 pub fn hide_policy() -> Transition {
     Transition::new(DURATION_ULTRA_FAST).easing(curve_accelerate())
 }

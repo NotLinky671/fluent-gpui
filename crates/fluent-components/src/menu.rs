@@ -31,11 +31,15 @@ use fluent_core::spec::feedback;
 use fluent_core::spec::menu::{self, MenuItemProps};
 use fluent_icons::FluentIcon;
 use fluent_theme::FluentTheme;
-use gpui::Role;
 use gpui::prelude::FluentBuilder as _;
+use gpui::{Bounds, Pixels, Role};
 
 /// What a menu item does when chosen, by pointer or by keyboard.
 pub type MenuHandler = std::rc::Rc<dyn Fn(&mut Window, &mut App) + 'static>;
+
+/// Reports that the pointer is over `ElementId`, so its level can make that row
+/// current.
+type RowHover = std::rc::Rc<dyn Fn(&mut App, ElementId)>;
 
 /// Reports a mouse-move event over a row, so the menu can make it current.
 type PointerHandler = std::rc::Rc<dyn Fn(&mut App)>;
@@ -49,6 +53,9 @@ type PointerHandler = std::rc::Rc<dyn Fn(&mut App)>;
 struct Typeahead {
     prefix: String,
     at: Option<std::time::Instant>,
+    /// Level the prefix belongs to. Typing is per level: a prefix started on the
+    /// root must not keep matching after the keyboard moves into a submenu.
+    depth: usize,
 }
 
 const TYPEAHEAD_RESET: std::time::Duration = std::time::Duration::from_millis(600);
@@ -62,6 +69,202 @@ const TYPEAHEAD_RESET: std::time::Duration = std::time::Duration::from_millis(60
 struct CurrentRow {
     id: ElementId,
     from_pointer: bool,
+}
+
+/// One open submenu level: the row that opened it, and that level's current row.
+#[derive(Clone, PartialEq)]
+struct OpenLevel {
+    parent: ElementId,
+    active: Option<ElementId>,
+}
+
+/// Navigation state for a menu tree.
+///
+/// The path is stored by row identity, not by position: the caller may insert,
+/// remove or disable rows and a saved index would start pointing at a different
+/// action. Invalid segments are dropped by `normalize` before use.
+/// A submenu the pointer asked for, waiting out the hover delay.
+#[derive(Clone, PartialEq)]
+struct PendingOpen {
+    row: ElementId,
+    deadline: std::time::Instant,
+}
+
+#[derive(Clone, Default, PartialEq)]
+struct MenuState {
+    root: Option<CurrentRow>,
+    open: Vec<OpenLevel>,
+    /// Set while the pointer rests on a submenu row; replaced or cleared by
+    /// any other hover, so a stale deadline can never open an old branch.
+    pending: Option<PendingOpen>,
+}
+
+/// Painted bounds of the panel and of the row that opens its submenu.
+#[derive(Default)]
+struct Anchor {
+    panel: Option<Bounds<Pixels>>,
+    row: Option<Bounds<Pixels>>,
+    /// Size of the submenu panel from the previous frame, used to decide whether
+    /// it fits on the right and how far it may slide vertically.
+    submenu_size: Option<(Pixels, Pixels)>,
+}
+
+/// Drops path segments whose parent row is gone, disabled, or has no submenu.
+///
+/// A stored path is a set of identities, so inserting or removing unrelated rows
+/// keeps it valid. Anything that does invalidate a segment truncates from there:
+/// keeping the deeper levels would attach them to a row the user never opened.
+fn normalize_state(state: &mut MenuState, entries: &[Entry]) {
+    if let Some(row) = &state.root {
+        let exists = entries
+            .iter()
+            .any(|entry| matches!(entry, Entry::Item(item) if item.id == row.id && !item.disabled));
+        if !exists {
+            state.root = None;
+        }
+    }
+    let mut current = entries;
+    let mut depth = 0;
+    while depth < state.open.len() {
+        let parent = state.open[depth].parent.clone();
+        let child = current.iter().find_map(|entry| match entry {
+            Entry::Item(item) if item.id == parent && !item.disabled => item.submenu.as_deref(),
+            _ => None,
+        });
+        let Some(child) = child else {
+            state.open.truncate(depth);
+            break;
+        };
+        if let Some(active) = state.open[depth].active.clone() {
+            let still_there = child.entries.iter().any(
+                |entry| matches!(entry, Entry::Item(item) if item.id == active && !item.disabled),
+            );
+            if !still_there {
+                state.open[depth].active = None;
+            }
+        }
+        current = &child.entries;
+        depth += 1;
+    }
+}
+
+/// The rows of the level the keyboard is currently on.
+fn level_entries<'a>(entries: &'a [Entry], open: &[OpenLevel]) -> &'a [Entry] {
+    let mut current = entries;
+    for level in open {
+        let Some(child) = current.iter().find_map(|entry| match entry {
+            Entry::Item(item) if item.id == level.parent => item.submenu.as_deref(),
+            _ => None,
+        }) else {
+            return current;
+        };
+        current = &child.entries;
+    }
+    current
+}
+
+/// Rows the arrow keys can land on, in render order.
+fn selectable_ids(entries: &[Entry]) -> Vec<ElementId> {
+    entries
+        .iter()
+        .filter(|entry| entry.is_selectable())
+        .filter_map(|entry| match entry {
+            Entry::Item(item) => Some(item.id.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Where a submenu panel goes, relative to the menu panel that owns it.
+///
+/// The submenu sits flush against the right edge of the row that opened it and
+/// level with that row's top, which is what Fluent does for a right-opening
+/// submenu. Kept as a pure function so the arithmetic is testable without a
+/// window: the renderer only feeds it measured bounds.
+fn submenu_offset(row: Bounds<Pixels>, panel: Bounds<Pixels>) -> (Pixels, Pixels) {
+    (
+        row.origin.x - panel.origin.x + row.size.width,
+        row.origin.y - panel.origin.y,
+    )
+}
+/// Where the submenu actually goes: right of the row unless that would leave the
+/// window, then flipped to the row's left edge, and clamped vertically so it
+/// stays inside the viewport.
+///
+/// The size comes from the previous frame, because a panel cannot know its own
+/// measured size before it is laid out. A zero size means it has not been
+/// measured yet, in which case the unflipped position is used.
+fn submenu_placement(
+    row: Bounds<Pixels>,
+    panel: Bounds<Pixels>,
+    submenu: (Pixels, Pixels),
+    viewport: (Pixels, Pixels),
+) -> (Pixels, Pixels) {
+    let (base_left, base_top) = submenu_offset(row, panel);
+    let (width, height) = submenu;
+    let right_edge = panel.origin.x + base_left + width;
+    let left = if width > px(0.) && right_edge > viewport.0 {
+        row.origin.x - panel.origin.x - width
+    } else {
+        base_left
+    };
+    let top = if height > px(0.) {
+        let wanted = panel.origin.y + base_top;
+        let max_top = (viewport.1 - height).max(px(0.));
+        wanted.clamp(px(0.), max_top) - panel.origin.y
+    } else {
+        base_top
+    };
+    (left, top)
+}
+/// Renders a submenu panel: the same chrome and rows, without its own key
+/// context, actions or reveal. The parent menu drives it.
+fn render_submenu(
+    menu: Menu,
+    id: ElementId,
+    active: Option<ElementId>,
+    theme: &FluentTheme,
+    shadow: Vec<gpui::BoxShadow>,
+    hover: Option<RowHover>,
+) -> AnyElement {
+    let surface = menu::surface(theme);
+    let mut container = div()
+        .id(id)
+        .flex()
+        .flex_col()
+        .gap(px(2.))
+        .p(surface.padding)
+        .min_w(surface.min_width)
+        .rounded(surface.radius)
+        .bg(surface.background)
+        .text_color(surface.foreground)
+        .shadow(shadow)
+        .role(Role::Menu);
+
+    for entry in menu.entries {
+        container = match entry {
+            Entry::Item(item) => {
+                let is_active = active.as_ref() == Some(&item.id);
+                // Rows inside the panel write the same tree state the keyboard
+                // does, so the highlighted row and Enter agree at every level.
+                let pointer: Option<PointerHandler> = match (&hover, item.disabled) {
+                    (Some(report), false) => {
+                        let report = report.clone();
+                        let row = item.id.clone();
+                        Some(std::rc::Rc::new(move |cx: &mut App| {
+                            report(cx, row.clone())
+                        }))
+                    }
+                    _ => None,
+                };
+                container.child((*item).active(is_active).pointer_activate(pointer))
+            }
+            Entry::Separator => container.child(MenuSeparator),
+            Entry::Header(header) => container.child(header),
+            Entry::Custom(element) => container.child(element),
+        };
+    }
+    container.into_any_element()
 }
 
 /// One row of a menu.
@@ -168,106 +371,216 @@ impl RenderOnce for Menu {
         let theme = FluentTheme::global(cx);
         let surface = menu::surface(&theme);
         let shadow = feedback::tooltip(&theme).shadow.to_vec();
-        // Captured before the id is moved into the container element: non-selectable
-        // rows need ids of their own, unique within this menu.
         let menu_id = SharedString::from(format!("{:?}", self.id));
 
-        // Rows the arrow keys can land on, in render order, paired with the entry
-        // they came from. Identity is the row's ElementId, not this position: the
-        // caller may insert, remove or disable rows above the current one, and a
-        // saved position would silently start pointing at a different action.
-        let selectable: Vec<(usize, ElementId)> = self
-            .entries
-            .iter()
-            .enumerate()
-            .filter(|(_, entry)| entry.is_selectable())
-            .map(|(index, entry)| {
-                let id = match entry {
-                    Entry::Item(item) => item.id.clone(),
-                    // `is_selectable` only returns true for items.
-                    _ => unreachable!("only items are selectable"),
-                };
-                (index, id)
-            })
-            .collect();
+        // Whole-tree navigation state: the root row plus the open submenu path.
+        // Stored by row identity, so inserting or removing rows keeps it valid.
+        let tree = window.use_keyed_state(
+            SharedString::from(format!("menu-tree-{}", menu_id)),
+            cx,
+            |_, _| MenuState::default(),
+        );
+        let mut snapshot = tree.read(cx).clone();
+        normalize_state(&mut snapshot, &self.entries);
 
-        // Labels in the same order as `selectable`, for typed-prefix matching.
-        let labels: Vec<SharedString> = selectable
-            .iter()
-            .map(|(entry, _)| match &self.entries[*entry] {
-                Entry::Item(item) => item.label.clone(),
-                _ => unreachable!("only items are selectable"),
-            })
-            .collect();
-
-        // Handlers are cloned out before the entries are consumed by rendering.
-        let handlers: Vec<Option<MenuHandler>> = self
-            .entries
-            .iter()
-            .map(|entry| match entry {
-                Entry::Item(item) => item.on_select.clone(),
+        // A hover that has waited out the delay opens its submenu now. This runs
+        // during render rather than in a timer: the deadline lives in state, and
+        // any other hover replaces or clears it, so a late deadline cannot open a
+        // branch the pointer has already left.
+        if let Some(pending) = snapshot.pending.clone() {
+            let now = cx.background_executor().now();
+            if now >= pending.deadline {
+                let first = snapshot
+                    .open
+                    .last()
+                    .map(|open| level_entries(&self.entries, std::slice::from_ref(open)))
+                    .unwrap_or(&self.entries)
+                    .iter()
+                    .find_map(|entry| match entry {
+                        Entry::Item(item) if item.id == pending.row => item
+                            .submenu
+                            .as_deref()
+                            .and_then(|child| selectable_ids(&child.entries).into_iter().next()),
+                        _ => None,
+                    });
+                let row = pending.row.clone();
+                tree.update(cx, |state, cx| {
+                    state.pending = None;
+                    if state.open.last().map(|open| &open.parent) != Some(&row) {
+                        state.open.push(OpenLevel {
+                            parent: row,
+                            active: first,
+                        });
+                    }
+                    cx.notify();
+                });
+                snapshot = tree.read(cx).clone();
+                normalize_state(&mut snapshot, &self.entries);
+            } else {
+                window.request_animation_frame();
+            }
+        }
+        // The level the keyboard is on: the deepest open submenu, else the root.
+        let level = level_entries(&self.entries, &snapshot.open);
+        let selectable = selectable_ids(level);
+        let count = selectable.len();
+        let find_item = |id: &ElementId| -> Option<&MenuItem> {
+            level.iter().find_map(|entry| match entry {
+                Entry::Item(item) if &item.id == id => Some(item.as_ref()),
                 _ => None,
             })
+        };
+        let labels: Vec<SharedString> = selectable
+            .iter()
+            .map(|id| {
+                find_item(id)
+                    .map(|item| item.label.clone())
+                    .unwrap_or_default()
+            })
+            .collect();
+        let handlers: Vec<Option<MenuHandler>> = selectable
+            .iter()
+            .map(|id| find_item(id).and_then(|item| item.on_select.clone()))
+            .collect();
+        let opens: Vec<bool> = selectable
+            .iter()
+            .map(|id| find_item(id).is_some_and(|item| item.submenu.is_some()))
+            .collect();
+        // Where a submenu lands when it opens: its first selectable row.
+        let targets: Vec<Option<ElementId>> = selectable
+            .iter()
+            .map(|id| {
+                find_item(id)
+                    .and_then(|item| item.submenu.as_deref())
+                    .and_then(|child| selectable_ids(&child.entries).into_iter().next())
+            })
             .collect();
 
-        // The current row is stored by identity, so it survives rows being
-        // inserted, removed or disabled above it.
-        let active_state = window.use_keyed_state(
-            SharedString::from(format!("menu-active-{:?}", self.id)),
-            cx,
-            |_, _| None::<CurrentRow>,
-        );
-        let count = selectable.len();
-
-        // A stored row that is gone, or that has since been disabled, resolves to
-        // nothing. Activating whatever slid into its position would run an action
-        // the user never selected, so an unresolved current row simply has no
-        // target until the next navigation key picks one.
-        let resolve = {
-            let active_state = active_state.clone();
-            let selectable = selectable.clone();
-            move |cx: &App| -> Option<usize> {
-                let stored = active_state.read(cx).clone();
-                stored.and_then(|current| {
-                    selectable
-                        .iter()
-                        .position(|(_, candidate)| candidate == &current.id)
-                })
-            }
-        };
-        let active: Option<ElementId> =
-            resolve(cx).and_then(|position| selectable.get(position).map(|(_, id)| id.clone()));
-
         let set_active = {
-            let active_state = active_state.clone();
+            let tree = tree.clone();
             move |cx: &mut App, next: Option<ElementId>, from_pointer: bool| {
-                let next = next.map(|id| CurrentRow { id, from_pointer });
-                active_state.update(cx, |active, cx| {
-                    if *active != next {
-                        *active = next;
+                tree.update(cx, |state, cx| {
+                    let changed = match state.open.last_mut() {
+                        Some(open) => {
+                            if open.active == next {
+                                false
+                            } else {
+                                open.active = next;
+                                true
+                            }
+                        }
+                        None => {
+                            let next = next.map(|id| CurrentRow { id, from_pointer });
+                            if state.root == next {
+                                false
+                            } else {
+                                state.root = next;
+                                true
+                            }
+                        }
+                    };
+                    if changed {
                         cx.notify();
                     }
                 });
             }
         };
 
+        // Pointer hover: make the row current, and either schedule its submenu
+        // or close the deeper levels when the pointer moves to a sibling row.
+        // Moving into the submenu panel is not a hover on a sibling, so it does
+        // not close anything.
+        let pointer_hover = {
+            let tree = tree.clone();
+            let set_active = set_active.clone();
+            move |cx: &mut App, id: ElementId, opens: bool| {
+                set_active(cx, Some(id.clone()), true);
+                let now = cx.background_executor().now();
+                tree.update(cx, |state, cx| {
+                    let mut changed = false;
+                    let already_pending =
+                        state.pending.as_ref().map(|pending| &pending.row) == Some(&id);
+                    if !already_pending && state.pending.take().is_some() {
+                        changed = true;
+                    }
+                    if opens {
+                        let already_open = state.open.last().map(|open| &open.parent) == Some(&id);
+                        if !already_open && !already_pending {
+                            state.pending = Some(PendingOpen {
+                                row: id.clone(),
+                                deadline: now + fluent_core::spec::motion::DURATION_MENU_HOVER_OPEN,
+                            });
+                            changed = true;
+                        }
+                    } else if !state.open.is_empty() {
+                        state.open.clear();
+                        changed = true;
+                    }
+                    if changed {
+                        cx.notify();
+                    }
+                });
+            }
+        };
         // Leaving the menu clears a pointer-selected row. It must not clear a
         // keyboard-selected one: the pointer would otherwise wipe out the key the
         // user just pressed by drifting across and off the panel.
         let clear_pointer_row: std::rc::Rc<dyn Fn(&mut App)> = {
-            let active_state = active_state.clone();
+            let tree = tree.clone();
             std::rc::Rc::new(move |cx: &mut App| {
-                active_state.update(cx, |active, cx| {
-                    if active.as_ref().is_some_and(|row| row.from_pointer) {
-                        *active = None;
+                tree.update(cx, |state, cx| {
+                    let changed = match state.open.last_mut() {
+                        Some(open) => open.active.take().is_some(),
+                        None => match &state.root {
+                            Some(row) if row.from_pointer => {
+                                state.root = None;
+                                true
+                            }
+                            _ => false,
+                        },
+                    };
+                    if changed {
                         cx.notify();
                     }
                 });
             })
         };
 
+        let open_submenu = {
+            let tree = tree.clone();
+            move |cx: &mut App, row: ElementId, first: Option<ElementId>| {
+                tree.update(cx, |state, cx| {
+                    if state.open.last().map(|open| &open.parent) == Some(&row) {
+                        return;
+                    }
+                    state.open.push(OpenLevel {
+                        parent: row,
+                        active: first,
+                    });
+                    cx.notify();
+                });
+            }
+        };
+
+        let close_level = {
+            let tree = tree.clone();
+            move |cx: &mut App| {
+                tree.update(cx, |state, cx| {
+                    if state.open.pop().is_some() {
+                        cx.notify();
+                    }
+                });
+            }
+        };
+
+        let any_level_open = {
+            let tree = tree.clone();
+            move |cx: &App| !tree.read(cx).open.is_empty()
+        };
+
         let mut container = div()
             .id(self.id)
+            .relative()
             .flex()
             .flex_col()
             .gap(px(2.))
@@ -276,7 +589,7 @@ impl RenderOnce for Menu {
             .rounded(surface.radius)
             .bg(surface.background)
             .text_color(surface.foreground)
-            .shadow(shadow)
+            .shadow(shadow.clone())
             .key_context(crate::MENU_KEY_CONTEXT)
             .role(Role::Menu)
             .when_some(self.focus.clone(), |el, focus| el.track_focus(&focus))
@@ -295,11 +608,23 @@ impl RenderOnce for Menu {
                 let set_active = set_active.clone();
                 let selectable = selectable.clone();
                 move |cx: &mut App, position: usize| {
-                    if let Some((_, id)) = selectable.get(position) {
+                    if let Some(id) = selectable.get(position) {
                         // Navigation is keyboard input, so the pointer no longer
                         // owns the current row.
                         set_active(cx, Some(id.clone()), false);
                     }
+                }
+            };
+            let resolve = {
+                let tree = tree.clone();
+                let selectable = selectable.clone();
+                move |cx: &App| -> Option<usize> {
+                    let state = tree.read(cx);
+                    let active = match state.open.last() {
+                        None => state.root.as_ref().map(|row| row.id.clone()),
+                        Some(open) => open.active.clone(),
+                    };
+                    active.and_then(|id| selectable.iter().position(|candidate| candidate == &id))
                 }
             };
 
@@ -333,47 +658,67 @@ impl RenderOnce for Menu {
             container =
                 container.on_action(move |_: &crate::MenuLast, _, cx| go_to_last(cx, count - 1));
 
+            // Enter, Space and Right all open a submenu; only Enter runs a plain
+            // row. Opening is decided by the row, not by the key.
+            let open_current = {
+                let resolve = resolve.clone();
+                let open_submenu = open_submenu.clone();
+                let selectable = selectable.clone();
+                let targets = targets.clone();
+                move |cx: &mut App| {
+                    if let Some(position) = resolve(cx)
+                        && let Some(id) = selectable.get(position)
+                    {
+                        open_submenu(cx, id.clone(), targets[position].clone());
+                    }
+                }
+            };
+
+            let open_for_activate = open_current.clone();
             let resolve_activate = resolve.clone();
             let handlers = handlers.clone();
-            let selectable = selectable.clone();
+            let opens = opens.clone();
             container = container.on_action(move |_: &crate::MenuActivate, window, cx| {
                 let Some(position) = resolve_activate(cx) else {
                     return;
                 };
-                let Some((entry, _)) = selectable.get(position) else {
+                if opens[position] {
+                    open_for_activate(cx);
                     return;
-                };
-                if let Some(Some(handler)) = handlers.get(*entry) {
+                }
+                if let Some(Some(handler)) = handlers.get(position) {
                     handler(window, cx);
                 }
             });
-        }
 
-        // Tab leaves the menu, so it closes. The binding is scoped to the menu
-        // context, which shadows root traversal for this subtree.
-        container = container.on_action(|_: &crate::MenuTabOut, window, cx| {
-            window.dispatch_action(Box::new(crate::Dismiss), cx);
-        });
+            let open_for_right = open_current.clone();
+            container =
+                container.on_action(move |_: &crate::MenuSubmenuOpen, _, cx| open_for_right(cx));
 
-        // Typed-prefix jump. Runs as a key listener rather than a binding because
-        // the keys are arbitrary characters; `Enter`, `Tab` and the arrows resolve
-        // to actions and never reach here as single characters.
-        if count > 0 {
             let typeahead = window.use_keyed_state(
                 SharedString::from(format!("menu-typeahead-{}", menu_id)),
                 cx,
                 |_, _| Typeahead::default(),
             );
+            let tree_for_depth = tree.clone();
             let labels = labels.clone();
-            let selectable = selectable.clone();
-            let set_active = set_active.clone();
-            let resolve = resolve.clone();
+            let selectable_typing = selectable.clone();
+            let set_active_typing = set_active.clone();
+            let resolve_typing = resolve.clone();
             container = container.on_key_down(move |event, _, cx| {
                 let Some(character) = typed_character(&event.keystroke) else {
                     return;
                 };
                 let now = std::time::Instant::now();
+                let depth = tree_for_depth.read(cx).open.len();
                 let prefix = typeahead.update(cx, |state, _| {
+                    // Typing is per level: a prefix started elsewhere must not
+                    // keep matching after the keyboard changes level.
+                    if state.depth != depth {
+                        state.prefix.clear();
+                        state.at = None;
+                        state.depth = depth;
+                    }
                     let expired = state
                         .at
                         .is_none_or(|at| now.duration_since(at) > TYPEAHEAD_RESET);
@@ -391,7 +736,7 @@ impl RenderOnce for Menu {
 
                 // Search from the row after the current one, wrapping, so repeated
                 // characters advance instead of staying on the first match.
-                let start = resolve(cx).map_or(0, |position| position + 1);
+                let start = resolve_typing(cx).map_or(0, |position| position + 1);
                 let mut target = None;
                 for offset in 0..count {
                     let position = (start + offset) % count;
@@ -401,39 +746,89 @@ impl RenderOnce for Menu {
                     }
                 }
                 if let Some(position) = target
-                    && let Some((_, id)) = selectable.get(position)
+                    && let Some(id) = selectable_typing.get(position)
                 {
-                    set_active(cx, Some(id.clone()), false);
+                    set_active_typing(cx, Some(id.clone()), false);
                 }
             });
         }
 
-        // Render rows, telling each item whether it is the current one. Inside a
-        // menu the pointer writes the same state the keyboard does, so only one
-        // row can ever look current and Enter always agrees with it.
+        let close_for_left = close_level.clone();
+        container =
+            container.on_action(move |_: &crate::MenuSubmenuClose, _, cx| close_for_left(cx));
+
+        // Escape closes one level; at the root it closes the whole menu. Tab is
+        // separate: it closes the entire chain whatever level it is pressed on.
+        let close_for_escape = close_level.clone();
+        let any_level_open_for_escape = any_level_open.clone();
+        container = container.on_action(move |_: &crate::MenuEscape, window, cx| {
+            if any_level_open_for_escape(cx) {
+                close_for_escape(cx);
+            } else {
+                window.dispatch_action(Box::new(crate::Dismiss), cx);
+            }
+        });
+
+        container = container.on_action(|_: &crate::MenuTabOut, window, cx| {
+            window.dispatch_action(Box::new(crate::Dismiss), cx);
+        });
+
+        // Rows of the root level. The row that opened a submenu hands its content
+        // over: the panel is rendered once its painted bounds are known.
+        let root_active = snapshot.root.as_ref().map(|row| row.id.clone());
+        let anchor_row = snapshot.open.first().map(|open| open.parent.clone());
+        let anchor_state = window.use_keyed_state(
+            SharedString::from(format!("menu-anchor-{}", menu_id)),
+            cx,
+            |_, _| std::rc::Rc::new(std::cell::RefCell::new(Anchor::default())),
+        );
+        let anchor = anchor_state.read(cx).clone();
+        let mut open_child: Option<Box<Menu>> = None;
+
         let children: Vec<AnyElement> = self
             .entries
             .into_iter()
             .enumerate()
             .map(|(index, entry)| match entry {
                 Entry::Item(item) => {
+                    let mut item = *item;
                     let id = item.id.clone();
-                    let is_active = active.as_ref() == Some(&id);
+                    let is_active = root_active.as_ref() == Some(&id);
+                    let is_anchor = anchor_row.as_ref() == Some(&id);
+                    if is_anchor {
+                        let child = item.submenu.take();
+                        item = item.submenu_marker(true);
+                        open_child = child;
+                    }
+                    let opens_submenu = item.submenu.is_some() || item.submenu_marker;
                     let hover: Option<PointerHandler> = if item.disabled {
                         // Not selectable, but still a place the pointer can be. Report
                         // "clear", so the row the pointer selected a moment ago stops
                         // looking current instead of lingering.
                         Some(clear_pointer_row.clone())
                     } else {
-                        let set_active = set_active.clone();
+                        let pointer_hover = pointer_hover.clone();
                         Some(std::rc::Rc::new(move |cx: &mut App| {
-                            set_active(cx, Some(id.clone()), true)
+                            pointer_hover(cx, id.clone(), opens_submenu)
                         }) as PointerHandler)
                     };
-                    (*item)
+                    let element = item
                         .active(is_active)
                         .pointer_activate(hover)
-                        .into_any_element()
+                        .into_any_element();
+                    if is_anchor {
+                        let slot = anchor.clone();
+                        div()
+                            .on_children_prepainted(move |children, _, _| {
+                                if let Some(bounds) = children.first() {
+                                    slot.borrow_mut().row = Some(*bounds);
+                                }
+                            })
+                            .child(element)
+                            .into_any_element()
+                    } else {
+                        element
+                    }
                 }
                 // Rows that cannot be chosen still have to report the pointer:
                 // otherwise moving onto a header or a separator leaves the last
@@ -457,7 +852,68 @@ impl RenderOnce for Menu {
             })
             .collect();
 
-        let container = container.children(children);
+        let mut container = container.children(children);
+
+        // The submenu panel hangs off the row that opened it. Its bounds come from
+        // the previous frame: on the first frame there is nothing to anchor to, so
+        // it is not painted rather than flashing at the panel origin.
+        if let Some(child) = open_child {
+            let (row_bounds, panel_bounds) = {
+                let anchor = anchor.borrow();
+                (anchor.row, anchor.panel)
+            };
+            if let (Some(row_bounds), Some(panel_bounds)) = (row_bounds, panel_bounds) {
+                let (submenu_width, submenu_height) = {
+                    let anchor = anchor.borrow();
+                    anchor.submenu_size.unwrap_or((px(0.), px(0.)))
+                };
+                let viewport = window.viewport_size();
+                let (left, top) = submenu_placement(
+                    row_bounds,
+                    panel_bounds,
+                    (submenu_width, submenu_height),
+                    (viewport.width, viewport.height),
+                );
+                let submenu_active = snapshot.open.first().and_then(|open| open.active.clone());
+                let hover_set_active = set_active.clone();
+                let hover: Option<RowHover> =
+                    Some(std::rc::Rc::new(move |cx: &mut App, row: ElementId| {
+                        hover_set_active(cx, Some(row), true);
+                    }));
+                let panel = render_submenu(
+                    *child,
+                    ElementId::from(SharedString::from(format!("{}-submenu", menu_id))),
+                    submenu_active,
+                    &theme,
+                    shadow.clone(),
+                    hover,
+                );
+                let size_slot = anchor.clone();
+                container = container.child(
+                    div()
+                        .absolute()
+                        .left(left)
+                        .top(top)
+                        .on_children_prepainted(move |children, _, _| {
+                            if let Some(bounds) = children.first() {
+                                size_slot.borrow_mut().submenu_size =
+                                    Some((bounds.size.width, bounds.size.height));
+                            }
+                        })
+                        .child(panel),
+                );
+            }
+        }
+
+        // Record this panel's own bounds for the submenu positioning above.
+        let panel_slot = anchor.clone();
+        let container = div()
+            .on_children_prepainted(move |children, _, _| {
+                if let Some(bounds) = children.first() {
+                    panel_slot.borrow_mut().panel = Some(*bounds);
+                }
+            })
+            .child(container);
 
         // Reveal: the panel appears at its final size and fades in. Measuring the
         // Fluent docs menu shows width, edges and top staying constant while only
@@ -683,6 +1139,11 @@ pub struct MenuItem {
     radio: Option<bool>,
     disabled: bool,
     danger: bool,
+    /// Nested menu content. The parent menu owns navigation for it: the child
+    /// contributes rows and styling only, and carries no state of its own.
+    submenu: Option<Box<Menu>>,
+    /// Set when the menu took the submenu out to render it, so the chevron stays.
+    submenu_marker: bool,
     /// Highlighted because the arrow keys are on this row.
     active: bool,
     /// Set by [`Menu`]: reports mouse movement over this row, so the menu can
@@ -703,6 +1164,8 @@ impl MenuItem {
             radio: None,
             disabled: false,
             danger: false,
+            submenu: None,
+            submenu_marker: false,
             active: false,
             pointer_activate: None,
             on_select: None,
@@ -736,6 +1199,27 @@ impl MenuItem {
     /// Renders as a radio row: a dot appears while `selected`.
     pub fn selected(mut self, selected: bool) -> Self {
         self.radio = Some(selected);
+        self
+    }
+
+    /// Nested menu opened by this row.
+    ///
+    /// The child is content, not a callback: the parent menu walks its rows to
+    /// navigate, activate and close it. Only one level of nesting is rendered in
+    /// this slice; deeper rows still show the chevron but do not open.
+    pub fn submenu(mut self, menu: Menu) -> Self {
+        self.submenu = Some(Box::new(menu));
+        self
+    }
+
+    /// Whether this row opens a submenu.
+    pub fn has_submenu(&self) -> bool {
+        self.submenu.is_some()
+    }
+
+    /// Keeps the chevron once the menu has taken the submenu out to render it.
+    pub(crate) fn submenu_marker(mut self, marked: bool) -> Self {
+        self.submenu_marker = marked;
         self
     }
 
@@ -853,6 +1337,14 @@ impl RenderOnce for MenuItem {
             .child(label)
             .refine_style(&self.style);
 
+        // A row that opens a submenu ends with a chevron, pushed to the trailing
+        // edge so labels stay left-aligned whatever their length.
+        if self.submenu.is_some() || self.submenu_marker {
+            el = el
+                .child(div().flex_1())
+                .child(Icon::new(FluentIcon::ChevronRight).size(px(12.)));
+        }
+
         // This GPUI version exposes no disabled state through accesskit, so a
         // disabled row is announced like any other and only refuses activation.
         // Recorded as a gap rather than worked around.
@@ -954,3 +1446,6 @@ mod surface_tests;
 
 #[cfg(test)]
 mod reveal_tests;
+
+#[cfg(test)]
+mod submenu_tests;

@@ -93,6 +93,24 @@ pub fn init(cx: &mut gpui::App) {
             fluent_components::MenuLast,
             Some(fluent_components::MENU_KEY_CONTEXT),
         ),
+        // Submenus: Right opens the current row submenu, Left closes one level,
+        // Escape closes one level or the whole menu at the root. Tab is bound
+        // separately because it closes the entire chain.
+        gpui::KeyBinding::new(
+            "right",
+            fluent_components::MenuSubmenuOpen,
+            Some(fluent_components::MENU_KEY_CONTEXT),
+        ),
+        gpui::KeyBinding::new(
+            "left",
+            fluent_components::MenuSubmenuClose,
+            Some(fluent_components::MENU_KEY_CONTEXT),
+        ),
+        gpui::KeyBinding::new(
+            "escape",
+            fluent_components::MenuEscape,
+            Some(fluent_components::MENU_KEY_CONTEXT),
+        ),
         gpui::KeyBinding::new(
             "enter",
             fluent_components::MenuActivate,
