@@ -9,8 +9,9 @@
 |---|---|---|
 | `Button::tooltip` | Button 测量触发器并向根级 gpui-base `TooltipOverlay` 发送请求 | 不等于 GPUI 原生 `.tooltip()`，也不等于 Popover 定位器 |
 | 通用 `tooltip(text)` 助手 | 构建 `TooltipView` 的闭包，供 GPUI 原生 `InteractiveElement::tooltip` 使用 | 内容采用 Fluent 外观，不代表具有 Button overlay 的锚定与间隙配置 |
-| `Popover` | window keyed open state + 同帧测量 + 自研 deferred positioner + `on_mouse_down_out` 关闭 | 不依赖 TooltipService，也不是根级 PopoverHost；定位测试不证明关闭正确 |
+| `Popover` | window keyed open state + 同帧测量 + 自研 deferred positioner + `on_mouse_down_out` 关闭；提供 `track_focus` 时做焦点交接与 Tab 陷阱 | 不依赖 TooltipService，也不是根级 PopoverHost；定位测试不证明关闭正确 |
 | `Dialog` / `AlertDialog` | gpui-base `Dialog`/`AlertDialog` 宿主 + Fluent scrim/卡片 + window keyed 状态 + 焦点交接 | 自己 deferred 渲染，无 root host；不走 Popover 定位器 |
+| `Sheet` | gpui-base `Sheet` 宿主（焦点陷阱 / Esc / overlay 关闭）+ window keyed 状态 + `Presence` 滑动；scrim 与 Dialog 共用 token | 不是 Popover 定位器；无拖拽关闭或滚动区；底层不区分 Esc 与 scrim |
 | `MenuDropdown` | 把 `Menu` 组合进 `Popover`，继承定位与关闭；键盘与鼠标移动共用菜单的当前项，布局变化不触发改选 | 不等于完整菜单协议：无子菜单 |
 | `Menu` / `MenuItem` | Fluent 菜单面板、菜单项、前导图标、勾选/单选行、方向键/Home/End/Enter 导航 | 键盘只覆盖已声明的 `.item()` 行；子菜单未实现 |
 
@@ -73,16 +74,18 @@ deferred positioner prepaint：读取同一共享值，结合面板尺寸和视�
 - `default_open` 仅初始化 window keyed store，控件身份要稳定。`on_open_change` 是可选通知，不应因名字推定所有状态变化和交互都已覆盖。
 - 打开时构建全视口 `anchored` + `deferred` 背板，先加入背板，再加入 deferred 面板。背板只负责“面板外”的关闭请求。
 - **绘制在上方不等于鼠标命中遮挡。** 面板容器调用 `InteractiveElement::occlude`（`HitboxBehavior::BlockMouse`）阻断其下命中，因此面板上的点击不会落到下方控件。行为测试用一块垫底元素验证了这一点：移除 `occlude` 后“面板内点击不穿透”的两条测试会失败。
-- `Escape` 通过 `fluent_components::Dismiss` 关闭：`fluent_ui::init` 把它绑定到 `escape` 并限定在 `OVERLAY_KEY_CONTEXT`，Popover 在触发器包装层与面板上都设置该 context 并挂 `on_action`。**只有焦点位于浮层内时才会触发**，所以调用方必须通过 `track_focus` 提供焦点句柄。焦点进入/归还与约束仍未实现。
+- `Escape` 通过 `fluent_components::Dismiss` 关闭：`fluent_ui::init` 把它绑定到 `escape` 并限定在 `OVERLAY_KEY_CONTEXT`，Popover 在触发器包装层与面板上都设置该 context 并挂 `on_action`。**只有焦点位于浮层内时才会触发**，所以调用方必须通过 `track_focus` 提供焦点句柄；同一个句柄还用于打开时的焦点移入、关闭归还和 Tab 陷阱，见[焦点专题](focus.md#浮层焦点交接)。
 - 关闭行为已有测试覆盖：外部按下上报 `false`；面板本体、面板内交互子元素上的按下不上报且不穿透；按下触发器只上报一次变化（触发器自身的切换与“点击外部”不会重复上报）；受控调用方忽略请求时保持打开。
 - **表面归属**：`Popover` 默认给面板画卡片（内边距 12、圆角、背景、阴影）。内容自带表面时必须用 `draw_panel_surface(false)` 关掉，否则会叠出第二张卡片并把内容内缩一层——`Menu` 就是自带表面的例子，`MenuDropdown` 已经这样接线。打开动画由 `Menu` 自己做：下拉打开时把「代号」加一，菜单按 `now - opened_at` 在 350ms 内把**不透明度**从 0 抬到 1（四分 ease-out），同时整体向下归位约 4px（帧间互相关测得，30fps 录屏，精度 ±1–2px），所以观感是从按钮底部往下落定；独立摆在页面里的菜单不播这个动画。
-- 当前没有完整焦点进入/归还/约束或嵌套多浮层协调机制。Menu 也没有补全这些能力，见[菜单实现](../../crates/fluent-components/src/menu.rs)。
+- 焦点进入/归还与 Tab 约束只在提供 `track_focus` 时成立，且均有行为测试；未提供时这些能力不成立。嵌套或同时打开的多个浮层仍没有协调机制。Menu 的键盘模型见[菜单实现](../../crates/fluent-components/src/menu.rs)。
 
 ## Dialog / AlertDialog：模态卡片
 
 源码：[dialog.rs](../../crates/fluent-components/src/dialog.rs)、[spec](../../crates/fluent-core/src/spec/dialog.rs)。
 
 **渲染路径**。组件把 gpui-base `Dialog`/`AlertDialog` 宿主拼好后交给它自己渲染：宿主在 render 里产出 `deferred(anchored(...))`，priority `10 + layer`，因此不需要任何根级 overlay host——`FluentRoot` 只负责提供 trap 感知的 Tab 遍历 context。关闭状态下宿主渲染一个空 `div()`，所以对话框元素可以一直挂在树里。
+
+**布局占位**。宿主打开时是绝对定位的 deferred 层，关闭时却是 in-flow 的空 `div()`；直接返回宿主会让父级 flex 在开关前后差一个 item 及其 gap，下方内容跳动。wrapper 用同一个零高度在流占位包住宿主（与 Sheet 相同的约定），两种状态的布局槽一致。
 
 **scrim 与卡片**。scrim 由调用方（本组件）以 `DialogBackdrop` 提供，铺满宿主并填 `colorBackgroundOverlay`（web_light 40% 黑，web_dark 50%）。卡片是 `DialogPopup`：neutral background 1 底、`x_large` 圆角、`s64` 阴影、24px padding、16px 内容间距、8px footer 间距，标题/正文用 `base_500`/`base_300` 字号与行高。卡片 `occlude()`，落在卡片上的按下不会到达 scrim；scrim 上的按下对普通 Dialog 走 `Cancel` 路径。
 
@@ -92,13 +95,37 @@ deferred positioner prepaint：读取同一共享值，结合面板尺寸和视�
 
 **命令入口**：`cargo test -p fluent-components --lib dialog --locked`。
 
+## Sheet：侧边抽屉
+
+源码：[sheet.rs](../../crates/fluent-components/src/sheet.rs)、[spec](../../crates/fluent-core/src/spec/sheet.rs)。
+
+**渲染路径**。组件把 gpui-base `Sheet` 宿主拼好后交给它自己渲染。宿主在 render 里产出 `anchored` 的全视口层，自带 `key_context("Sheet")`、`track_focus` 与 `focus_trap`，并把 overlay 按下和 Escape 统一走 `request_close` → `on_close`；它本身没有开关状态和动画。wrapper 再把宿主包进 `deferred`（与 Dialog 相同），让模态层在帧末绘制、不被祖先的滚动/裁剪容器截断。
+
+**布局占位**。`deferred` 宿主是绝对定位、不参与父级 flex 布局；如果打开时才把在流占位换成绝对宿主，父级会少一个 flex item（连同 gap），下方内容会跳动。组件在打开与关闭两种状态都保留同一个零高度在流占位：打开时由它包住 `deferred` 宿主，关闭后（含退出动画结束）返回同样的零高度占位，因此元素可以一直挂在树里且不改变周围布局。
+
+**退出方向**。`side` 在打开时写入 keyed state，退出期间继续使用该值；调用方在请求关闭的同一帧把 `side` 清掉或回退到默认右侧，也不会让面板在退出动画中跳到另一侧。只有 `open` 为真时才会更新这个锁定值，因此打开期间改变 `side` 仍会立即生效。
+
+**scrim 与面板**。scrim 复用 Dialog 的 `colorBackgroundOverlay`，随后台进度淡入淡出，并调用 `occlude()`：只画在上面不够，没有遮挡命中框时，下面的按钮仍会通过 scrim 收到 hover 边沿。面板是 `neutralBackground1`、`neutralForeground1`、`x_large` 圆角（只圆朝向页面的两角）、`s64` 阴影、24px padding、16px 内容间距、8px footer 间距；面板自身的 `occlude()` 让空白处不落到宿主的关闭层。尺寸是组件常量（默认 320px，`Sheet::size` 可覆盖），左/右为宽、上/下为高。
+
+**动效**。`Presence` 以 `durationSlow`（300ms）与 `curveEasyEase` 驱动进/出；位移量等于 `size × (1 − progress)`，所以任一尺寸都从自身边缘外滑入。`reduce_motion` 时 `Presence` 直接返回稳定帧，不播放过渡。进场中途关闭时 `Presence` 会缩短反向时长而不是跳变。
+
+**状态与关闭**。`.open(bool)` 为受控，`default_open` 只初始化 window keyed store；`on_open_change(false)` 在 Esc / scrim 请求时调用，底层不区分两者。受控调用方不更新 `open` 时抽屉保持打开。
+
+**焦点**。宿主自带焦点陷阱；wrapper 在进入首帧记录 `window.focused` 并把焦点交给宿主句柄，退出动画结束且焦点仍在抽屉内时才归还。**调用方若在 `open(false)` 同帧卸载元素，归还不会发生**——保持挂载并用受控 `open` 驱动。
+
+**尚未覆盖**：真实窗口中的滑入/滑出观感与系统 reduced-motion、固定尺寸下的长内容裁剪、拖拽关闭与滚动区都没有实现或验证；`Role::Dialog` 挂在面板上，AccessKit 的模态语义与焦点顺序留给 T-049 审计。
+
+**命令入口**：`cargo test -p fluent-components --lib sheet --locked`。
+
 ## 验证入口与尚未覆盖的场景
 
 在工作区根目录可运行下列定向检查；共享逻辑变化还需遵守[验证矩阵](../code-standards.md#验证矩阵)。这些命令不是本页记录的通过结果。
 
 ```text
 cargo test -p fluent-components --lib popover --locked
+cargo test -p fluent-components --lib sheet --locked
 cargo test -p fluent-components --lib tooltip --locked
+cargo test -p fluent-core --lib spec::sheet --locked
 cargo test -p fluent-core --lib spec::feedback --locked
 cargo test -p fluent-core --lib spec::menu --locked
 cargo run -p fluent-gallery
@@ -123,12 +150,13 @@ cargo run -p fluent-gallery
 **后续行为验证清单**（不是已实现保证；由下一次相关浮层改动认领并记录结果）：
 
 - 受控调用方接受关闭请求后的实际关闭、非受控重绘后保持状态、不同 ID/窗口的隔离。
-- Escape 在焦点位于触发器内/外/面板内三种情况下的分发结果；焦点进入/归还、键盘可达性、嵌套/同时打开的多个浮层。
+- Escape 在焦点位于触发器内、面板内和两者之外时的分发结果；焦点归还在窗口失焦、面板被卸载等边界下的表现；嵌套/同时打开的多个浮层。
 - 面板在真实窗口中的命中归属（测试用 `canvas` 与垫底元素近似，不覆盖 GPU 字体与原生事件顺序）。
+- Sheet 在真实窗口中的滑入/滑出观感、系统 reduced-motion、固定 320px 尺寸下的长内容裁剪，以及关闭动画结束后焦点归还的时序。
 - Tooltip 的 hover/隐藏、翻转、滚动跟随、键盘触发及多窗口 service 归属。
 - 真实窗口中的边缘、缩放、长内容和滚动；现有测试直接 draw，并不验证 GPU 字体或所有原生事件。
 
-[现有像素夹具](../../crates/fluent-gallery/src/fixtures.rs)没有浮层场景；静态 TooltipSurface 或样式单测不替代这些操作。
+[现有像素夹具](../../crates/fluent-gallery/src/fixtures.rs)已包含 `dialog-open`、`menu-panel` 与 `sheet-right-open` 等静态帧；动画中间帧、真实指针/键盘路径与系统主题仍不在其中。
 发现风险时保留复现、被测版本和归属，按[工程规范](../code-standards.md#结果与交付)追踪；本轮文档整理不宣称补齐上述行为。
 
 ## 修改后要同步什么

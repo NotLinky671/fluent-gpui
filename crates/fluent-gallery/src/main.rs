@@ -18,8 +18,9 @@ use fluent_ui::{
     AlertDialog, Appearance, Avatar, AvatarSize, Badge, BadgeAppearance, BadgeSize, Button,
     ButtonAppearance, ButtonShape, Checkbox, ControlSize, Dialog, Divider, Field, FluentIcon,
     FluentRoot, FluentTheme, FontMode, InputAppearance, Link, Menu, MenuDropdown, MenuHeader,
-    MenuItem, Popover, ProgressAppearance, ProgressBar, Radio, Spinner, SpinnerSize, Switch,
-    TextInput, Textarea, TextareaAppearance, TooltipSurface, ValidationMessage,
+    MenuItem, Popover, ProgressAppearance, ProgressBar, Radio, Sheet, SheetSide, Spinner,
+    SpinnerSize, Switch, TabItem, TabList, TextInput, Textarea, TextareaAppearance, TooltipSurface,
+    ValidationMessage,
 };
 
 const APPEARANCES: [ButtonAppearance; 5] = [
@@ -63,7 +64,11 @@ struct Gallery {
     switch_a: bool,
     switch_b: bool,
     dialog_open: bool,
+    tab_index: usize,
+    vertical_tab_index: usize,
     alert_open: bool,
+    /// The edge of the open sheet, or `None` when it is closed.
+    sheet_side: Option<SheetSide>,
     /// Keeps the OS appearance observer alive for the window's lifetime.
     _appearance_sub: Option<Subscription>,
 }
@@ -108,7 +113,10 @@ impl Gallery {
             switch_a: true,
             switch_b: false,
             dialog_open: false,
+            tab_index: 0,
+            vertical_tab_index: 0,
             alert_open: false,
+            sheet_side: None,
             fixture,
             _appearance_sub: sub,
         }
@@ -715,6 +723,43 @@ impl Render for Gallery {
                 ),
             );
 
+        // Tabs: one horizontal strip with a disabled tab, one vertical strip. The
+        // selection is controlled so the demo exercises the caller-owned path.
+        let tabs_section = div()
+            .flex()
+            .flex_col()
+            .gap(px(24.))
+            .p(px(16.))
+            .child(
+                TabList::new("gallery-tabs")
+                    .selected(self.tab_index)
+                    .on_change(cx.listener(|this, index, _, cx| {
+                        this.tab_index = *index;
+                        cx.notify();
+                    }))
+                    .tab(TabItem::new("gallery-tab-overview", "Overview"))
+                    .tab(TabItem::new("gallery-tab-activity", "Activity"))
+                    .tab(TabItem::new("gallery-tab-archived", "Archived").disabled(true))
+                    .tab(TabItem::new("gallery-tab-settings", "Settings")),
+            )
+            .child(
+                div().w(px(200.)).child(
+                    // The two strips have different tab counts, so they keep
+                    // separate selections; sharing one index made the shorter
+                    // strip jump back to its first tab.
+                    TabList::new("gallery-tabs-vertical")
+                        .vertical()
+                        .selected(self.vertical_tab_index)
+                        .on_change(cx.listener(|this, index, _, cx| {
+                            this.vertical_tab_index = *index;
+                            cx.notify();
+                        }))
+                        .tab(TabItem::new("gallery-vtab-overview", "Overview"))
+                        .tab(TabItem::new("gallery-vtab-activity", "Activity"))
+                        .tab(TabItem::new("gallery-vtab-settings", "Settings")),
+                ),
+            );
+
         let feedback_section = div()
             .flex()
             .flex_col()
@@ -888,6 +933,83 @@ impl Render for Gallery {
                 )
         };
 
+        let sheet_section = {
+            let weak = cx.entity().downgrade();
+            let open_sheet = {
+                let weak = weak.clone();
+                move |side: SheetSide, cx: &mut App| {
+                    weak.update(cx, |this, cx| {
+                        this.sheet_side = Some(side);
+                        cx.notify();
+                    })
+                    .ok();
+                }
+            };
+            let close_sheet = {
+                let weak = weak.clone();
+                move |cx: &mut App| {
+                    weak.update(cx, |this, cx| {
+                        this.sheet_side = None;
+                        cx.notify();
+                    })
+                    .ok();
+                }
+            };
+            let mut openers = div().flex().items_center().gap(px(12.));
+            for (side, id, label) in [
+                (SheetSide::Right, "sheet-open-right", "Open right"),
+                (SheetSide::Left, "sheet-open-left", "Open left"),
+                (SheetSide::Top, "sheet-open-top", "Open top"),
+                (SheetSide::Bottom, "sheet-open-bottom", "Open bottom"),
+            ] {
+                let open_sheet = open_sheet.clone();
+                openers = openers.child(
+                    Button::new(id)
+                        .appearance(ButtonAppearance::Secondary)
+                        .on_click(move |_, _, cx| open_sheet(side, cx))
+                        .child(label),
+                );
+            }
+            let close_from_scrim = close_sheet.clone();
+            let close_from_button = close_sheet.clone();
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(12.))
+                .p(px(16.))
+                .child(openers.child(
+                    div()
+                        .text_size(px(12.))
+                        .text_color(t.color.neutral_foreground_3)
+                        .child("Sheets reuse the dialog scrim and focus trap; Esc or a scrim press closes."),
+                ))
+                .child(
+                    Sheet::new("gallery-sheet")
+                        .side(self.sheet_side.unwrap_or(SheetSide::Right))
+                        .open(self.sheet_side.is_some())
+                        .on_open_change(move |_, _, cx| close_from_scrim(cx))
+                        .title("Filters")
+                        .child(
+                            "The drawer slides in from the selected edge, dims the page and traps Tab until it closes.",
+                        )
+                        .footer_child(
+                            Button::new("gallery-sheet-cancel")
+                                .appearance(ButtonAppearance::Secondary)
+                                .on_click(move |_, _, cx| close_from_button(cx))
+                                .child("Cancel"),
+                        )
+                        .footer_child(
+                            Button::new("gallery-sheet-apply")
+                                .appearance(ButtonAppearance::Primary)
+                                .on_click({
+                                    let close_sheet = close_sheet.clone();
+                                    move |_, _, cx| close_sheet(cx)
+                                })
+                                .child("Apply"),
+                        ),
+                )
+        };
+
         // `FLUENT_GALLERY_SECTION` narrows the gallery to one section; useful for
         // screenshots and pixel baselines that would otherwise be below the fold.
         let want = |name: &str| match std::env::var("FLUENT_GALLERY_SECTION") {
@@ -919,8 +1041,14 @@ impl Render for Gallery {
         if want("feedback") {
             sections.push(feedback_section.into_any_element());
         }
+        if want("tabs") {
+            sections.push(tabs_section.into_any_element());
+        }
         if want("dialog") {
             sections.push(dialog_section.into_any_element());
+        }
+        if want("sheet") {
+            sections.push(sheet_section.into_any_element());
         }
         FluentRoot::new()
             .flex()

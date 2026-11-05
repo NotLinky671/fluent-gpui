@@ -25,6 +25,8 @@
 | `Menu` / `MenuItem` | 部分实现 | 面板、前导图标、勾选与单选行、分隔线、标题、经 `Popover` 的 `MenuDropdown` 触发器接线，方向键/Home/End 导航并跳过禁用行、typeahead，以及 Tab 离开即关闭；子菜单待完成 |
 | `Spinner` | 基础实现 | 四档尺寸按上游梯度（16/20/24/28），`Spinner::label` 提供无障碍名称，遵循 reduced motion |
 | `Dialog` / `AlertDialog` | 基础实现 | 自渲染 deferred 模态：Fluent scrim 与卡片（background overlay、x-large 圆角、shadow64），受控/非受控开关，打开移入焦点、关闭归还，Tab 约束在卡片内；`AlertDialog` 必须显式选择——无 Esc 与 scrim 关闭 |
+| `Sheet` / 侧边抽屉 | 基础实现 | 四向抽屉（默认右侧），滑入/滑出过渡遵循 reduced motion；复用 Dialog 的 `colorBackgroundOverlay` scrim 与焦点陷阱，打开移入焦点、退出动画结束后归还；受控/非受控开关，Esc 与 scrim 按下都请求关闭；固定尺寸、内容裁剪，无滚动与拖拽关闭 |
+| `Tabs` / `TabList` / `Tab` | 基础实现 | 横向/纵向标签条；选中/hover/禁用三态，指示条按上一帧记录的标签绘制边界滑动；方向键与 Home/End 移动并跳过禁用项，`role=tablist`/`tab`，选中项画焦点环 |
 
 ## 快速开始
 
@@ -116,6 +118,8 @@ GPUI 精确锁定在快照版本（`gpui-pre = 0.3.10`）；用 caret 版本会�
 
 ## 已知限制
 
+- `Tabs` 让整条标签条持焦点、方向键改选中（Fluent 的自动激活），不是严格 roving tabindex；hover/pressed 是瞬时样式而非过渡，选中态优先于两者；指示条位置取自上一帧记录的标签绘制边界，因此比布局变化晚一帧
+- `Sheet` 的抽屉尺寸是组件常量（默认 320px，可用 `Sheet::size` 覆盖），内容超出时被裁剪，没有滚动区或拖拽关闭；Esc 与 scrim 按下都只上报 `on_open_change(false)`，底层不区分两者；退出动画结束前焦点仍被约束在抽屉内，之后只在焦点仍在抽屉内时归还——调用方若在 `open(false)` 的同一帧卸载元素，就不会发生归还
 - `Avatar` 只渲染首字母，无图片与状态徽标
 - Checkbox / Radio / Switch 已接入鼠标 hover / pressed 状态及颜色过渡；完整键盘与指针取消行为尚未验证
 - `Popover` 的关闭路径已有行为测试：外部按下上报 `false`，面板本体与面板内交互子元素上的按下不上报，按下触发器只上报一次变化，受控调用方忽略请求时保持打开。提供 `track_focus` 时，打开会把焦点移入面板，关闭且焦点仍在面板内时归还；Esc 仅在焦点位于浮层内时生效。焦点进入的是面板容器，不自动进入第一个控件；窗口边缘采用限位而非上下自动翻转。面板容器不必标记为 Tab 停靠点；若调用方标记，它会加入控件循环

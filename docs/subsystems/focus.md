@@ -10,6 +10,7 @@
 | `TextInput` / `Textarea` | 点击自身聚焦；`on_mouse_down_out` 失焦 | 不包含 Tab 遍历与焦点陷阱 |
 | `Popover` | `track_focus` 提供面板焦点句柄；打开时移入、关闭时归还；Escape 依赖它 | 不包含焦点陷阱；面板内控件需自己可聚焦 |
 | `Dialog` / `AlertDialog` | 宿主自带 `focus_trap`；wrapper 记录旧焦点并在关闭帧归还 | 打开时焦点落在对话框宿主而非首个控件 |
+| `Sheet` | 宿主自带 `focus_trap`；wrapper 记录旧焦点，等退出动画结束且焦点仍在抽屉内时归还 | 打开时焦点落在抽屉宿主；关闭期间焦点仍被约束，不会立刻归还 |
 
 ## 失焦时机
 

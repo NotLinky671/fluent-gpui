@@ -8,8 +8,9 @@ use fluent_ui::gpui::AppContext as _;
 use fluent_ui::gpui::{AnyElement, App, IntoElement, ParentElement, Styled, Window, div, px};
 use fluent_ui::gpui_base::input::InputState;
 use fluent_ui::{
-    Avatar, AvatarSize, Badge, BadgeAppearance, Button, ButtonAppearance, Checkbox, Divider, Field,
-    Link, ProgressBar, Radio, Switch, TextInput,
+    Avatar, AvatarSize, Badge, BadgeAppearance, Button, ButtonAppearance, Checkbox, Dialog,
+    Divider, Field, Link, Menu, MenuHeader, MenuItem, ProgressBar, Radio, Sheet, SheetSide, Switch,
+    TabItem, TabList, TextInput,
 };
 
 /// One baseline fixture.
@@ -97,9 +98,34 @@ pub const FIXTURES: &[Fixture] = &[
         height: 40.0,
     },
     Fixture {
+        name: "tabs-horizontal",
+        width: 340.0,
+        height: 60.0,
+    },
+    Fixture {
+        name: "tabs-vertical",
+        width: 220.0,
+        height: 140.0,
+    },
+    Fixture {
+        name: "menu-panel",
+        width: 240.0,
+        height: 220.0,
+    },
+    Fixture {
+        name: "dialog-open",
+        width: 420.0,
+        height: 260.0,
+    },
+    Fixture {
         name: "avatar-medium",
         width: W,
         height: 60.0,
+    },
+    Fixture {
+        name: "sheet-right-open",
+        width: 460.0,
+        height: 300.0,
     },
 ];
 
@@ -177,6 +203,53 @@ pub fn render(name: &str, window: &mut Window, cx: &mut App) -> Option<AnyElemen
             .size(AvatarSize::Medium)
             .into_any_element(),
 
+        "tabs-horizontal" => TabList::new("fx-tabs")
+            .default_selected(0)
+            .tab(TabItem::new("fx-tab-a", "Overview"))
+            .tab(TabItem::new("fx-tab-b", "Activity"))
+            .tab(TabItem::new("fx-tab-c", "Archived").disabled(true))
+            .into_any_element(),
+        "tabs-vertical" => TabList::new("fx-tabs-vertical")
+            .vertical()
+            .default_selected(1)
+            .tab(TabItem::new("fx-vtab-a", "Overview"))
+            .tab(TabItem::new("fx-vtab-b", "Activity"))
+            .tab(TabItem::new("fx-vtab-c", "Settings"))
+            .into_any_element(),
+        "menu-panel" => Menu::new("fx-menu")
+            .header(MenuHeader::new("Actions"))
+            .item(MenuItem::new("fx-menu-rename", "Rename"))
+            .item(MenuItem::new("fx-menu-copy", "Copy"))
+            .separator()
+            .item(MenuItem::new("fx-menu-archive", "Archive").disabled(true))
+            .item(MenuItem::new("fx-menu-delete", "Delete").danger(true))
+            .into_any_element(),
+        "dialog-open" => Dialog::new("fx-dialog")
+            .title("Edit details")
+            .open(true)
+            .child("Dialogs dim the page and take focus.")
+            .footer_child(
+                Button::new("fx-dialog-cancel")
+                    .appearance(ButtonAppearance::Secondary)
+                    .child("Cancel"),
+            )
+            .into_any_element(),
+        "sheet-right-open" => Sheet::new("fx-sheet-right")
+            .side(SheetSide::Right)
+            .default_open(true)
+            .title("Filters")
+            .child("Narrow the list to what you need.")
+            .footer_child(
+                Button::new("fx-sheet-cancel")
+                    .appearance(ButtonAppearance::Secondary)
+                    .child("Cancel"),
+            )
+            .footer_child(
+                Button::new("fx-sheet-apply")
+                    .appearance(ButtonAppearance::Primary)
+                    .child("Apply"),
+            )
+            .into_any_element(),
         _ => return None,
     };
     Some(element)

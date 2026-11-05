@@ -20,8 +20,9 @@
 pub use fluent_components::{
     AlertDialog, Avatar, Badge, Button, Checkbox, Dialog, DialogOpenChange, Divider, Field,
     FluentIcon, FluentRoot, Icon, IconStyle, InputAppearance, Label, Link, Menu, MenuDropdown,
-    MenuHeader, MenuItem, MenuSeparator, Popover, ProgressBar, Radio, Spinner, Switch, TextInput,
-    Textarea, TextareaAppearance, TooltipSurface, TooltipView, ValidationMessage, tooltip,
+    MenuHeader, MenuItem, MenuSeparator, Popover, ProgressBar, Radio, Sheet, SheetOpenChange,
+    Spinner, Switch, TabItem, TabList, TextInput, Textarea, TextareaAppearance, TooltipSurface,
+    TooltipView, ValidationMessage, tooltip,
 };
 pub use fluent_core::spec::ControlSize;
 pub use fluent_core::spec::button::{ButtonAppearance, ButtonShape, IconPosition};
@@ -29,6 +30,8 @@ pub use fluent_core::spec::feedback::{
     AvatarSize, BadgeAppearance, BadgeSize, ProgressAppearance, SpinnerSize,
 };
 pub use fluent_core::spec::misc::{DividerAppearance, LinkAppearance};
+pub use fluent_core::spec::sheet::SheetSide;
+pub use fluent_core::spec::tabs::TabsOrientation;
 pub use fluent_theme::{Appearance, FluentTheme, FontMode};
 pub use fluent_tokens::Tokens;
 pub use gpui;
@@ -103,6 +106,38 @@ pub fn init(cx: &mut gpui::App) {
         // A menu closes when Tab leaves it. Scoping these to the menu context
         // shadows the root traversal binding, which would otherwise move focus out
         // and leave the panel open behind the pointer.
+        // Tabs: arrows follow the strip's orientation; the component decides what
+        // "next" means, so both axes map to the same actions.
+        gpui::KeyBinding::new(
+            "right",
+            fluent_components::TabsNext,
+            Some(fluent_components::TABS_KEY_CONTEXT),
+        ),
+        gpui::KeyBinding::new(
+            "down",
+            fluent_components::TabsNext,
+            Some(fluent_components::TABS_KEY_CONTEXT),
+        ),
+        gpui::KeyBinding::new(
+            "left",
+            fluent_components::TabsPrev,
+            Some(fluent_components::TABS_KEY_CONTEXT),
+        ),
+        gpui::KeyBinding::new(
+            "up",
+            fluent_components::TabsPrev,
+            Some(fluent_components::TABS_KEY_CONTEXT),
+        ),
+        gpui::KeyBinding::new(
+            "home",
+            fluent_components::TabsFirst,
+            Some(fluent_components::TABS_KEY_CONTEXT),
+        ),
+        gpui::KeyBinding::new(
+            "end",
+            fluent_components::TabsLast,
+            Some(fluent_components::TABS_KEY_CONTEXT),
+        ),
         gpui::KeyBinding::new(
             "tab",
             fluent_components::MenuTabOut,

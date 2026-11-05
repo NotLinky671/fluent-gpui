@@ -49,8 +49,10 @@ $env:FLUENT_NOTES_APPEARANCE = "dark"; cargo run -p fluent-notes
 | `Menu` / `MenuDropdown` | 部分实现 | 编辑器“更多”菜单：置顶勾选项、禁用项、分隔线、删除 | 方向键/Home/End/Enter/Space 与禁用跳过已有测试；typeahead 按字符前缀匹配，Tab / Shift+Tab 关闭菜单；item 激活后不会自动关闭，应用在动作中显式关闭；子菜单未实现 |
 | `Divider` / `Badge` | 可用 | 分区、内存提示、置顶标记 | `Badge` 前景对比缺陷已按对比度映射修复，见[修复记录](../validation/badge-contrast-2026-11-03.md)；应用仍不依赖它表达未保存状态 |
 | `Dialog` / `AlertDialog` | 已实现 | 删除用 `AlertDialog`（必选动作、无 Esc/scrim 关闭）；未保存切换/新建用 `Dialog`（Esc/scrim 视为留在当前） | 两个对话框常驻挂载、由 `pending` 受控驱动 |
-| `Tabs` / `Sheet` / `ContextMenu` / `Select` | 未实现 | 不接入；记录为后续接入点 | 任务 T-044/T-047/T-048，及 M2 范围之外 |
-| `Spinner` | 受阻 | 不接入 | 见 README 已知限制 |
+| `Tabs` / `TabList` | 可用（基础实现） | 不接入；设置分区仍是单列 | 组件已实现，应用没有改造成标签页；接入点见文末 |
+| `Sheet` | 可用（基础实现） | 不接入；窄窗口设置仍用 Popover | 组件已实现，应用没有改用侧边抽屉；接入点见文末 |
+| `ContextMenu` / `Select` | 未实现 | 不接入；记录为后续接入点 | 任务 T-044，及 M2 范围之外 |
+| `Spinner` | 可用（基础实现） | 不接入；应用没有加载态 | 该基线上尚未实现，后续提交已加入，见 README 组件表；像素基线与官方弧度/周期核对仍待补 |
 
 工作区基线在开工时执行过 `cargo check --workspace --all-targets --locked`，通过；这只能证明工程可编译，
 不能证明本应用交互正确。
@@ -201,7 +203,7 @@ FluentRoot
 
 - **内存数据**：关闭窗口或进程后全部丢失；不写文件、不联网、不做恢复。
 - **Dialog**：删除与未保存切换已用模态对话框；对话框打开期间背景被 scrim 遮挡不可交互，Tab 在卡片内循环。`Role` 设在宿主内层，是否到达 accesskit 树未验证。
-- **没有 Tabs / Sheet / ContextMenu / Select**：设置用 Popover，属性编辑用 Popover；未提供标签页、侧边抽屉、右键菜单或下拉选择。
+- **没有 ContextMenu / Select**：设置用 Popover，属性编辑用 Popover；未提供右键菜单或下拉选择。`Tabs` 与 `Sheet` 组件已实现，但本应用尚未改用（设置仍是单列面板，窄窗口仍用顶栏 Popover）。
 - **菜单**：子菜单未实现；item 激活后不会自动关闭，应用的动作回调显式清 `menu_open`（“取消修改”已覆盖）；禁用状态不通过 accesskit 暴露（本版 GPUI 没有可用 API）。
 - **Popover**：边缘使用连续限位而不是上下翻转；面板大于视口时可能无法完整容纳；打开时焦点落在面板容器，不自动进入第一个控件，但容器本身不是 Tab 停靠点，Tab 只在控件之间循环；
   Esc 只在焦点位于浮层内时生效（本应用为两个浮层都传了 `track_focus`）。
@@ -221,8 +223,8 @@ FluentRoot
 | 后续能力 | 当前替代 | 接入点 |
 |---|---|---|
 | `Dialog` / `AlertDialog`（T-046，已接入） | 无（原页面内确认条已替换） | 删除确认走 AlertDialog，未保存切换/新建走 Dialog，`pending` 状态机直接驱动受控 open |
-| `Tabs`（T-048） | 无 | 设置中的“外观 / 编辑器 / 隐私”分区；当前单列面板不假装成 Tabs |
-| `Sheet`（T-047） | 顶栏 Popover | 窄窗口下的设置面板 |
+| `Tabs`（T-048，已实现，未接入） | 无 | 设置中的“外观 / 编辑器 / 隐私”分区；当前单列面板不假装成 Tabs |
+| `Sheet`（T-047，已实现，未接入） | 顶栏 Popover | 窄窗口下的设置面板；受控 `open` 常驻挂载，退出动画结束后才归还焦点 |
 | `ContextMenu`（T-044） | “更多”菜单 | 列表/编辑区右键动作，复用同一组 MenuItem |
 | `Select` / `Combobox`（M3） | Radio / 无 | 便签颜色标记可直接换成选择控件 |
 | 菜单子菜单 | 无 | 菜单动作项已分组，可在不改应用状态的前提下补齐 |

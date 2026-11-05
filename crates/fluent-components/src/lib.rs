@@ -16,7 +16,11 @@ actions!(
         MenuFirst,
         MenuLast,
         MenuActivate,
-        MenuTabOut
+        MenuTabOut,
+        TabsNext,
+        TabsPrev,
+        TabsFirst,
+        TabsLast
     ]
 );
 
@@ -38,6 +42,8 @@ pub const ROOT_KEY_CONTEXT: &str = "FluentRoot";
 ///
 /// Arrow keys are only bound inside this context, so a menu does not take them
 /// away from text fields elsewhere in the window.
+pub const TABS_KEY_CONTEXT: &str = "FluentTabs";
+
 pub const MENU_KEY_CONTEXT: &str = "FluentMenu";
 
 pub mod button;
@@ -52,7 +58,9 @@ pub mod motion;
 pub mod popover;
 pub mod root;
 pub mod selection;
+pub mod sheet;
 pub mod switch;
+pub mod tabs;
 pub mod textarea;
 pub mod tooltip;
 
@@ -72,6 +80,8 @@ pub use misc::{Divider, Link};
 pub use popover::Popover;
 pub use root::FluentRoot;
 pub use selection::{Checkbox, Radio};
+pub use sheet::{Sheet, SheetOpenChange};
 pub use switch::Switch;
+pub use tabs::{TabItem, TabList};
 pub use textarea::Textarea;
 pub use tooltip::TooltipService;

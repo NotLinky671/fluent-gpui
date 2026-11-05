@@ -62,6 +62,18 @@ pub fn hide_policy() -> Transition {
     Transition::new(DURATION_ULTRA_FAST).easing(curve_accelerate())
 }
 
+/// A sheet (overlay drawer) sliding in or out.
+///
+/// Fluent names `durationSlow` for large surfaces that enter by moving. The
+/// curve is `curveEasyEase` rather than a separate enter/exit pair because
+/// `gpui-base`'s `Presence` drives both directions with one policy; a symmetric
+/// curve keeps the exit from decelerating into a stop. Neither value has been
+/// measured against a rendered Fluent drawer, so treat it as the documented
+/// default rather than a captured timing.
+pub fn sheet_policy() -> Transition {
+    Transition::new(DURATION_SLOW).easing(curve_easy_ease())
+}
+
 /// Mixes two colours, taking the short way around the hue circle.
 ///
 /// Channels are mixed **premultiplied by alpha**, so a fully transparent

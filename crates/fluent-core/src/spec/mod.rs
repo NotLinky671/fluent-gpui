@@ -13,7 +13,9 @@ pub mod menu;
 pub mod misc;
 pub mod motion;
 pub mod selection;
+pub mod sheet;
 pub mod switch;
+pub mod tabs;
 pub mod textarea;
 
 /// Shared control sizes, mirroring Fluent's `size` prop.

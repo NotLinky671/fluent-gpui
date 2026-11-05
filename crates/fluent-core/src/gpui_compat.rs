@@ -15,7 +15,7 @@ pub use gpui::{
     AnyElement, App, Application, BoxShadow, ClickEvent, Context, ElementId, Entity, FocusHandle,
     FontWeight, Global, Hsla, InteractiveElement, IntoElement, MouseButton, ParentElement, Pixels,
     Render, RenderOnce, Role, SharedString, StatefulInteractiveElement, StyleRefinement, Styled,
-    WeakEntity, Window, div, point, px, relative, rgba, svg,
+    WeakEntity, Window, deferred, div, point, px, relative, rgba, svg,
 };
 pub use gpui_base::StyledExt;
 
