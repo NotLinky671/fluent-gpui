@@ -280,6 +280,186 @@ fn controlled_caller_that_ignores_the_request_stays_open(cx: &mut TestAppContext
     );
 }
 
+// ------------------------------------------------- content-owned hit regions
+
+/// A popover whose content publishes one extra region outside the panel, as a
+/// menu does for its submenu panels.
+struct RegionView {
+    log: Log,
+    focus: FocusHandle,
+    region: InteriorRegions,
+    show_region: bool,
+}
+
+impl Render for RegionView {
+    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+        let log = self.log.clone();
+        let events = log.events.clone();
+        let region = self.region.clone();
+        // Rebuild the published set every frame, exactly as `Menu` does: a
+        // closed panel must not keep an old region alive.
+        {
+            let mut regions = region.borrow_mut();
+            regions.clear();
+            regions.resize(1, None);
+        }
+        let show_region = self.show_region;
+        let popover = Popover::new("region-popover")
+            .trigger(div().id("region-trigger").w(px(120.)).h(px(32.)))
+            .content(div().w(px(160.)).h(px(80.)))
+            .interior_regions(region.clone())
+            .default_open(true)
+            .on_open_change(move |next, _, _| events.borrow_mut().push(next));
+
+        let region_slot = region.clone();
+        div()
+            .size_full()
+            .p(px(40.))
+            .relative()
+            .child(
+                div()
+                    .absolute()
+                    .left(px(320.))
+                    .top(px(200.))
+                    .w(px(120.))
+                    .h(px(80.))
+                    .when(show_region, |el| {
+                        el.child(
+                            canvas(
+                                move |bounds, _, _| {
+                                    let mut regions = region_slot.borrow_mut();
+                                    if regions.is_empty() {
+                                        regions.push(None);
+                                    }
+                                    regions[0] = Some(bounds);
+                                },
+                                |_, (), _, _| {},
+                            )
+                            .size_full(),
+                        )
+                    }),
+            )
+            .child(popover.track_focus(&self.focus))
+    }
+}
+
+fn open_region_view(cx: &mut TestAppContext, show_region: bool) -> (WindowHandle<RegionView>, Log) {
+    cx.update(fluent_core::gpui_compat::init_base);
+    let log = Log::default();
+    let handle_log = log.clone();
+    let window = cx.open_window(size(px(600.), px(400.)), move |_, cx| RegionView {
+        log: handle_log,
+        focus: cx.focus_handle(),
+        region: InteriorRegions::default(),
+        show_region,
+    });
+    cx.run_until_parked();
+    for _ in 0..2 {
+        cx.update_window(window.into(), |_, window, cx| {
+            window.refresh();
+            window.draw(cx).clear(cx);
+        })
+        .unwrap();
+        cx.run_until_parked();
+    }
+    (window, log)
+}
+
+fn click_region_point(cx: &mut TestAppContext, handle: WindowHandle<RegionView>) {
+    let position = point(px(410.), px(270.));
+    cx.update_window(handle.into(), move |_, window, cx| {
+        window.dispatch_event(
+            MouseDownEvent {
+                button: MouseButton::Left,
+                position,
+                modifiers: Modifiers::default(),
+                click_count: 1,
+                first_mouse: false,
+            }
+            .to_platform_input(),
+            cx,
+        );
+        window.dispatch_event(
+            PlatformInput::MouseUp(gpui::MouseUpEvent {
+                button: MouseButton::Left,
+                position,
+                modifiers: Modifiers::default(),
+                click_count: 1,
+            }),
+            cx,
+        );
+    })
+    .unwrap();
+    cx.run_until_parked();
+}
+
+#[gpui::test]
+fn a_press_inside_a_published_content_region_keeps_the_panel_open(cx: &mut TestAppContext) {
+    let (handle, log) = open_region_view(cx, true);
+    click_region_point(cx, handle);
+    assert!(
+        log.take().is_empty(),
+        "a press in a content-owned region outside the panel must not dismiss"
+    );
+}
+
+#[gpui::test]
+fn a_region_not_published_again_is_treated_as_outside(cx: &mut TestAppContext) {
+    let (handle, log) = open_region_view(cx, true);
+    // Prove the region was live before disabling it, otherwise this test could
+    // pass even if regions were never honoured.
+    click_region_point(cx, handle);
+    assert!(log.take().is_empty());
+
+    cx.update_window(handle.into(), |view, _, cx| {
+        view.downcast::<RegionView>()
+            .unwrap()
+            .update(cx, |view, cx| {
+                view.show_region = false;
+                cx.notify();
+            });
+    })
+    .unwrap();
+    cx.run_until_parked();
+    for _ in 0..2 {
+        cx.update_window(handle.into(), |_, window, cx| {
+            window.refresh();
+            window.draw(cx).clear(cx);
+        })
+        .unwrap();
+        cx.run_until_parked();
+    }
+
+    click_region_point(cx, handle);
+    assert_eq!(
+        log.take(),
+        vec![false],
+        "a region that is no longer published must not keep the popover open"
+    );
+}
+
+#[gpui::test]
+fn a_press_outside_panel_and_regions_still_requests_a_close(cx: &mut TestAppContext) {
+    let (handle, log) = open_region_view(cx, true);
+    let position = point(px(560.), px(380.));
+    cx.update_window(handle.into(), move |_, window, cx| {
+        window.dispatch_event(
+            MouseDownEvent {
+                button: MouseButton::Left,
+                position,
+                modifiers: Modifiers::default(),
+                click_count: 1,
+                first_mouse: false,
+            }
+            .to_platform_input(),
+            cx,
+        );
+    })
+    .unwrap();
+    cx.run_until_parked();
+    assert_eq!(log.take(), vec![false]);
+}
+
 #[gpui::test]
 fn escape_requests_a_close_while_focus_is_inside(cx: &mut TestAppContext) {
     let (handle, log) = open_view(cx, None, true);

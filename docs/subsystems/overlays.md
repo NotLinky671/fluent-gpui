@@ -12,8 +12,8 @@
 | `Popover` | window keyed open state + 同帧测量 + 自研 deferred positioner + `on_mouse_down_out` 关闭；提供 `track_focus` 时做焦点交接与 Tab 陷阱 | 不依赖 TooltipService，也不是根级 PopoverHost；定位测试不证明关闭正确 |
 | `Dialog` / `AlertDialog` | gpui-base `Dialog`/`AlertDialog` 宿主 + Fluent scrim/卡片 + window keyed 状态 + 焦点交接 | 自己 deferred 渲染，无 root host；不走 Popover 定位器 |
 | `Sheet` | gpui-base `Sheet` 宿主（焦点陷阱 / Esc / overlay 关闭）+ window keyed 状态 + `Presence` 滑动；scrim 与 Dialog 共用 token | 不是 Popover 定位器；无拖拽关闭或滚动区；底层不区分 Esc 与 scrim |
-| `MenuDropdown` | 把 `Menu` 组合进 `Popover`，继承定位与关闭；键盘与鼠标移动共用菜单的当前项，布局变化不触发改选 | 不等于完整菜单协议：无子菜单 |
-| `Menu` / `MenuItem` | Fluent 菜单面板、菜单项、前导图标、勾选/单选行、方向键/Home/End/Enter 导航 | 键盘只覆盖已声明的 `.item()` 行；子菜单未实现 |
+| `MenuDropdown` | 把 `Menu` 组合进 `Popover`，继承定位与关闭；键盘与鼠标移动共用菜单的当前项，布局变化不触发改选 | 子菜单点击归属另由 `InteriorRegions` 接线，见 [menus.md](menus.md#内部点击归属) |
+| `Menu` / `MenuItem` | Fluent 菜单面板、菜单项、前导图标、勾选/单选行、方向键/Home/End/Enter 导航、任意层子菜单 | 键盘只覆盖已声明的 `.item()` 行；每个面板 `role=menu`，但焦点范围只有根容器 |
 
 **阅读顺序**：[公开导出](../../crates/fluent-ui/src/lib.rs) → 对应组件 → 状态/坐标读写者 → [现有测试](../../crates/fluent-components/src/popover/tests.rs)。
 
@@ -74,6 +74,7 @@ deferred positioner prepaint：读取同一共享值，结合面板尺寸和视�
 - `default_open` 仅初始化 window keyed store，控件身份要稳定。`on_open_change` 是可选通知，不应因名字推定所有状态变化和交互都已覆盖。
 - 打开时构建全视口 `anchored` + `deferred` 背板，先加入背板，再加入 deferred 面板。背板只负责“面板外”的关闭请求。
 - **绘制在上方不等于鼠标命中遮挡。** 面板容器调用 `InteractiveElement::occlude`（`HitboxBehavior::BlockMouse`）阻断其下命中，因此面板上的点击不会落到下方控件。行为测试用一块垫底元素验证了这一点：移除 `occlude` 后“面板内点击不穿透”的两条测试会失败。
+- **面板外仍有属于同一表面的内容时，外部按下判据要扩展。** 外部按下原本只比较面板自身的 hitbox；`Menu` 的子面板会超出该矩形，所以 `Menu` 每帧发布子面板的窗口边界（`InteriorRegions`），`Popover` 在关闭前检查这些区域。落在任一已发布区域内视为内部，不请求关闭；未重新发布的旧区域不会保留。该机制只影响关闭判据，不改变定位或焦点。回归测试：`a_press_inside_a_published_content_region_keeps_the_panel_open`、`a_region_not_published_again_is_treated_as_outside`、`a_press_outside_panel_and_regions_still_requests_a_close`。这是 crate 内部接线（`interior_regions` 为 `pub(crate)`），不是通用公开 API。
 - `Escape` 通过 `fluent_components::Dismiss` 关闭：`fluent_ui::init` 把它绑定到 `escape` 并限定在 `OVERLAY_KEY_CONTEXT`，Popover 在触发器包装层与面板上都设置该 context 并挂 `on_action`。**只有焦点位于浮层内时才会触发**，所以调用方必须通过 `track_focus` 提供焦点句柄；同一个句柄还用于打开时的焦点移入、关闭归还和 Tab 陷阱，见[焦点专题](focus.md#浮层焦点交接)。
 - 关闭行为已有测试覆盖：外部按下上报 `false`；面板本体、面板内交互子元素上的按下不上报且不穿透；按下触发器只上报一次变化（触发器自身的切换与“点击外部”不会重复上报）；受控调用方忽略请求时保持打开。
 - **表面归属**：`Popover` 默认给面板画卡片（内边距 12、圆角、背景、阴影）。内容自带表面时必须用 `draw_panel_surface(false)` 关掉，否则会叠出第二张卡片并把内容内缩一层——`Menu` 就是自带表面的例子，`MenuDropdown` 已经这样接线。打开动画由 `Menu` 自己做：下拉打开时把「代号」加一，菜单按 `now - opened_at` 在 350ms 内把**不透明度**从 0 抬到 1（四分 ease-out），同时整体向下归位约 4px（帧间互相关测得，30fps 录屏，精度 ±1–2px），所以观感是从按钮底部往下落定；独立摆在页面里的菜单不播这个动画。
@@ -143,6 +144,7 @@ cargo run -p fluent-gallery
 | `click_on_panel_surface_keeps_it_open` / `click_on_interactive_child_inside_panel_keeps_it_open` | 面板本体与面板内交互子元素上的按下既不上报关闭，也不穿透到下方元素；移除 `occlude` 后这两条会失败 |
 | `clicking_the_trigger_again_toggles_instead_of_double_reporting` | 一次按下触发器只产生一次状态变化；移除“落在触发器内则跳过”的判断后该测试失败 |
 | `controlled_caller_that_ignores_the_request_stays_open` | 受控调用方收到关闭请求但未更新值时，面板保持打开 |
+| `a_press_inside_a_published_content_region_keeps_the_panel_open` / `a_region_not_published_again_is_treated_as_outside` / `a_press_outside_panel_and_regions_still_requests_a_close` | 内容在面板外发布的区域算内部（子菜单点击不关根菜单）；停止发布后同一位置恢复为外部；面板与区域之外仍上报关闭 |
 | `escape_requests_a_close_while_focus_is_inside` | 焦点在浮层内时 Esc 上报关闭；测试自行绑定 `Dismiss` 并聚焦 |
 
 [Tooltip 测试](../../crates/fluent-components/src/tooltip/tests.rs)只覆盖 service 归属：无 `FluentRoot` 时调用方拿到 `None`、根渲染后 service 可用、实体身份跨重绘稳定。定位、翻转、悬停时机与多窗口隔离不在其中。

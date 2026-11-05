@@ -19,3 +19,6 @@ screenshots/
 # out of the published repository.
 /plan/
 /task/
+
+# Local agent memory data.
+/.mnemon/

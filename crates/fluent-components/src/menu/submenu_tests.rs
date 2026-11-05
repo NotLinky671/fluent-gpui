@@ -189,36 +189,28 @@ fn left_returns_to_the_parent_row(cx: &mut TestAppContext) {
 }
 
 #[test]
-fn the_submenu_offsets_from_the_row_that_owns_it() {
-    // A row 200 wide, 32 tall, starting 12 in from the panel origin and 40 down.
-    let panel = Bounds {
-        origin: point(px(0.), px(0.)),
-        size: size(px(240.), px(300.)),
-    };
+fn the_submenu_sits_right_of_the_row_that_opens_it() {
+    // A row 200 wide, 32 tall, starting 12 in from the viewport origin and 40 down.
     let row = Bounds {
         origin: point(px(12.), px(40.)),
         size: size(px(200.), px(32.)),
     };
-    let (left, top) = submenu_offset(row, panel);
-    assert_eq!(left, px(212.), "flush with the row right edge");
-    assert_eq!(top, px(40.), "level with the row top");
+    let origin = submenu_origin(row, size(px(150.), px(120.)), size(px(800.), px(600.)));
+    assert_eq!(origin.x, px(212.), "flush with the row right edge");
+    assert_eq!(origin.y, px(40.), "level with the row top");
 }
 
 #[test]
-fn the_submenu_offset_follows_the_panel_origin() {
-    // The same row seen from a panel that is not at the window origin: the offset
-    // must be relative to the panel, not absolute.
-    let panel = Bounds {
-        origin: point(px(100.), px(50.)),
-        size: size(px(240.), px(300.)),
-    };
+fn the_submenu_placement_is_absolute_not_panel_relative() {
+    // The row is already in window coordinates, so the same row relative to a
+    // second panel that starts at another origin must not change the result.
     let row = Bounds {
         origin: point(px(112.), px(90.)),
         size: size(px(200.), px(32.)),
     };
-    let (left, top) = submenu_offset(row, panel);
-    assert_eq!(left, px(212.));
-    assert_eq!(top, px(40.));
+    let origin = submenu_origin(row, size(px(150.), px(120.)), size(px(800.), px(600.)));
+    assert_eq!(origin.x, px(312.));
+    assert_eq!(origin.y, px(90.));
 }
 
 /// A plain menu (no dropdown) at a fixed position, so row coordinates are known.
@@ -416,48 +408,47 @@ fn typing_restarts_when_the_keyboard_enters_a_submenu(cx: &mut TestAppContext) {
 
 #[test]
 fn the_submenu_stays_right_when_it_fits() {
-    let panel = Bounds {
-        origin: point(px(0.), px(0.)),
-        size: size(px(240.), px(300.)),
-    };
     let row = Bounds {
         origin: point(px(100.), px(40.)),
         size: size(px(200.), px(32.)),
     };
-    let (left, top) = submenu_placement(row, panel, (px(150.), px(120.)), (px(800.), px(600.)));
-    assert_eq!(left, px(300.), "flush with the row right edge");
-    assert_eq!(top, px(40.));
+    let origin = submenu_origin(row, size(px(150.), px(120.)), size(px(800.), px(600.)));
+    assert_eq!(origin.x, px(300.), "flush with the row right edge");
+    assert_eq!(origin.y, px(40.));
 }
 
 #[test]
 fn the_submenu_flips_left_when_it_would_leave_the_window() {
-    let panel = Bounds {
-        origin: point(px(0.), px(0.)),
-        size: size(px(240.), px(300.)),
-    };
     let row = Bounds {
         origin: point(px(300.), px(40.)),
         size: size(px(150.), px(32.)),
     };
     // 300 + 150 + 150 = 600 > 500, so the panel goes to the row's left edge.
-    let (left, _) = submenu_placement(row, panel, (px(150.), px(120.)), (px(500.), px(600.)));
-    assert_eq!(left, px(150.), "flipped to the row left edge");
+    let origin = submenu_origin(row, size(px(150.), px(120.)), size(px(500.), px(600.)));
+    assert_eq!(origin.x, px(150.), "flipped to the row left edge");
 }
 
 #[test]
-fn the_submenu_clamps_vertically() {
-    let panel = Bounds {
-        origin: point(px(0.), px(0.)),
-        size: size(px(240.), px(300.)),
-    };
+fn the_submenu_is_clamped_into_the_viewport_on_both_axes() {
     let row = Bounds {
         origin: point(px(10.), px(400.)),
         size: size(px(200.), px(32.)),
     };
-    let (_, top) = submenu_placement(row, panel, (px(150.), px(200.)), (px(800.), px(500.)));
+    let origin = submenu_origin(row, size(px(150.), px(200.)), size(px(800.), px(500.)));
     assert_eq!(
-        top,
+        origin.y,
         px(300.),
         "pushed up so the panel ends at the viewport edge"
+    );
+
+    let row = Bounds {
+        origin: point(px(4.), px(20.)),
+        size: size(px(100.), px(32.)),
+    };
+    let origin = submenu_origin(row, size(px(300.), px(100.)), size(px(200.), px(500.)));
+    assert_eq!(
+        origin.x,
+        px(0.),
+        "a flipped panel that is wider than the space on the left is clamped"
     );
 }

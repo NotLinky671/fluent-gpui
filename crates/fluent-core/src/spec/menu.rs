@@ -30,6 +30,9 @@ pub struct MenuItemSpec {
     pub foreground: Hsla,
     pub hover_background: Hsla,
     pub hover_foreground: Hsla,
+    /// Fill of a parent row whose submenu is open. Distinct from the current-row
+    /// fill: it marks the path to the open level, not another row Enter can run.
+    pub path_hint_background: Hsla,
     pub disabled_foreground: Hsla,
 }
 
@@ -75,6 +78,7 @@ pub fn item(theme: &FluentTheme, props: &MenuItemProps) -> MenuItemSpec {
         foreground,
         hover_background,
         hover_foreground,
+        path_hint_background: c.neutral_background_1_selected,
         disabled_foreground: c.neutral_foreground_disabled,
     }
 }
@@ -91,6 +95,16 @@ pub fn row_background(spec: &MenuItemSpec, active: bool) -> Hsla {
     } else {
         spec.background
     }
+}
+
+/// Background of a parent row whose submenu is open.
+///
+/// This is a path hint, not a second "current" row: the keyboard target is
+/// always the current row of the deepest open level, and it uses
+/// [`row_background`]. Keeping the two fills different means a user cannot
+/// mistake the parent row for the row Enter will run.
+pub fn path_hint_background(spec: &MenuItemSpec) -> Hsla {
+    spec.path_hint_background
 }
 
 /// Resolves the panel.
@@ -151,5 +165,18 @@ mod tests {
         assert_eq!(row_background(&spec, true), spec.hover_background);
         assert_eq!(row_background(&spec, false), spec.background);
         assert_ne!(spec.background, spec.hover_background);
+    }
+
+    #[test]
+    fn an_open_parent_is_a_path_hint_not_a_second_current_row() {
+        let t = theme();
+        let spec = item(&t, &MenuItemProps::default());
+        assert_eq!(path_hint_background(&spec), spec.path_hint_background);
+        assert_ne!(
+            path_hint_background(&spec),
+            row_background(&spec, true),
+            "the expanded parent must not use the current-row fill"
+        );
+        assert_ne!(spec.path_hint_background, spec.background);
     }
 }

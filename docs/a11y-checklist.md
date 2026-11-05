@@ -27,7 +27,7 @@
 | `Checkbox` / `Radio` | 基类 `CheckBox` | 基类 `aria_checked` | 基类 | 基类 | ✅ 继承 |
 | `Switch` | 基类 `Switch` | 基类 | 基类 | 基类 | ✅ 继承 |
 | `TextInput` / `Textarea` | gpui 原生输入元素 | — | 原生 IME/光标 | 聚焦下划线动画 | ⚠️ 见缺口 1 |
-| `Menu` / `MenuItem` | `Menu` / `MenuItem` + `aria_selected` | 无 label（行文本即可访问名） | 方向键/Home/End/Enter/Space/typeahead/Tab 关闭 | 当前项填充 | ✅ |
+| `Menu` / `MenuItem` | 每个面板 `Menu` / `MenuItem` + `aria_selected` | 无 label（行文本即可访问名） | 方向键/Home/End/Enter/Space/typeahead/→ 子菜单/Esc 逐层/Tab 关闭 | 最深当前项填充 + 父行 path hint | ✅（单焦点范围，见 [menus.md](subsystems/menus.md)） |
 | `MenuDropdown` | 继承 | — | 同上 + Esc/Tab | — | ✅ |
 | `TabList` / `Tab` | `TabList` / `Tab` + `aria_selected` | 无 label | 方向键/Home/End | 选中项 2px 内描边 | ✅（模型差异见缺口 2） |
 | `Popover` | 无（容器） | — | Esc/外部点击 | — | ✅ |
@@ -57,6 +57,7 @@
 | Tab 在面板内循环、不逃逸 | `popover::focus_trap_tests`、`sheet::tests::tab_stays_inside_the_sheet`（移除陷阱后失败） |
 | 菜单方向键/Home/End/Enter/Space/跳过禁用 | `menu::keyboard_tests`、`menu::input_mode_tests` |
 | 菜单 typeahead、Tab 关闭 | `menu::typeahead_tests` |
+| 子菜单逐层导航、点击归属、首帧定位、typeahead 路径 | `menu::submenu_tests`、`menu::submenu_regression_tests`、`popover::dismissal_tests` |
 | Tabs 方向键/Home/End/跳过禁用 | `tabs::tests` |
 
 ## 复跑

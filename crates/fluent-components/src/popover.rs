@@ -18,11 +18,20 @@ use gpui::{
     Position, Size, Style, deferred, point,
 };
 
-use std::{cell::Cell, rc::Rc};
+use std::{cell::Cell, cell::RefCell, rc::Rc};
 
 /// Shared only by the trigger and its panel for one rendered element tree.
 /// Both callbacks run during prepaint, so no cross-frame state is necessary.
 type TriggerBounds = Rc<Cell<Option<Bounds<Pixels>>>>;
+
+/// Painted window bounds of content-owned overlays that belong to the same
+/// floating surface, indexed by depth from the panel.
+///
+/// A submenu extends past the popover panel's own bounds, so the panel hitbox
+/// alone would call a press on it "outside" and dismiss the overlay. Content that
+/// paints beyond the panel publishes its regions here; entries are `None` until
+/// that depth has been painted and are rebuilt each render.
+pub(crate) type InteriorRegions = Rc<RefCell<Vec<Option<Bounds<Pixels>>>>>;
 
 struct PopoverPositioner {
     trigger_bounds: TriggerBounds,
@@ -154,6 +163,9 @@ pub struct Popover {
     default_open: bool,
     on_open_change: Option<OpenChangeHandler>,
     focus: Option<gpui::FocusHandle>,
+    /// Extra window-space regions owned by the content but part of this floating
+    /// surface. Used only for the outside-press test, never for placement.
+    interior: Option<InteriorRegions>,
     style: StyleRefinement,
 }
 
@@ -168,6 +180,7 @@ impl Popover {
             default_open: false,
             on_open_change: None,
             focus: None,
+            interior: None,
             style: StyleRefinement::default(),
         }
     }
@@ -220,6 +233,17 @@ impl Popover {
         handler: impl Fn(bool, &mut Window, &mut App) + 'static,
     ) -> Self {
         self.on_open_change = Some(std::rc::Rc::new(handler));
+        self
+    }
+
+    /// Adds content-owned regions that count as inside this popover.
+    ///
+    /// The outside-press test compares the press against the panel's own bounds.
+    /// Content that paints beyond them ([`Menu`](crate::Menu)'s submenus do)
+    /// publishes those painted bounds here so pressing them is not a dismissal;
+    /// it does not change placement or focus handling.
+    pub(crate) fn interior_regions(mut self, regions: InteriorRegions) -> Self {
+        self.interior = Some(regions);
         self
     }
 }
@@ -335,6 +359,7 @@ impl RenderOnce for Popover {
         let close_handler = on_change.clone();
         let panel_bounds: TriggerBounds = TriggerBounds::default();
         let close_bounds = panel_bounds.clone();
+        let interior = self.interior.clone();
 
         div()
             .child(anchor)
@@ -357,7 +382,22 @@ impl RenderOnce for Popover {
                     let close_handler = close_handler.clone();
                     let close_bounds = close_bounds.clone();
                     let close_trigger = trigger_bounds.clone();
+                    let interior = interior.clone();
                     panel = panel.on_mouse_down_out(move |event, window, cx| {
+                        // Content can extend beyond the panel's own hitbox (a
+                        // menu submenu does). If the press landed on one of the
+                        // regions it published, it is inside this surface: do
+                        // not treat it as a dismissal.
+                        let inside_content = interior.as_ref().is_some_and(|regions| {
+                            regions
+                                .borrow()
+                                .iter()
+                                .flatten()
+                                .any(|bounds| bounds.contains(&event.position))
+                        });
+                        if inside_content {
+                            return;
+                        }
                         // A press that lands on the trigger belongs to the trigger's
                         // own toggle. Closing here too would report the same press
                         // twice and reopen what the user just dismissed.
