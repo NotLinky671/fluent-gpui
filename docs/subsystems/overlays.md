@@ -176,3 +176,19 @@ PR 要描述用户/调用方看到的“之前 → 之后”，并区分实现�
 
 非受控模式（`.default_open`）保留内置 toggle。两种模式都有行为测试：受控调用方忽略请求则保持打开、
 接受请求后不会自行重新打开；非受控在重绘后保持状态。
+
+## 浮层协调矩阵（T-052）
+
+| 场景 | 期望 | 证据 |
+|---|---|---|
+| Escape，焦点在面板内 | 关闭该浮层 | `escape_closes_while_focus_is_inside_the_panel` |
+| Escape，焦点在触发器上 | 关闭该浮层（触发器在锚点子树内） | `escape_while_focus_is_on_the_trigger_closes_the_popover` |
+| Escape，焦点在浮层外 | 不关闭 | `escape_outside_the_overlay_does_not_close_it` |
+| 子菜单打开时按 Escape | 只退一层，浮层仍开着 | `escape_unwinds_the_chain_one_level_at_a_time` |
+| 子菜单关闭后再按 Escape | 关闭整条链 | 同上 |
+| 两个浮层同时打开，Escape | 只关焦点所在的那个 | `closing_one_popover_leaves_its_sibling_alone` |
+| 受控调用方接受关闭请求 | 不再自行重新打开 | `a_controlled_caller_that_accepts_the_request_stays_closed` |
+| 非受控浮层重绘 | 保持打开 | `an_uncontrolled_popover_stays_open_across_redraws` |
+
+仍未覆盖：真实窗口下的命中归属、事件顺序、Tooltip 的 hover/翻转/滚动跟随、边缘与缩放。
+这些需要人工在真窗口里操作，不能由上述测试替代。

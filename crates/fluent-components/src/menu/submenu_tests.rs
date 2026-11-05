@@ -452,3 +452,18 @@ fn the_submenu_is_clamped_into_the_viewport_on_both_axes() {
         "a flipped panel that is wider than the space on the left is clamped"
     );
 }
+
+#[gpui::test]
+fn escape_unwinds_the_chain_one_level_at_a_time(cx: &mut TestAppContext) {
+    let (handle, _, opens) = open(cx);
+    press(cx, handle, &["down", "right", "escape"]);
+    assert!(
+        !closed(&opens),
+        "the first Escape must only drop the submenu, leaving the dropdown open"
+    );
+    press(cx, handle, &["escape"]);
+    assert!(
+        closed(&opens),
+        "the second Escape must reach the dropdown and close the whole chain"
+    );
+}
