@@ -1529,7 +1529,6 @@ dependencies = [
  "fluent-core",
  "fluent-icons",
  "fluent-theme",
- "fluent-tokens",
  "gpui-base",
  "gpui-pre",
 ]
@@ -1538,7 +1537,6 @@ dependencies = [
 name = "fluent-core"
 version = "0.1.0"
 dependencies = [
- "fluent-icons",
  "fluent-theme",
  "fluent-tokens",
  "gpui-base",
@@ -1589,7 +1587,6 @@ version = "0.1.0"
 dependencies = [
  "fluent-components",
  "fluent-core",
- "fluent-icons",
  "fluent-theme",
  "fluent-tokens",
  "gpui-base",
