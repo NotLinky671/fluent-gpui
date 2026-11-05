@@ -14,7 +14,7 @@
 
 use fluent_core::gpui_compat::{
     AnyElement, App, ClickEvent, ElementId, FocusHandle, FontWeight, IntoElement, ParentElement,
-    RenderOnce, SharedString, Styled, Window, div,
+    RenderOnce, SharedString, Styled, Window, div, px,
 };
 use fluent_core::spec;
 use fluent_theme::FluentTheme;
@@ -357,7 +357,7 @@ fn render_dialog(
         }};
     }
 
-    if alert {
+    let host = if alert {
         finish!(
             gpui_base::AlertDialog::new(cx)
                 .open(is_open)
@@ -376,7 +376,15 @@ fn render_dialog(
                 .backdrop(backdrop)
                 .popup(popup)
         )
-    }
+    };
+
+    // The base host renders `deferred(anchored(...))` while open and an empty
+    // `div()` while closed. The open host is absolute and drops out of the
+    // parent's flex flow, while the closed placeholder is in flow — opening a
+    // dialog inside a flex column would otherwise remove one item and its gap,
+    // moving the content below. Keep one zero-height in-flow slot in both
+    // states, the same contract `Sheet` uses.
+    div().h(px(0.)).child(host).into_any_element()
 }
 
 #[cfg(test)]

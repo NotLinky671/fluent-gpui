@@ -11,7 +11,7 @@ use super::*;
 use gpui::{
     AppContext, Context, FocusHandle, InputEvent as _, InteractiveElement as _, KeyBinding,
     KeyDownEvent, Keystroke, Modifiers, MouseButton, MouseDownEvent, PlatformInput, Render,
-    TestAppContext, WindowHandle, canvas, point, px, size,
+    StatefulInteractiveElement as _, TestAppContext, WindowHandle, canvas, point, px, size,
 };
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
@@ -884,5 +884,216 @@ fn a_modal_dialog_paints_its_scrim_over_a_button(cx: &mut TestAppContext) {
     assert!(
         covered,
         "the modal scrim must paint a fullscreen quad over the button"
+    );
+}
+
+/// A dialog is an overlay: opening it must not change the flow layout around
+/// it. The base host renders `deferred(anchored(...))` while open and an empty
+/// `div()` while closed, so the wrapper has to keep the same zero-height
+/// in-flow slot in both states or the content below jumps by the flex gap.
+#[gpui::test]
+fn opening_does_not_shift_the_content_below(cx: &mut TestAppContext) {
+    struct ShiftView {
+        open: bool,
+        marker: Rc<Cell<Option<gpui::Bounds<gpui::Pixels>>>>,
+    }
+    impl Render for ShiftView {
+        fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+            let marker = self.marker.clone();
+            crate::root::FluentRoot::new().child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(12.))
+                    .p(px(16.))
+                    .child(div().h(px(32.)).child("Open"))
+                    .child(
+                        Dialog::new("shift-dialog")
+                            .open(self.open)
+                            .title("Title")
+                            .child("Body"),
+                    )
+                    .child(
+                        canvas(
+                            move |bounds, _, _| marker.set(Some(bounds)),
+                            |_, (), _, _| {},
+                        )
+                        .w(px(80.))
+                        .h(px(24.)),
+                    ),
+            )
+        }
+    }
+
+    cx.update(fluent_core::gpui_compat::init_base);
+    let marker: Rc<Cell<Option<gpui::Bounds<gpui::Pixels>>>> = Default::default();
+    let view_marker = marker.clone();
+    let window = cx.open_window(size(px(400.), px(300.)), move |_, _| ShiftView {
+        open: false,
+        marker: view_marker,
+    });
+    cx.run_until_parked();
+
+    let draw = |cx: &mut TestAppContext| {
+        for _ in 0..2 {
+            cx.update_window(window.into(), |view, window, cx| {
+                view.downcast::<ShiftView>()
+                    .unwrap()
+                    .read(cx)
+                    .marker
+                    .set(None);
+                window.refresh();
+                window.draw(cx).clear(cx);
+            })
+            .unwrap();
+            cx.run_until_parked();
+        }
+        marker.get().expect("marker measured")
+    };
+
+    let closed = draw(cx);
+    cx.update_window(window.into(), |view, _, cx| {
+        view.downcast::<ShiftView>()
+            .unwrap()
+            .update(cx, |view, cx| {
+                view.open = true;
+                cx.notify();
+            });
+    })
+    .unwrap();
+    let open = draw(cx);
+    assert_eq!(
+        open.origin.y, closed.origin.y,
+        "opening the dialog must not move the content below it: {closed:?} then {open:?}"
+    );
+
+    cx.update_window(window.into(), |view, _, cx| {
+        view.downcast::<ShiftView>()
+            .unwrap()
+            .update(cx, |view, cx| {
+                view.open = false;
+                cx.notify();
+            });
+    })
+    .unwrap();
+    let closed_again = draw(cx);
+    assert_eq!(
+        closed_again.origin.y, closed.origin.y,
+        "closing the dialog must not move the content below it either"
+    );
+}
+
+/// The same promise while the page is scrolled to its bottom, which is where
+/// the gallery's dialog section sits: the absolute host must not change the
+/// scrollable content or clamp the offset when it appears.
+#[gpui::test]
+fn opening_does_not_shift_a_scrolled_page(cx: &mut TestAppContext) {
+    struct ScrollView {
+        open: bool,
+        scroll: gpui::ScrollHandle,
+        marker: Rc<Cell<Option<gpui::Bounds<gpui::Pixels>>>>,
+    }
+    impl Render for ScrollView {
+        fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+            let marker = self.marker.clone();
+            crate::root::FluentRoot::new().child(
+                div()
+                    .id("dialog-scroll")
+                    .w(px(300.))
+                    .h(px(160.))
+                    .overflow_y_scroll()
+                    .track_scroll(&self.scroll)
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap(px(12.))
+                            .p(px(16.))
+                            .child(div().h(px(120.)).child("spacer"))
+                            .child(
+                                Dialog::new("scroll-dialog")
+                                    .open(self.open)
+                                    .title("Title")
+                                    .child("Body"),
+                            )
+                            .child(div().h(px(120.)).child("after"))
+                            .child(
+                                canvas(
+                                    move |bounds, _, _| marker.set(Some(bounds)),
+                                    |_, (), _, _| {},
+                                )
+                                .w(px(80.))
+                                .h(px(24.)),
+                            ),
+                    ),
+            )
+        }
+    }
+
+    cx.update(fluent_core::gpui_compat::init_base);
+    let scroll = gpui::ScrollHandle::new();
+    let marker: Rc<Cell<Option<gpui::Bounds<gpui::Pixels>>>> = Default::default();
+    let view_scroll = scroll.clone();
+    let view_marker = marker.clone();
+    let window = cx.open_window(size(px(400.), px(300.)), move |_, _| ScrollView {
+        open: false,
+        scroll: view_scroll,
+        marker: view_marker,
+    });
+    cx.run_until_parked();
+
+    let draw = |cx: &mut TestAppContext| {
+        for _ in 0..2 {
+            cx.update_window(window.into(), |view, window, cx| {
+                view.downcast::<ScrollView>()
+                    .unwrap()
+                    .read(cx)
+                    .marker
+                    .set(None);
+                window.refresh();
+                window.draw(cx).clear(cx);
+            })
+            .unwrap();
+            cx.run_until_parked();
+        }
+        marker.get().expect("marker measured")
+    };
+
+    draw(cx);
+    scroll.set_offset(point(px(0.), px(-9999.)));
+    let bottom = draw(cx);
+    assert!(
+        bottom.origin.y < px(160.),
+        "the marker must be visible after scrolling to the bottom: {bottom:?}"
+    );
+
+    cx.update_window(window.into(), |view, _, cx| {
+        view.downcast::<ScrollView>()
+            .unwrap()
+            .update(cx, |view, cx| {
+                view.open = true;
+                cx.notify();
+            });
+    })
+    .unwrap();
+    let open = draw(cx);
+    assert_eq!(
+        open.origin.y, bottom.origin.y,
+        "opening the dialog must not shift a page scrolled to the bottom: {bottom:?} then {open:?}"
+    );
+
+    cx.update_window(window.into(), |view, _, cx| {
+        view.downcast::<ScrollView>()
+            .unwrap()
+            .update(cx, |view, cx| {
+                view.open = false;
+                cx.notify();
+            });
+    })
+    .unwrap();
+    let closed = draw(cx);
+    assert_eq!(
+        closed.origin.y, bottom.origin.y,
+        "closing must not shift a page scrolled to the bottom either"
     );
 }
