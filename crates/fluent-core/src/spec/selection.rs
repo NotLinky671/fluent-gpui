@@ -121,8 +121,11 @@ pub fn radio(theme: &FluentTheme, props: &RadioProps) -> RadioSpec {
     let t = theme.tokens();
     let c = &t.color;
     let circle = px(16.);
-    // Measured against Fluent's rendered radio: the dot is ~0.58 of the ring.
-    let dot = px(9.5);
+    // Fluent paints the dot as a 16px box scaled to 0.625, i.e. 10px. Keep the
+    // gap between the two diameters an even number of pixels: a fractional dot
+    // (9.5) leaves a 0.5px inset that the renderer snaps to a whole pixel, so
+    // the dot lands visibly off-centre on both 1x and 2x displays.
+    let dot = px(10.);
 
     if props.disabled {
         return RadioSpec {
@@ -239,7 +242,10 @@ mod tests {
     fn radio_dot_is_five_eighths_of_the_circle() {
         let spec = radio(&FluentTheme::web_light(), &RadioProps::default());
         assert_eq!(spec.circle, px(16.));
-        assert_eq!(spec.dot, px(9.5));
+        // 16px × 0.625. Both diameters are even, so the 3px inset the flex
+        // centring produces lands on a whole pixel; a 9.5px dot would be
+        // snapped and sit half a pixel off-centre.
+        assert_eq!(spec.dot, px(10.));
     }
 
     #[test]
