@@ -1,0 +1,9 @@
+# Rust 1.98.0 is the first stable release where `Option::map_or_default` is
+# available (it was nightly-only through 1.97). The macOS-only `gpui-pre-macos`
+# crate calls it, so older stable toolchains fail with E0658 while compiling
+# that dependency. Pin the compiler instead of relying on whatever stable
+# happens to be installed: CI installs the same version.
+[toolchain]
+channel = "1.98.0"
+profile = "minimal"
+components = ["rustfmt", "clippy"]

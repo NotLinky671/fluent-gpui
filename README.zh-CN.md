@@ -147,6 +147,8 @@ cargo xtask gen-tokens --check
 cargo xtask gen-icons --check
 ```
 
+编译器版本固定在 `rust-toolchain.toml`（Rust 1.98.0），CI 安装同一版本。macOS 专属依赖 `gpui-pre-macos` 调用 `Option::map_or_default`，该 API 到 1.98.0 才稳定，因此更旧的 stable 工具链会在编译本工作区之前就报 E0658。rustup 会自动安装固定版本及 `rustfmt`/`clippy` 组件。
+
 `cargo deny check` 可能需要联网更新公告；离线审计须注明数据新鲜度限制。本地任务索引若存在，可额外运行 `cargo xtask tasks --check`；它依赖不随仓库分发的本地笔记，不属于当前 CI 门槛。
 
 ```text

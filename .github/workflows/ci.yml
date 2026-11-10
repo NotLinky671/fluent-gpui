@@ -26,7 +26,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: dtolnay/rust-toolchain@stable
+      # Same version as rust-toolchain.toml: the macOS gpui dependency needs an
+      # API stabilized in 1.98, and CI should verify the pinned compiler.
+      - uses: dtolnay/rust-toolchain@1.98.0
         with:
           components: rustfmt, clippy
 

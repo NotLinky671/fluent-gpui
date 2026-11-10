@@ -147,6 +147,8 @@ cargo xtask gen-tokens --check
 cargo xtask gen-icons --check
 ```
 
+The compiler is pinned in `rust-toolchain.toml` (Rust 1.98.0) and CI installs the same version. The macOS-only `gpui-pre-macos` dependency calls `Option::map_or_default`, which became stable in 1.98.0, so older stable toolchains fail with E0658 before the workspace is compiled. Rustup installs the pinned toolchain and the `rustfmt`/`clippy` components automatically.
+
 `cargo deny check` may need network access to refresh advisories; disclose data-freshness limits for offline audits. If the local task index exists, additionally run `cargo xtask tasks --check`; it depends on local-only notes that are not distributed with the repository and is not a current CI gate.
 
 ```text
