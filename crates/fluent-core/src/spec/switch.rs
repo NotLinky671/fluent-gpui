@@ -46,8 +46,13 @@ pub fn resolve(theme: &FluentTheme, props: &SwitchProps) -> SwitchSpec {
         ControlSize::Small => (px(32.), px(16.)),
         _ => (px(40.), px(20.)),
     };
-    let thumb_size = (track_height * 0.7).round();
-    let thumb_inset = ((track_height - thumb_size) / 2.0).round();
+    // The origin component centres the thumb with flex inside the 1px track
+    // border, so the leftover height above and below must be a whole number of
+    // pixels: an 11px thumb in the small 16px track leaves 1.5px, which the
+    // renderer snaps and paints one pixel low. A 6px total inset keeps 2px of
+    // air inside the border and divides evenly for both sizes.
+    let thumb_size = track_height - px(6.);
+    let thumb_inset = (track_height - thumb_size) / 2.0;
     let thumb_offset = track_width - thumb_size - thumb_inset;
 
     if props.disabled {
@@ -129,8 +134,16 @@ mod tests {
         );
         assert_eq!(small.track_width, px(32.));
         assert_eq!(small.track_height, px(16.));
-        assert_eq!(small.thumb_size, px(11.));
-        assert_eq!(small.thumb_offset, px(18.));
+        assert_eq!(small.thumb_size, px(10.));
+        assert_eq!(small.thumb_offset, px(19.));
+
+        // The thumb sits inside the 1px border, so its leftover height must be
+        // even; otherwise the flex centring lands on a half pixel and the
+        // painted thumb is a pixel low (the small switch used to do this).
+        for spec in [medium, small] {
+            let inset = (spec.track_height - px(2.) - spec.thumb_size) / 2.0;
+            assert_eq!(inset, inset.round(), "{spec:?}");
+        }
     }
 
     #[test]
