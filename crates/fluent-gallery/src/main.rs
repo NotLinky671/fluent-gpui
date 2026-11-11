@@ -10,7 +10,7 @@ use std::time::Duration;
 
 use fluent_ui::gpui::{
     AnyElement, App, Bounds, ClickEvent, Context, Hsla, Render, StatefulInteractiveElement,
-    Subscription, TitlebarOptions, Window, WindowBounds, WindowOptions, div, px, size,
+    Subscription, Window, WindowBounds, WindowOptions, div, px, size,
 };
 use fluent_ui::gpui_base::input::{InputState, TextareaState};
 use fluent_ui::prelude::*;
@@ -19,8 +19,8 @@ use fluent_ui::{
     ButtonAppearance, ButtonShape, Checkbox, ControlSize, Dialog, Divider, Field, FluentIcon,
     FluentRoot, FluentTheme, FontMode, InputAppearance, Link, Menu, MenuDropdown, MenuHeader,
     MenuItem, Popover, ProgressAppearance, ProgressBar, Radio, Sheet, SheetSide, Spinner,
-    SpinnerSize, Switch, TabItem, TabList, TextInput, Textarea, TextareaAppearance, TooltipSurface,
-    ValidationMessage,
+    SpinnerSize, Switch, TabItem, TabList, TextInput, Textarea, TextareaAppearance, TitleBar,
+    TooltipSurface, ValidationMessage,
 };
 
 const APPEARANCES: [ButtonAppearance; 5] = [
@@ -1053,6 +1053,9 @@ impl Render for Gallery {
         FluentRoot::new()
             .flex()
             .flex_col()
+            // Placeholder artwork until the gallery has a real app logo; it also
+            // exercises the leading slot that TitleBar reserves for one.
+            .child(TitleBar::new("gallery-titlebar", "Fluent Gallery").icon(FluentIcon::Settings))
             .child(header)
             .child(
                 div()
@@ -1112,11 +1115,7 @@ fn main() {
             .open_window(
                 WindowOptions {
                     window_bounds: Some(WindowBounds::Windowed(bounds)),
-                    titlebar: Some(TitlebarOptions {
-                        title: Some("Fluent Gallery".into()),
-                        ..Default::default()
-                    }),
-                    ..Default::default()
+                    ..TitleBar::window_options("Fluent Gallery")
                 },
                 |window, cx| cx.new(|cx| Gallery::new(window, cx)),
             )

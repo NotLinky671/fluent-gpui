@@ -17,6 +17,7 @@ pub mod sheet;
 pub mod switch;
 pub mod tabs;
 pub mod textarea;
+pub mod titlebar;
 
 /// Shared control sizes, mirroring Fluent's `size` prop.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

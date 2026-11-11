@@ -12,6 +12,7 @@ gpui-base.workspace = true
 fluent-theme.workspace = true
 fluent-icons.workspace = true
 fluent-core.workspace = true
+image.workspace = true
 
 [dev-dependencies]
 gpui = { workspace = true, features = ["test-support"] }

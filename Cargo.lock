@@ -1531,6 +1531,7 @@ dependencies = [
  "fluent-theme",
  "gpui-base",
  "gpui-pre",
+ "image",
 ]
 
 [[package]]

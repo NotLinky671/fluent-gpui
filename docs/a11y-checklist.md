@@ -35,6 +35,7 @@
 | `AlertDialog` | 基类 `AlertDialog` | — | 无 Esc/无 backdrop 关闭 | — | ✅ |
 | `Sheet` | 面板 `Role::Dialog`，宿主无 role | — | Esc / scrim 关闭，Tab 陷阱 | 宿主 | ⚠️ 见缺口 6 |
 | `Tooltip` | 基类 `Tooltip` | 文本内容 | — | — | ✅ |
+| `TitleBar` 自绘按钮 | `Button` | `TitleBarLabels`（可本地化） | 不加入内容 Tab 顺序，原生系统快捷键另测 | — | 部分实现；真实屏幕阅读器/辅助技术激活未验证，见[标题栏专题](subsystems/titlebar.md) |
 | `ProgressBar` / `Spinner` | `ProgressIndicator` + `aria_label` | ✅ | — | — | ✅ |
 | `Link` | `Link` | — | — | 下划线 | ✅ |
 | `Field` / `Label` | 无 | — | — | — | ⚠️ 见缺口 1 |

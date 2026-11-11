@@ -57,7 +57,7 @@ deferred positioner prepaint：读取同一共享值，结合面板尺寸和视�
 - `panel_origin` 的目标是触发器左侧与底部 + 4px；结合 `8px + client inset` 连续限位。边缘处理不是上下翻转，接近窗口边缘时也不保证继续保留触发器间隙。
 - 面板大于视口时对齐 inset，避免 clamp 上下界倒置；这不等于大内容总能完整容纳或自动滚动。
 - 定位器基于 `layout_bounds`、当前元素偏移与 `pixel_snap_point` 抵消祖先偏移，再调用 `with_absolute_element_offset`。不要再次加滚动距离，或改为整逻辑像素取整而丢失物理像素对齐。
-- deferred 路径让面板脱离普通滚动内容的裁剪；这不要求先改成根级 Host。若未来引入 Host，应另行论证生命周期、事件与状态，而不是把它当作同帧定位的必要前提。
+- deferred 路径让面板脱离普通滚动内容的裁剪；面板使用 `gpui_base::POPUP_PRIORITY`（100），高于普通模态与[标题栏按钮层](titlebar.md)（50），所以菜单覆盖按钮时仍接管点击。这不要求先改成根级 Host。若未来引入 Host，应另行论证生命周期、事件与状态，而不是把它当作同帧定位的必要前提。
 
 ### 外观与覆盖
 

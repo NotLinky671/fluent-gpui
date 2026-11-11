@@ -454,11 +454,16 @@ impl RenderOnce for Popover {
                     }
                     None => panel.into_any_element(),
                 };
-                el.child(deferred(PopoverPositioner {
-                    trigger_bounds,
-                    panel_bounds,
-                    panel,
-                }))
+                // Menus/popovers remain above the window caption controls (50)
+                // and modal hosts (10 + layer), as gpui-base popups do.
+                el.child(
+                    deferred(PopoverPositioner {
+                        trigger_bounds,
+                        panel_bounds,
+                        panel,
+                    })
+                    .with_priority(gpui_base::POPUP_PRIORITY),
+                )
             })
             .refine_style(&style)
     }

@@ -65,6 +65,7 @@ pub mod sheet;
 pub mod switch;
 pub mod tabs;
 pub mod textarea;
+pub mod titlebar;
 pub mod tooltip;
 
 pub use button::Button;
@@ -87,3 +88,4 @@ pub use sheet::{Sheet, SheetOpenChange};
 pub use switch::Switch;
 pub use tabs::{TabItem, TabList};
 pub use textarea::Textarea;
+pub use titlebar::{TitleBar, TitleBarLabels};
