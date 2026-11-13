@@ -125,7 +125,14 @@ fn copy(cx: &mut TestAppContext, handle: AnyWindowHandle) {
     cx.update_window(handle, |_, window, cx| {
         window.dispatch_event(
             PlatformInput::KeyDown(KeyDownEvent {
-                keystroke: Keystroke::parse("cmd-c").unwrap(),
+                // The accelerator is `cmd-c` on macOS and `ctrl-c` elsewhere; a literal
+                // "cmd-c" only matched on macOS, so the Windows run never reached copy.
+                keystroke: Keystroke::parse(if cfg!(target_os = "macos") {
+                    "cmd-c"
+                } else {
+                    "ctrl-c"
+                })
+                .unwrap(),
                 is_held: false,
                 prefer_character_input: false,
             }),
@@ -213,7 +220,7 @@ fn dragging_across_the_field_selects_and_copies_text(cx: &mut TestAppContext) {
     assert_eq!(
         copied.as_deref(),
         Some(selected.as_str()),
-        "Cmd+C must copy the drag-selected range"
+        "the copy accelerator must copy the drag-selected range"
     );
 }
 
@@ -284,6 +291,6 @@ fn dragging_across_the_textarea_selects_and_copies(cx: &mut TestAppContext) {
     assert_eq!(
         copied.as_deref(),
         Some(selected.as_str()),
-        "Cmd+C must copy the textarea drag-selected range"
+        "the copy accelerator must copy the textarea drag-selected range"
     );
 }

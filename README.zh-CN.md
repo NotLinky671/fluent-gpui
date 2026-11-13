@@ -119,7 +119,7 @@ GPUI 精确锁定在快照版本（`gpui-pre = 0.3.10`）；用 caret 版本会�
 
 ## 已知限制
 
-- 图库以 `TitleBar::window_options` 接入自绘标题栏。窗口按钮独立于内容层，位于普通模态之上、Popover/菜单之下；组件不退出应用。Windows/macOS 关闭检查由应用的 `on_window_should_close` 处理，Linux 自绘按钮另用 `TitleBar::on_close` 否决。原生平台与 DPI 验证范围见[修复记录](docs/validation/titlebar-2026-11-10.md)；macOS/Linux 真机、Snap、跨显示器缩放与屏幕阅读器仍需验证。Mica 未启用；便签应用仍用系统标题栏
+- 图库与便签应用都以 `TitleBar::window_options` 接入自绘标题栏。窗口按钮独立于内容层，位于普通模态之上、Popover/菜单之下；组件不退出应用。Windows/macOS 关闭检查由应用的 `on_window_should_close` 处理，Linux 自绘按钮另用 `TitleBar::on_close` 否决。便签应用关闭窗口仍会丢弃内存中的便签（与接入前一致，未新增关闭确认）。原生平台与 DPI 验证范围见[修复记录](docs/validation/titlebar-2026-11-10.md)；macOS/Linux 真机、Snap、跨显示器缩放与屏幕阅读器仍需验证。Mica 未启用
 - `Tabs` 让整条标签条持焦点、方向键改选中（Fluent 的自动激活），不是严格 roving tabindex；hover/pressed 是瞬时样式而非过渡，选中态优先于两者；指示条位置取自上一帧记录的标签绘制边界，因此比布局变化晚一帧
 - 字体模式只做本机字体可用性解析：`SegoeCompat` 依次查找 `Segoe UI` / `Selawik`，都没有时回退到 `.SystemUIFont`；仓库未内置这两款字体。因此 macOS 等未安装 Selawik 的环境切换 Font mode 可能没有任何像素变化，这是预期的回退结果，不是渲染缺陷
 - Gallery 的两条默认 `TabList` 各自持有一个持久 `FocusHandle` 并 `track_focus`，是实际的 Tab 停靠点；像素 fixture 里的 `fx-tabs` / `fx-tabs-vertical` 用 keyed 焦点句柄保证跨重绘稳定。未接 `track_focus` 时标签条没有属于自己的焦点句柄，不参与 Tab 顺序与键盘导航

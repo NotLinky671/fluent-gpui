@@ -15,7 +15,7 @@ use fluent_ui::{
     AlertDialog, Appearance, Badge, BadgeAppearance, BadgeSize, Button, ButtonAppearance, Checkbox,
     ControlSize, Dialog, Divider, Field, FluentIcon, FluentRoot, FluentTheme, Icon, Label, Menu,
     MenuDropdown, MenuHeader, MenuItem, Popover, Radio, Switch, TextInput, Textarea,
-    TextareaTabBehavior,
+    TextareaTabBehavior, TitleBar,
 };
 
 use crate::model::{Note, NoteId, NoteTone, NotesModel};
@@ -463,6 +463,10 @@ impl NotesApp {
             .flex()
             .flex_col()
             .size_full()
+            // The window asks for a transparent caption, so the view supplies it.
+            // The slot is reserved without artwork until the app has a logo; a
+            // later `.logo_bytes(..)` fills it without moving the title.
+            .child(TitleBar::new("notes-titlebar", "Fluent Notes — 内存便签").icon_slot())
             .child(self.render_top_bar(cx, narrow))
             .child(body)
             // A pending decision mounts modal dialogs; they render themselves

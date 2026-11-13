@@ -13,10 +13,8 @@ mod model;
 use std::time::Duration;
 
 use app::NotesApp;
-use fluent_ui::gpui::{
-    App, AppContext as _, Bounds, TitlebarOptions, WindowBounds, WindowOptions, px, size,
-};
-use fluent_ui::{Appearance, FluentTheme};
+use fluent_ui::gpui::{App, AppContext as _, Bounds, WindowBounds, WindowOptions, px, size};
+use fluent_ui::{Appearance, FluentTheme, TitleBar};
 
 fn main() {
     fluent_ui::application().run(|cx: &mut App| {
@@ -50,11 +48,8 @@ fn main() {
             .open_window(
                 WindowOptions {
                     window_bounds: Some(WindowBounds::Windowed(bounds)),
-                    titlebar: Some(TitlebarOptions {
-                        title: Some("Fluent Notes — 内存便签".into()),
-                        ..Default::default()
-                    }),
-                    ..Default::default()
+                    // The view draws the caption itself; see `app::render_root`.
+                    ..TitleBar::window_options("Fluent Notes — 内存便签")
                 },
                 |window, cx| cx.new(|cx| NotesApp::new(window, cx)),
             )
