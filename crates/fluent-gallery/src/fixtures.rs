@@ -5,7 +5,9 @@
 //! should point at the component, not at surrounding chrome.
 
 use fluent_ui::gpui::AppContext as _;
-use fluent_ui::gpui::{AnyElement, App, IntoElement, ParentElement, Styled, Window, div, px};
+use fluent_ui::gpui::{
+    AnyElement, App, FocusHandle, IntoElement, ParentElement, Styled, Window, div, px,
+};
 use fluent_ui::gpui_base::input::InputState;
 use fluent_ui::{
     Avatar, AvatarSize, Badge, BadgeAppearance, Button, ButtonAppearance, Checkbox, Dialog,
@@ -137,19 +139,32 @@ pub fn size(name: &str) -> Option<(f32, f32)> {
         .map(|fixture| (fixture.width, fixture.height))
 }
 
+/// A tab-stop focus handle that survives redraws.
+///
+/// Fixtures are rendered as `RenderOnce` trees, so a fresh `cx.focus_handle()`
+/// each frame would replace the strip's stop every paint. The keyed state keeps
+/// one handle for the fixture's lifetime.
+fn tab_focus(window: &mut Window, cx: &mut App, key: &'static str) -> FocusHandle {
+    let state = window.use_keyed_state(key, cx, |_, cx| cx.focus_handle().tab_stop(true));
+    state.read(cx).clone()
+}
+
 /// Renders one fixture, or `None` when the name is unknown.
 pub fn render(name: &str, window: &mut Window, cx: &mut App) -> Option<AnyElement> {
     let element = match name {
         "button-primary" => Button::new("fx-button-primary")
             .appearance(ButtonAppearance::Primary)
+            .accessibility_label("Save")
             .child("Save")
             .into_any_element(),
         "button-secondary" => Button::new("fx-button-secondary")
             .appearance(ButtonAppearance::Secondary)
+            .accessibility_label("Cancel")
             .child("Cancel")
             .into_any_element(),
         "button-subtle" => Button::new("fx-button-subtle")
             .appearance(ButtonAppearance::Subtle)
+            .accessibility_label("Subtle")
             .child("Subtle")
             .into_any_element(),
         "checkbox-unchecked" => Checkbox::new("fx-checkbox-unchecked")
@@ -175,7 +190,7 @@ pub fn render(name: &str, window: &mut Window, cx: &mut App) -> Option<AnyElemen
             let state = cx.new(|cx| InputState::new(window, cx).placeholder("Placeholder"));
             div()
                 .w(px(200.))
-                .child(TextInput::new(&state))
+                .child(TextInput::new(&state).accessibility_label("Input"))
                 .into_any_element()
         }
         "field-with-hint" => {
@@ -186,7 +201,7 @@ pub fn render(name: &str, window: &mut Window, cx: &mut App) -> Option<AnyElemen
                     Field::new("Display name")
                         .required(true)
                         .hint("Shown to other people.")
-                        .child(TextInput::new(&state)),
+                        .child(TextInput::new(&state).accessibility_label("Display name")),
                 )
                 .into_any_element()
         }
@@ -204,12 +219,14 @@ pub fn render(name: &str, window: &mut Window, cx: &mut App) -> Option<AnyElemen
             .into_any_element(),
 
         "tabs-horizontal" => TabList::new("fx-tabs")
+            .track_focus(&tab_focus(window, cx, "fx-tabs-focus"))
             .default_selected(0)
             .tab(TabItem::new("fx-tab-a", "Overview"))
             .tab(TabItem::new("fx-tab-b", "Activity"))
             .tab(TabItem::new("fx-tab-c", "Archived").disabled(true))
             .into_any_element(),
         "tabs-vertical" => TabList::new("fx-tabs-vertical")
+            .track_focus(&tab_focus(window, cx, "fx-tabs-vertical-focus"))
             .vertical()
             .default_selected(1)
             .tab(TabItem::new("fx-vtab-a", "Overview"))
@@ -231,6 +248,7 @@ pub fn render(name: &str, window: &mut Window, cx: &mut App) -> Option<AnyElemen
             .footer_child(
                 Button::new("fx-dialog-cancel")
                     .appearance(ButtonAppearance::Secondary)
+                    .accessibility_label("Cancel")
                     .child("Cancel"),
             )
             .into_any_element(),
@@ -242,11 +260,13 @@ pub fn render(name: &str, window: &mut Window, cx: &mut App) -> Option<AnyElemen
             .footer_child(
                 Button::new("fx-sheet-cancel")
                     .appearance(ButtonAppearance::Secondary)
+                    .accessibility_label("Cancel")
                     .child("Cancel"),
             )
             .footer_child(
                 Button::new("fx-sheet-apply")
                     .appearance(ButtonAppearance::Primary)
+                    .accessibility_label("Apply")
                     .child("Apply"),
             )
             .into_any_element(),

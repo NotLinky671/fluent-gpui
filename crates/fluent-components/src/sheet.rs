@@ -36,6 +36,7 @@ use fluent_core::gpui_compat::{
 use fluent_core::spec;
 use fluent_core::spec::sheet::SheetSide;
 use fluent_theme::FluentTheme;
+use gpui::prelude::FluentBuilder as _;
 use gpui_base::Sheet as BaseSheet;
 use gpui_base::motion::{Presence, TransitionId};
 
@@ -50,7 +51,9 @@ struct SheetConfig {
     default_open: bool,
     on_open_change: Option<SheetOpenChange>,
     size: Option<Pixels>,
-    title: Option<AnyElement>,
+    title: Option<SharedString>,
+    title_element: Option<AnyElement>,
+    a11y_label: Option<SharedString>,
     children: Vec<AnyElement>,
     footer: Vec<AnyElement>,
 }
@@ -78,6 +81,8 @@ impl Sheet {
                 on_open_change: None,
                 size: None,
                 title: None,
+                title_element: None,
+                a11y_label: None,
                 children: Vec::new(),
                 footer: Vec::new(),
             },
@@ -128,9 +133,25 @@ impl Sheet {
         self
     }
 
-    /// The title rendered at the top of the panel.
-    pub fn title(mut self, title: impl IntoElement) -> Self {
-        self.config.title = Some(title.into_any_element());
+    /// The title text rendered at the top of the panel.
+    ///
+    /// The same text becomes the panel's accessible name. Use
+    /// [`Self::title_element`] for custom content, or
+    /// [`Self::accessibility_label`] when the announced name must differ.
+    pub fn title(mut self, title: impl Into<SharedString>) -> Self {
+        self.config.title = Some(title.into());
+        self
+    }
+
+    /// A custom title element; it does not supply an accessible name.
+    pub fn title_element(mut self, title: impl IntoElement) -> Self {
+        self.config.title_element = Some(title.into_any_element());
+        self
+    }
+
+    /// Overrides the accessible name derived from the title text.
+    pub fn accessibility_label(mut self, label: impl Into<SharedString>) -> Self {
+        self.config.a11y_label = Some(label.into());
         self
     }
 
@@ -159,7 +180,7 @@ impl RenderOnce for Sheet {
     }
 }
 
-fn render_sheet(config: SheetConfig, window: &mut Window, cx: &mut App) -> AnyElement {
+fn render_sheet(mut config: SheetConfig, window: &mut Window, cx: &mut App) -> AnyElement {
     let theme = FluentTheme::global(cx);
     let surface_spec = spec::sheet::sheet(&theme);
     let size = config.size.unwrap_or(surface_spec.size);
@@ -257,7 +278,13 @@ fn render_sheet(config: SheetConfig, window: &mut Window, cx: &mut App) -> AnyEl
         .occlude()
         .bg(surface_spec.scrim.opacity(progress));
 
-    let header = config.title.map(|title| {
+    let title_element = config.title_element.take().or_else(|| {
+        config
+            .title
+            .clone()
+            .map(|title| div().child(title).into_any_element())
+    });
+    let header = title_element.map(|title| {
         div()
             .w_full()
             .flex()
@@ -267,6 +294,7 @@ fn render_sheet(config: SheetConfig, window: &mut Window, cx: &mut App) -> AnyEl
             .font_weight(FontWeight::SEMIBOLD)
             .child(title)
     });
+    let a11y_label = config.a11y_label.clone().or_else(|| config.title.clone());
 
     let body = div()
         .flex()
@@ -308,6 +336,8 @@ fn render_sheet(config: SheetConfig, window: &mut Window, cx: &mut App) -> AnyEl
         .text_color(surface_spec.foreground)
         .shadow(surface_spec.shadow.to_vec())
         .role(Role::Dialog)
+        .aria_modal(true)
+        .when_some(a11y_label, |this, label| this.aria_label(label))
         .children(header)
         .child(body)
         .children(footer);

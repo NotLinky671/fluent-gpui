@@ -15,6 +15,7 @@ use fluent_ui::{
     AlertDialog, Appearance, Badge, BadgeAppearance, BadgeSize, Button, ButtonAppearance, Checkbox,
     ControlSize, Dialog, Divider, Field, FluentIcon, FluentRoot, FluentTheme, Icon, Label, Menu,
     MenuDropdown, MenuHeader, MenuItem, Popover, Radio, Switch, TextInput, Textarea,
+    TextareaTabBehavior,
 };
 
 use crate::model::{Note, NoteId, NoteTone, NotesModel};
@@ -118,9 +119,10 @@ impl NotesApp {
             app.load_into_editor(window, cx, id);
         }
 
-        // The list shows a live dirty mark and character counts. Input changes
-        // notify the app so those labels follow the draft without the input
-        // states having to be rebuilt.
+        // The sidebar shows each note's *saved* title and preview; the editor's
+        // character counts follow the draft. Input changes only notify the app
+        // so the count/dirty labels refresh — they never rewrite the note. The
+        // list changes when the draft is saved.
         let title_sub = cx.observe(&app.title_input, |_, _, cx| cx.notify());
         let body_sub = cx.observe(&app.body_input, |_, _, cx| cx.notify());
         app._subscriptions = vec![title_sub, body_sub];
@@ -533,6 +535,7 @@ impl NotesApp {
                 .appearance(ButtonAppearance::Primary)
                 .icon(FluentIcon::Add)
                 .tooltip("新建便签")
+                .accessibility_label("新建便签")
                 .on_click(cx.listener(|this, _, window, cx| this.request_new_note(window, cx)))
                 .child("新建便签"),
         );
@@ -600,6 +603,7 @@ impl NotesApp {
                 Button::new("notes-new-sidebar-text")
                     .appearance(ButtonAppearance::Secondary)
                     .size(ControlSize::Small)
+                    .accessibility_label("新建")
                     .on_click(cx.listener(|this, _, window, cx| this.request_new_note(window, cx)))
                     .child("新建"),
             );
@@ -681,6 +685,7 @@ impl NotesApp {
                 Button::new("notes-empty-list-new")
                     .appearance(ButtonAppearance::Secondary)
                     .icon(FluentIcon::Add)
+                    .accessibility_label("新建便签")
                     .on_click(cx.listener(|this, _, window, cx| this.request_new_note(window, cx)))
                     .child("新建便签"),
             )
@@ -778,6 +783,7 @@ impl NotesApp {
             .px(px(8.))
             .py(if self.compact_list { px(4.) } else { px(6.) })
             .tooltip(format!("打开：{}", display_title.clone()))
+            .accessibility_label(display_title.clone())
             .on_click(cx.listener(move |this, _, window, cx| this.request_select(window, cx, id)))
             .child(content)
             .into_any_element()
@@ -792,6 +798,7 @@ impl NotesApp {
         let pinned = note.pinned;
         let display_title = note.display_title().to_string();
         let dirty = self.is_dirty(cx);
+        let pin_label = if pinned { "取消置顶" } else { "置顶" };
         let (title_value, body_value) = self.draft(cx);
         let title_chars = title_value.chars().count();
         let body_chars = body_value.chars().count();
@@ -874,6 +881,7 @@ impl NotesApp {
             .appearance(ButtonAppearance::Secondary)
             .icon_after(FluentIcon::ChevronDown)
             .tooltip("编辑便签属性")
+            .accessibility_label("属性")
             .on_click(cx.listener(|this, _, _, cx| this.toggle_props(cx)))
             .child("属性");
 
@@ -904,6 +912,7 @@ impl NotesApp {
                 Button::new("notes-save")
                     .appearance(ButtonAppearance::Primary)
                     .tooltip("保存当前便签")
+                    .accessibility_label("保存")
                     .on_click(cx.listener(|this, _, window, cx| this.save(window, cx)))
                     .child("保存"),
             )
@@ -912,6 +921,7 @@ impl NotesApp {
                     .appearance(ButtonAppearance::Secondary)
                     .disabled(!dirty)
                     .tooltip("恢复上次保存的标题与正文")
+                    .accessibility_label("取消")
                     .on_click(cx.listener(|this, _, window, cx| this.cancel(window, cx)))
                     .child("取消"),
             )
@@ -923,8 +933,9 @@ impl NotesApp {
                     } else {
                         "置顶当前便签"
                     })
+                    .accessibility_label(pin_label)
                     .on_click(cx.listener(|this, _, _, cx| this.toggle_pinned(cx)))
-                    .child(if pinned { "取消置顶" } else { "置顶" }),
+                    .child(pin_label),
             )
             .child(props)
             .child(menu)
@@ -934,6 +945,7 @@ impl NotesApp {
                     .appearance(ButtonAppearance::Subtle)
                     .text_color(t.color.status_danger_foreground_1)
                     .tooltip("删除当前便签")
+                    .accessibility_label("删除")
                     .on_click(cx.listener(|this, _, _, cx| this.request_delete(cx)))
                     .child("删除"),
             );
@@ -943,12 +955,13 @@ impl NotesApp {
         // (white-on-white) and low-contrast in dark; see the app's known issues.
         // `dirty` still drives the header, Cancel and the menu.
 
-        let body_editor = div()
-            .flex_1()
-            .min_h(px(0.))
-            .flex()
-            .flex_col()
-            .child(Textarea::new(&self.body_input).flex_1().min_h(px(0.)));
+        let body_editor = div().flex_1().min_h(px(0.)).flex().flex_col().child(
+            Textarea::new(&self.body_input)
+                .tab_behavior(TextareaTabBehavior::Navigate)
+                .accessibility_label("正文")
+                .flex_1()
+                .min_h(px(0.)),
+        );
 
         let mut panel = div()
             .flex_1()
@@ -997,14 +1010,17 @@ impl NotesApp {
             .child(if narrow {
                 Field::new("标题")
                     .hint("标题为空时显示为「无标题便签」。")
-                    .child(TextInput::new(&self.title_input))
+                    .child(TextInput::new(&self.title_input).accessibility_label("标题"))
             } else {
                 Field::new("标题")
                     .hint("标题为空时，列表显示为「无标题便签」；保存不会自动改写输入内容。")
-                    .child(TextInput::new(&self.title_input))
-            })
-            .child(toolbar);
+                    .child(TextInput::new(&self.title_input).accessibility_label("标题"))
+            });
 
+        // Visual order and Tab order are deliberately the same:
+        // title → body → actions → status. Keeping the toolbar before the body
+        // made Tab jump from the title straight to Save, so the body was only
+        // reachable after every action button.
         panel = panel
             .child(
                 div()
@@ -1016,6 +1032,7 @@ impl NotesApp {
                     .child(Label::new("正文"))
                     .child(body_editor),
             )
+            .child(toolbar)
             .child(self.render_status(counts, cx, narrow));
 
         panel.into_any_element()
@@ -1096,18 +1113,21 @@ impl NotesApp {
             .footer_child(
                 Button::new("notes-pending-stay")
                     .appearance(ButtonAppearance::Secondary)
+                    .accessibility_label("留在当前")
                     .on_click(cx.listener(|this, _, _, cx| this.cancel_pending(cx)))
                     .child("留在当前"),
             )
             .footer_child(
                 Button::new("notes-pending-discard")
                     .appearance(ButtonAppearance::Secondary)
+                    .accessibility_label(discard_label)
                     .on_click(cx.listener(|this, _, window, cx| this.confirm_pending(window, cx)))
                     .child(discard_label),
             )
             .footer_child(
                 Button::new("notes-pending-save")
                     .appearance(ButtonAppearance::Primary)
+                    .accessibility_label(save_label)
                     .on_click(cx.listener(|this, _, window, cx| this.save_and_continue(window, cx)))
                     .child(save_label),
             )
@@ -1149,6 +1169,7 @@ impl NotesApp {
             .footer_child(
                 Button::new("notes-pending-cancel")
                     .appearance(ButtonAppearance::Secondary)
+                    .accessibility_label("取消")
                     .on_click(cx.listener(|this, _, _, cx| this.cancel_pending(cx)))
                     .child("取消"),
             )
@@ -1156,6 +1177,7 @@ impl NotesApp {
                 Button::new("notes-pending-delete")
                     .appearance(ButtonAppearance::Secondary)
                     .text_color(t.color.status_danger_foreground_1)
+                    .accessibility_label("确认删除")
                     .on_click(cx.listener(|this, _, window, cx| this.confirm_pending(window, cx)))
                     .child("确认删除"),
             )
@@ -1263,6 +1285,7 @@ impl NotesApp {
                         Button::new("notes-empty-editor-new")
                             .appearance(ButtonAppearance::Primary)
                             .icon(FluentIcon::Add)
+                            .accessibility_label("新建便签")
                             .on_click(
                                 cx.listener(|this, _, window, cx| {
                                     this.request_new_note(window, cx)
@@ -1390,6 +1413,7 @@ impl NotesApp {
                     .child(
                         Button::new("notes-settings-done")
                             .appearance(ButtonAppearance::Primary)
+                            .accessibility_label("完成")
                             .on_click(cx.listener(|this, _, _, cx| this.close_settings(cx)))
                             .child("完成"),
                     ),
@@ -1491,6 +1515,7 @@ impl NotesApp {
                 div().flex().justify_end().child(
                     Button::new("notes-props-done")
                         .appearance(ButtonAppearance::Secondary)
+                        .accessibility_label("完成")
                         .on_click(cx.listener(|this, _, _, cx| this.close_props(cx)))
                         .child("完成"),
                 ),

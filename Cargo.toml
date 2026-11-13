@@ -36,6 +36,14 @@ tracing = "0.1"
 # window icon has to name the same type. Already in the tree through gpui.
 image = { version = "0.25", default-features = false, features = ["png"] }
 
+# Local exact-version patches for the two crates whose upstream public hooks
+# are too narrow for the accessibility contract (see docs/validation). The
+# versions stay pinned; do not bump them while patching. Upstream checksums
+# are recorded in vendor/VENDORED.md.
+[patch.crates-io]
+gpui-base = { path = "vendor/gpui-base" }
+gpui-pre = { path = "vendor/gpui-pre" }
+
 # GPUI's own profile guidance: these crates dominate frame time in debug
 # builds and are cheap to optimize.
 [profile.dev.package]

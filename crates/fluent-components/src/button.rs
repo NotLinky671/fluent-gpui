@@ -111,7 +111,13 @@ impl Button {
         self
     }
 
-    /// Accessible name. Falls back to the rendered label when omitted.
+    /// Explicit accessible name.
+    ///
+    /// There is no automatic fallback: `.child(..)` takes an opaque
+    /// `AnyElement`, so text children (and any other custom content) cannot be
+    /// read back or turned into a name. Text buttons must pass the same
+    /// `SharedString` here that they render; icon-only buttons pass a short
+    /// action description. This does not affect the visible label.
     pub fn accessibility_label(mut self, label: impl Into<SharedString>) -> Self {
         self.a11y_label = Some(label.into());
         self

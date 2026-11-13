@@ -283,7 +283,7 @@ fn bind_keys(cx: &mut TestAppContext) {
             KeyBinding::new("tab", crate::MenuTabOut, Some(crate::MENU_KEY_CONTEXT)),
             KeyBinding::new(
                 "shift-tab",
-                crate::MenuTabOut,
+                crate::MenuTabBackward,
                 Some(crate::MENU_KEY_CONTEXT),
             ),
         ]);

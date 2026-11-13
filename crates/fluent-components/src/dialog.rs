@@ -35,7 +35,9 @@ type Closed = std::rc::Rc<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;
 /// Shared builder state for [`Dialog`] and [`AlertDialog`].
 struct DialogConfig {
     id: ElementId,
-    title: Option<AnyElement>,
+    title: Option<SharedString>,
+    title_element: Option<AnyElement>,
+    a11y_label: Option<SharedString>,
     open: Option<bool>,
     default_open: bool,
     on_open_change: Option<DialogOpenChange>,
@@ -51,6 +53,8 @@ impl DialogConfig {
         Self {
             id: id.into(),
             title: None,
+            title_element: None,
+            a11y_label: None,
             open: None,
             default_open: false,
             on_open_change: None,
@@ -65,9 +69,30 @@ impl DialogConfig {
 
 macro_rules! dialog_builders {
     () => {
-        /// The title rendered at the top of the card.
-        pub fn title(mut self, title: impl IntoElement) -> Self {
-            self.config.title = Some(title.into_any_element());
+        /// The title text rendered at the top of the card.
+        ///
+        /// The same text becomes the modal host's accessible name. Pass
+        /// [`Self::accessibility_label`] only when the announced name must
+        /// differ from the visible title.
+        pub fn title(mut self, title: impl Into<SharedString>) -> Self {
+            self.config.title = Some(title.into());
+            self
+        }
+
+        /// A custom title element. It does not provide an accessible name; use
+        /// [`Self::accessibility_label`] when the host needs one.
+        pub fn title_element(mut self, title: impl IntoElement) -> Self {
+            self.config.title_element = Some(title.into_any_element());
+            self
+        }
+
+        /// Overrides the accessible name for the modal host.
+        ///
+        /// `title` text is used automatically; pass this only when the
+        /// announced name must differ from the visible title. A custom
+        /// `title_element` supplies no name.
+        pub fn accessibility_label(mut self, label: impl Into<SharedString>) -> Self {
+            self.config.a11y_label = Some(label.into());
             self
         }
 
@@ -225,7 +250,7 @@ impl RenderOnce for AlertDialog {
 /// click that moved focus elsewhere is not undone. All of it lives in window
 /// keyed state because the wrapper is `RenderOnce`.
 fn render_dialog(
-    config: DialogConfig,
+    mut config: DialogConfig,
     alert: bool,
     window: &mut Window,
     cx: &mut App,
@@ -312,15 +337,23 @@ fn render_dialog(
         .bg(surface.background)
         .text_color(surface.foreground)
         .shadow(surface.shadow.to_vec())
-        .when_some(config.title, |card, title| {
-            card.child(
-                gpui_base::DialogTitle::new()
-                    .text_size(surface.title_size)
-                    .line_height(surface.title_line_height)
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .child(title),
-            )
-        })
+        .when_some(
+            config.title_element.take().or_else(|| {
+                config
+                    .title
+                    .clone()
+                    .map(|title| div().child(title).into_any_element())
+            }),
+            |card, title| {
+                card.child(
+                    gpui_base::DialogTitle::new()
+                        .text_size(surface.title_size)
+                        .line_height(surface.title_line_height)
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .child(title),
+                )
+            },
+        )
         .child(
             div()
                 .text_size(surface.body_size)
@@ -353,6 +386,10 @@ fn render_dialog(
             if let Some(on_close) = config.on_close {
                 host = host.on_close(move |event, window, cx| on_close(event, window, cx));
             }
+            if let Some(label) = config.a11y_label.clone().or_else(|| config.title.clone()) {
+                host = host.accessibility_label(label);
+            }
+            host = host.host_id(id.clone());
             host.into_any_element()
         }};
     }

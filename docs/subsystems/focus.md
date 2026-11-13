@@ -8,7 +8,7 @@
 |---|---|---|
 | `FluentRoot` | 携带 `ROOT_KEY_CONTEXT`，并处理 `FocusNext` / `FocusPrev` | 不等于 gpui-base 的 `Root` 视图；两者 context 不同 |
 | `TextInput` / `Textarea` | 点击自身聚焦；`on_mouse_down_out` 失焦 | 不包含 Tab 遍历与焦点陷阱 |
-| `Popover` | `track_focus` 提供面板焦点句柄；打开时移入、关闭时归还；Escape 依赖它 | 不包含焦点陷阱；面板内控件需自己可聚焦 |
+| `Popover` | `track_focus` 提供面板焦点句柄；打开时移入、关闭时归还；Escape 依赖它；面板注册焦点陷阱 | 触发器的焦点属于触发器自身，不与面板共用句柄；面板内控件仍需自己可聚焦 |
 | `Dialog` / `AlertDialog` | 宿主自带 `focus_trap`；wrapper 记录旧焦点并在关闭帧归还 | 打开时焦点落在对话框宿主而非首个控件 |
 | `Sheet` | 宿主自带 `focus_trap`；wrapper 记录旧焦点，等退出动画结束且焦点仍在抽屉内时归还 | 打开时焦点落在抽屉宿主；关闭期间焦点仍被约束，不会立刻归还 |
 
@@ -42,6 +42,16 @@
 
 保存前一焦点与「上一帧是否打开」都用 window keyed state（按元素 ID 区分），因为 `Popover` 是 `RenderOnce`，自身没有跨帧状态。
 
+**触发器包装层不再跟踪面板句柄。** 之前同一个 `FocusHandle` 既挂在始终存在的触发器包装层上，又用于面板焦点陷阱；关闭归还到的还是这个句柄，而 gpui-base 的 `active_focus_trap` 只检查「陷阱容器的句柄是否包含当前焦点」，注册项又不会随面板卸载删除。于是关闭后陷阱仍被判为活动，`FluentRoot::advance_focus` 把之后的 Tab 反复带回已消失的菜单。现在：
+
+```text
+trigger 元素 → 自己的焦点句柄（可聚焦控件）或无焦点
+面板 / 陷阱 → track_focus 提供的句柄，只在打开时存在于树中
+关闭归还 → 返回 trigger 等上一焦点；面板句柄不再被触发器撑住
+```
+
+触发器本身仍需键盘可到达时由调用方提供可聚焦元素（例如 `Button`）；`track_focus` 只描述面板与陷阱，不再把触发器包装层变成空焦点节点。
+
 ## Tab 顺序
 
 `gpui_base::root::init` 确实绑定了 `tab` / `shift-tab`，但它限定在 gpui-base 自己 `Root` 视图的 context 上（该常量在 gpui-base 内是私有的）。应用挂载的是 `FluentRoot`，**不会**带上那个 context，所以那条绑定在 Fluent 应用里从不触发。
@@ -53,6 +63,15 @@
 - `FluentRoot` 设置 `ROOT_KEY_CONTEXT` 并处理两个 action，转发给 `window.focus_next` / `focus_prev`
 
 不直接复用 gpui-base 的 context，是因为那个字符串是私有实现细节；自己绑定语义明确，也不受上游改动影响。
+
+### 文本控件的 Tab
+
+gpui-base 在 `Input` context 把 Tab/Shift+Tab 绑为 `IndentInline`/`OutdentInline`。Fluent 的 `Textarea` 通过 `TextareaTabBehavior` 选择：
+
+- `Indent`（默认）：保留 gpui-base 的缩进行为。
+- `Navigate`：组件包装层设置 `FluentTextInputNavigate` context；`fluent_ui::init` 绑定 `FluentTextInputNavigate > Input` 到 `FocusNext`/`FocusPrev`。`>` 表示标记 context 是 `Input` 的祖先，匹配深度落在 `Input` 上；同深度下后安装的绑定优先，因此仅 Navigate 实例覆盖缩进，Indent 实例和其他输入不受影响。
+
+`TextInput` 单行输入同样应使用 Navigate；它的 builder 与 Textarea 共用同一 context/action 约定。
 
 ## 菜单键盘
 
@@ -79,7 +98,9 @@
 ### 输入字符与 Tab
 
 - **typeahead**：菜单在容器上挂 `on_key_down`，把单字符按键累积成前缀（600ms 后重置；重复同一字符时以前一字符重新开始，从而在多个同字母项之间循环）。前缀归属“完整层路径 + 菜单会话 + 本次层级访问代号（`level_epoch`）”，所以同深度换分支、离开再返回、关闭再打开，以及**左退/右进或 Esc 后重入同一分支**都不会继承旧前缀。层级访问代号只在 open 路径实际变化时递增，不在每帧重置，同一层内的连续输入仍正常累积；根层 Esc 与 Tab 不改变路径，会显式清空前缀。匹配从**当前项之后**开始并环绕。
-- **Tab / Shift+Tab 关闭**：在 `MENU_KEY_CONTEXT` 内绑定到 `MenuTabOut`，它会取消未触发的悬停请求并派发 `Dismiss` 交给宿主 `Popover` 关闭。绑定放在菜单上下文里，是为了让更具体的上下文覆盖 ROOT 的 Tab 遍历——否则焦点会先移出菜单，面板留在原处。
+- **Tab / Shift+Tab 关闭并移交方向**：`MENU_KEY_CONTEXT` 内 Tab 绑定 `MenuTabOut`、Shift+Tab 绑定 `MenuTabBackward`。两者都取消未触发的悬停请求、清空 typeahead，并派发对应的 `DismissAndFocusNext` / `DismissAndFocusPrev`。`Popover` 在关闭帧记录方向、归还触发器焦点，之后在该帧之后的首个帧回调（面板已离开 tab 顺序）再调用 `window.focus_next` / `focus_prev`；不能在渲染中立刻前进，因为此时 `rendered_frame` 仍含即将消失的面板。绑定放在菜单上下文里，是为了让更具体的上下文覆盖 ROOT 的 Tab 遍历——否则焦点会先移出菜单，面板留在原处。
+- **受控关闭也消费方向**：方向请求会强制产生一帧（`window.refresh`），不依赖调用方是否重绘。受控调用方在同一事件周期把 `open` 改为 false 时，关闭帧消费方向并按 Tab/Shift+Tab 前进；拒绝关闭时，强制帧仍显示打开，方向在该帧丢弃。方向只属于「本请求对应的关闭帧」：之后才异步接受或程序化关闭只归还焦点，不再前进；需要方向性移交的调用方必须同步接受。没有基于时间的过期猜测。
+- **没有可归还焦点时**：打开前没有焦点句柄时，关闭后焦点不能留在已卸载的面板上（它没有 dispatch 路径，后续 Tab 绑定也无法匹配）。此时关闭帧在下一帧把焦点移到首个真实停靠点；若 Tab 带来明确方向，则该方向优先。
 - **子菜单**：焦点始终留在根容器；`→`/Enter 只在当前行确实带子菜单时打开下一层，`←`/Esc 退一层，Tab 关整条链。每层的当前行按层保存，指针回调带层路径，深层面板没有自己的键上下文或焦点陷阱。相邻层允许复用同一个触发行 ID：打开判据是层路径长度，不是裸 ID。
 - **悬停请求的取消**：面板上的真实 `on_mouse_move` 用本层待打开行的测量边界核对指针；移到面板 padding、行间 gap 或自定义非选择内容时取消 `pending`。该检查只响应实际指针移动，布局变化不会触发；它只清 `pending`，不清键盘写入的当前项。
 
@@ -149,11 +170,11 @@ cargo test -p fluent-components --lib tab_order_tests --locked
 ## 尚未覆盖
 
 - 焦点陷阱的 Tab 循环已可自动化验证，见下方「写键盘测试的两个前提」。
-- 模态语义：`Dialog` 打开时焦点进入宿主、Tab 在卡片内循环、关闭归还，均有行为测试；`Role::Dialog`/`Role::AlertDialog` 设在宿主内层 div 上，但本快照里 deferred 外层的 `a11y_role` 返回 `None`，role 是否到达 accesskit 树未验证；背景内容被 scrim 命中遮挡已由点击测试覆盖，屏幕阅读器视角的「不可交互」未验证
-- 菜单键盘的未完成项：子菜单的每层独立 focus scope / `aria-activedescendant` 未实现；Esc/→/←/Tab 的逐层行为已有行为测试（`menu::submenu_regression_tests`），但真实窗口中的键盘焦点环与屏幕阅读器播报未验证
+- 模态语义：`Dialog` 打开时焦点进入宿主、Tab 在卡片内循环、关闭归还，均有行为测试；AX 树测试确认宿主发布 `Role::Dialog`/`Role::AlertDialog` + `aria_modal`，打开期间只保留最上层模态子树、背景节点消失并在关闭后恢复，模态内 deferred Popover/Menu 按 owner reparent。真实 VoiceOver/NVDA 的朗读与导航仍未验证（本机 AX 权限未授予）
+- 菜单键盘：子菜单的每层独立 focus scope 未实现（只有根容器一个焦点范围）；根容器已发布单一 `aria_active_descendant`。Esc/→/←/Tab 的逐层行为已有行为测试（`menu::submenu_regression_tests`），但真实窗口中的键盘焦点环与屏幕阅读器播报未验证
 - 子菜单的点击归属、逐层绘制、首帧定位、同 ID 相邻触发行与 typeahead 访问代号由 `menu::submenu_tests`、`menu::submenu_regression_tests` 覆盖；这些测试直接派发平台事件，不替代原生窗口验证
-- 当前项不使用 `aria-activedescendant`（焦点在容器本身，当前项通过 `aria-selected` 表达）；原生屏幕阅读器对这些属性的实际朗读效果未验证
-- AccessKit role/state 是否随焦点正确上报
+- 当前项通过根容器的 `aria_active_descendant` 发布（焦点仍在容器本身），并配合行上的 `aria_selected`；`menu::ax_tests` 检查发布树中的 active descendant 与选中翻转，原生屏幕阅读器的实际朗读效果未验证
+- AccessKit role/state 的发布结构已由 `menu::ax_tests`、`dialog::tests`、`sheet::tests` 覆盖；真实屏幕阅读器的朗读与激活仍未验证
 - 真实窗口中的 Tab 顺序（测试直接派发按键，不经过平台输入法或原生焦点环）
 - 禁用控件是否被跳过（依赖 gpui-base 的 `tab_index`，本项目未设置）
 

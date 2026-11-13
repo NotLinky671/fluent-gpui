@@ -8,9 +8,10 @@
 //! `focus_next` on the next, so each test settles with two draws first.
 
 use super::*;
+use crate::{Button, Menu, MenuDropdown, MenuItem};
 use gpui::{
     AppContext, Context, FocusHandle, InputEvent as _, InteractiveElement as _, KeyBinding,
-    KeyDownEvent, Keystroke, Modifiers, MouseButton, MouseDownEvent, PlatformInput, Render,
+    KeyDownEvent, Keystroke, Modifiers, MouseButton, MouseDownEvent, PlatformInput, Render, Role,
     StatefulInteractiveElement as _, TestAppContext, WindowHandle, canvas, point, px, size,
 };
 use std::cell::{Cell, RefCell};
@@ -1095,5 +1096,502 @@ fn opening_does_not_shift_a_scrolled_page(cx: &mut TestAppContext) {
     assert_eq!(
         closed.origin.y, bottom.origin.y,
         "closing must not shift a page scrolled to the bottom either"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Accessibility tree: modal host name, background isolation, close restore.
+// ---------------------------------------------------------------------------
+
+struct AxProbe {
+    open: bool,
+}
+
+impl Render for AxProbe {
+    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .flex()
+            .flex_col()
+            .child(
+                div()
+                    .id("ax-background")
+                    .role(Role::Group)
+                    .aria_label("Background"),
+            )
+            // A Dialog role without `aria_modal` must not hide the page.
+            .child(
+                div()
+                    .id("ax-nonmodal")
+                    .role(Role::Dialog)
+                    .aria_label("Non-modal panel"),
+            )
+            .child(
+                Dialog::new("ax-dialog")
+                    .title("Edit details")
+                    .open(self.open)
+                    .child("Dialog body"),
+            )
+    }
+}
+
+struct NestedModalProbe;
+
+impl Render for NestedModalProbe {
+    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .flex()
+            .flex_col()
+            .child(
+                div()
+                    .id("nested-background")
+                    .role(Role::Group)
+                    .aria_label("Background"),
+            )
+            .child(
+                div()
+                    .id("covered-modal")
+                    .role(Role::Dialog)
+                    .aria_label("Covered modal")
+                    .aria_modal(true),
+            )
+            .child(
+                div()
+                    .id("top-modal")
+                    .role(Role::Dialog)
+                    .aria_label("Top modal")
+                    .aria_modal(true),
+            )
+    }
+}
+
+fn open_ax_view<V: Render + 'static>(
+    cx: &mut TestAppContext,
+    build: impl FnOnce() -> V + 'static,
+) -> WindowHandle<V> {
+    cx.update(fluent_core::gpui_compat::init_base);
+    let window = cx.open_window(size(px(700.), px(500.)), move |_, _| build());
+    cx.run_until_parked();
+    cx.enable_accessibility();
+    window
+}
+
+fn open_ax_probe(cx: &mut TestAppContext, open: bool) -> WindowHandle<AxProbe> {
+    open_ax_view(cx, move || AxProbe { open })
+}
+
+fn draw_and_read_tree<V: Render>(
+    cx: &mut TestAppContext,
+    window: WindowHandle<V>,
+) -> serde_json::Value {
+    // Deferred modal content is published on the frame after activation.
+    for _ in 0..2 {
+        cx.update_window(window.into(), |_, window, cx| {
+            window.refresh();
+            window.draw(cx).clear(cx);
+        })
+        .unwrap();
+        cx.run_until_parked();
+    }
+    let json = cx
+        .update_window(window.into(), |_, window, _| window.debug_a11y_tree_json())
+        .unwrap()
+        .expect("the activated window must publish an accessibility tree");
+    serde_json::from_str(&json).expect("the debug tree is valid JSON")
+}
+
+fn has_label(tree: &serde_json::Value, label: &str) -> bool {
+    tree["nodes"]
+        .as_object()
+        .expect("nodes object")
+        .values()
+        .any(|node| node["aria"]["label"].as_str() == Some(label))
+}
+
+fn labelled_node<'a>(tree: &'a serde_json::Value, label: &str) -> &'a serde_json::Value {
+    tree["nodes"]
+        .as_object()
+        .expect("nodes object")
+        .values()
+        .find(|node| node["aria"]["label"].as_str() == Some(label))
+        .unwrap_or_else(|| panic!("no node labelled {label:?} in tree: {tree}"))
+}
+
+#[gpui::test]
+fn open_dialog_names_the_modal_and_hides_background_until_it_closes(cx: &mut TestAppContext) {
+    let window = open_ax_probe(cx, true);
+    let tree = draw_and_read_tree(cx, window);
+
+    let modal = labelled_node(&tree, "Edit details");
+    assert_eq!(
+        modal["aria"]["role"].as_str(),
+        Some("Dialog"),
+        "the host keeps the Dialog role: {tree}"
+    );
+    assert_eq!(
+        modal["aria"]["modal"].as_bool(),
+        Some(true),
+        "the host must be published as modal: {tree}"
+    );
+    assert!(
+        !has_label(&tree, "Background"),
+        "an open modal must remove background content from the tree: {tree}"
+    );
+    assert!(
+        !has_label(&tree, "Non-modal panel"),
+        "background siblings are hidden too, even when they carry a Dialog role: {tree}"
+    );
+
+    cx.update_window(window.into(), |view, _, cx| {
+        view.downcast::<AxProbe>().unwrap().update(cx, |view, cx| {
+            view.open = false;
+            cx.notify();
+        });
+    })
+    .unwrap();
+    let restored = draw_and_read_tree(cx, window);
+    assert!(
+        has_label(&restored, "Background"),
+        "closing must restore the background tree: {restored}"
+    );
+    assert!(
+        has_label(&restored, "Non-modal panel"),
+        "a Dialog role without aria_modal must not stay isolated: {restored}"
+    );
+    assert!(
+        !has_label(&restored, "Edit details"),
+        "the closed dialog must not publish a modal node: {restored}"
+    );
+}
+
+#[gpui::test]
+fn nested_modals_expose_only_the_topmost_subtree(cx: &mut TestAppContext) {
+    let window = open_ax_view(cx, || NestedModalProbe);
+    let tree = draw_and_read_tree(cx, window);
+
+    assert!(
+        has_label(&tree, "Top modal"),
+        "the topmost modal must stay in the tree: {tree}"
+    );
+    assert_eq!(
+        labelled_node(&tree, "Top modal")["aria"]["modal"].as_bool(),
+        Some(true)
+    );
+    assert!(
+        !has_label(&tree, "Covered modal"),
+        "the covered modal must not be exposed: {tree}"
+    );
+    assert!(
+        !has_label(&tree, "Background"),
+        "nested modals still hide the page: {tree}"
+    );
+}
+
+struct NestedDialogProbe {
+    first_open: bool,
+    second_open: bool,
+}
+
+impl Render for NestedDialogProbe {
+    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .flex()
+            .flex_col()
+            .child(
+                div()
+                    .id("nested-dialog-background")
+                    .role(Role::Group)
+                    .aria_label("Background"),
+            )
+            .child(
+                Dialog::new("nested-first")
+                    .title("First dialog")
+                    .open(self.first_open)
+                    .child("First body"),
+            )
+            .child(
+                Dialog::new("nested-second")
+                    .title("Second dialog")
+                    .open(self.second_open)
+                    .child("Second body"),
+            )
+    }
+}
+
+#[gpui::test]
+fn real_nested_dialogs_expose_the_later_opened_one_and_restore_in_order(cx: &mut TestAppContext) {
+    let window = open_ax_view(cx, || NestedDialogProbe {
+        first_open: true,
+        second_open: true,
+    });
+    let tree = draw_and_read_tree(cx, window);
+
+    assert!(
+        has_label(&tree, "Second dialog"),
+        "the later-opened dialog must be the exposed modal: {tree}"
+    );
+    assert_eq!(
+        labelled_node(&tree, "Second dialog")["aria"]["modal"].as_bool(),
+        Some(true)
+    );
+    assert!(
+        !has_label(&tree, "First dialog"),
+        "the covered dialog must be absent: {tree}"
+    );
+    assert!(
+        !has_label(&tree, "Background"),
+        "background stays hidden while either modal is open: {tree}"
+    );
+
+    // Close the top dialog: the underlying one becomes the exposed modal.
+    cx.update_window(window.into(), |view, _, cx| {
+        view.downcast::<NestedDialogProbe>()
+            .unwrap()
+            .update(cx, |view, cx| {
+                view.second_open = false;
+                cx.notify();
+            });
+    })
+    .unwrap();
+    let under = draw_and_read_tree(cx, window);
+    assert!(
+        has_label(&under, "First dialog"),
+        "closing the top dialog must restore the one underneath: {under}"
+    );
+    assert!(
+        !has_label(&under, "Second dialog"),
+        "the closed top dialog must be absent: {under}"
+    );
+    assert!(
+        !has_label(&under, "Background"),
+        "the background remains hidden while the lower modal is open: {under}"
+    );
+
+    // Close the last dialog: the page returns.
+    cx.update_window(window.into(), |view, _, cx| {
+        view.downcast::<NestedDialogProbe>()
+            .unwrap()
+            .update(cx, |view, cx| {
+                view.first_open = false;
+                cx.notify();
+            });
+    })
+    .unwrap();
+    let restored = draw_and_read_tree(cx, window);
+    assert!(
+        has_label(&restored, "Background"),
+        "closing the last dialog must restore the background: {restored}"
+    );
+    assert!(
+        !has_label(&restored, "First dialog") && !has_label(&restored, "Second dialog"),
+        "no dialog node may remain after both close: {restored}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Modal overlays and hidden subtrees.
+// ---------------------------------------------------------------------------
+
+struct DialogWithMenuProbe {
+    dialog_open: bool,
+}
+
+impl Render for DialogWithMenuProbe {
+    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .flex()
+            .flex_col()
+            .child(
+                MenuDropdown::new(
+                    "background-menu-dropdown",
+                    Button::new("background-menu-trigger")
+                        .accessibility_label("Background actions")
+                        .child("Background actions"),
+                    Menu::new("background-menu-panel")
+                        .accessibility_label("Background menu")
+                        .item(MenuItem::new("background-item", "Background item")),
+                )
+                .default_open(true),
+            )
+            .child(
+                Dialog::new("menu-dialog")
+                    .title("Actions")
+                    .open(self.dialog_open)
+                    .child(
+                        MenuDropdown::new(
+                            "dialog-menu",
+                            Button::new("dialog-menu-trigger")
+                                .accessibility_label("Actions")
+                                .child("Actions"),
+                            Menu::new("dialog-menu-panel")
+                                .accessibility_label("Dialog menu")
+                                .item(MenuItem::new("dialog-rename", "Rename"))
+                                .item(MenuItem::new("dialog-delete", "Delete")),
+                        )
+                        .default_open(true),
+                    ),
+            )
+    }
+}
+
+fn parent_map(tree: &serde_json::Value) -> std::collections::HashMap<String, String> {
+    let mut parents = std::collections::HashMap::new();
+    for (key, node) in tree["nodes"].as_object().expect("nodes object") {
+        if let Some(children) = node["children"].as_array() {
+            for child in children {
+                if let Some(child) = child.as_str() {
+                    parents.insert(child.to_string(), key.clone());
+                }
+            }
+        }
+    }
+    parents
+}
+
+fn ancestors(tree: &serde_json::Value, key: &str) -> Vec<String> {
+    let parents = parent_map(tree);
+    let mut out = Vec::new();
+    let mut current = key.to_string();
+    while let Some(parent) = parents.get(&current) {
+        out.push(parent.clone());
+        current = parent.clone();
+    }
+    out
+}
+
+fn menu_keys(tree: &serde_json::Value) -> Vec<String> {
+    tree["nodes"]
+        .as_object()
+        .expect("nodes object")
+        .iter()
+        .filter(|(_, node)| node["aria"]["role"].as_str() == Some("Menu"))
+        .map(|(key, _)| key.clone())
+        .collect()
+}
+
+#[gpui::test]
+fn a_menu_opened_inside_a_modal_is_reparented_under_it(cx: &mut TestAppContext) {
+    let window = open_ax_view(cx, || DialogWithMenuProbe { dialog_open: true });
+    let tree = draw_and_read_tree(cx, window);
+
+    assert!(
+        has_label(&tree, "Actions"),
+        "the dialog must remain named: {tree}"
+    );
+    assert!(
+        !has_label(&tree, "Background"),
+        "the page stays hidden while the dialog is open: {tree}"
+    );
+    let menus = menu_keys(&tree);
+    assert_eq!(
+        menus.len(),
+        1,
+        "only the menu opened from inside the modal may remain: {tree}"
+    );
+    let menu_key = &menus[0];
+    assert!(
+        tree["nodes"][menu_key]["element_id"]
+            .as_str()
+            .is_some_and(|id| id.contains("dialog-menu-panel")),
+        "the retained menu must be the modal-owned popup: {tree}"
+    );
+    let dialog_key = tree["nodes"]
+        .as_object()
+        .expect("nodes object")
+        .iter()
+        .find(|(_, node)| {
+            node["aria"]["role"].as_str() == Some("Dialog")
+                && node["aria"]["label"].as_str() == Some("Actions")
+        })
+        .map(|(key, _)| key.clone())
+        .expect("dialog node");
+    assert!(
+        ancestors(&tree, menu_key).contains(&dialog_key),
+        "the retained menu must be a descendant of the dialog, not a root sibling: {tree}"
+    );
+    assert!(
+        !has_label(&tree, "Background menu"),
+        "a background menu must disappear with the background: {tree}"
+    );
+    assert!(
+        !has_label(&tree, "Background item"),
+        "background menu rows must disappear too: {tree}"
+    );
+
+    cx.update_window(window.into(), |view, _, cx| {
+        view.downcast::<DialogWithMenuProbe>()
+            .unwrap()
+            .update(cx, |view, cx| {
+                view.dialog_open = false;
+                cx.notify();
+            });
+    })
+    .unwrap();
+    let restored = draw_and_read_tree(cx, window);
+    assert!(
+        has_label(&restored, "Background menu"),
+        "closing the dialog must restore the background menu: {restored}"
+    );
+    assert!(
+        has_label(&restored, "Background actions"),
+        "the background trigger must return: {restored}"
+    );
+    assert!(
+        !has_label(&restored, "Dialog menu"),
+        "the dialog menu must disappear with its dialog: {restored}"
+    );
+}
+
+struct HiddenSubtreeProbe {
+    hidden: bool,
+}
+
+impl Render for HiddenSubtreeProbe {
+    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .flex()
+            .flex_col()
+            .child(
+                div()
+                    .id("hidden-background")
+                    .role(Role::Group)
+                    .aria_label("Background"),
+            )
+            .child(
+                div().id("hidden-group").aria_hidden(self.hidden).child(
+                    div()
+                        .id("hidden-action")
+                        .role(Role::Button)
+                        .aria_label("Hidden action"),
+                ),
+            )
+    }
+}
+
+#[gpui::test]
+fn aria_hidden_removes_its_subtree_and_restores_it(cx: &mut TestAppContext) {
+    let window = open_ax_view(cx, || HiddenSubtreeProbe { hidden: true });
+    let tree = draw_and_read_tree(cx, window);
+    assert!(
+        has_label(&tree, "Background"),
+        "the visible sibling stays: {tree}"
+    );
+    assert!(
+        !has_label(&tree, "Hidden action"),
+        "a hidden subtree must not be exposed: {tree}"
+    );
+
+    cx.update_window(window.into(), |view, _, cx| {
+        view.downcast::<HiddenSubtreeProbe>()
+            .unwrap()
+            .update(cx, |view, cx| {
+                view.hidden = false;
+                cx.notify();
+            });
+    })
+    .unwrap();
+    let restored = draw_and_read_tree(cx, window);
+    assert!(
+        has_label(&restored, "Hidden action"),
+        "clearing aria_hidden must restore the subtree: {restored}"
     );
 }

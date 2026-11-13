@@ -21,8 +21,9 @@ pub use fluent_components::{
     AlertDialog, Avatar, Badge, Button, Checkbox, Dialog, DialogOpenChange, Divider, Field,
     FluentIcon, FluentRoot, Icon, IconStyle, InputAppearance, Label, Link, Menu, MenuDropdown,
     MenuHeader, MenuItem, MenuSeparator, Popover, ProgressBar, Radio, Sheet, SheetOpenChange,
-    Spinner, Switch, TabItem, TabList, TextInput, Textarea, TextareaAppearance, TitleBar,
-    TitleBarLabels, TooltipSurface, TooltipView, ValidationMessage, tooltip,
+    Spinner, Switch, TabItem, TabList, TextInput, Textarea, TextareaAppearance,
+    TextareaTabBehavior, TitleBar, TitleBarLabels, TooltipSurface, TooltipView, ValidationMessage,
+    tooltip,
 };
 pub use fluent_core::spec::ControlSize;
 pub use fluent_core::spec::button::{ButtonAppearance, ButtonShape, IconPosition};
@@ -163,7 +164,7 @@ pub fn init(cx: &mut gpui::App) {
         ),
         gpui::KeyBinding::new(
             "shift-tab",
-            fluent_components::MenuTabOut,
+            fluent_components::MenuTabBackward,
             Some(fluent_components::MENU_KEY_CONTEXT),
         ),
     ]);
@@ -179,6 +180,23 @@ pub fn init(cx: &mut gpui::App) {
             "shift-tab",
             fluent_components::FocusPrev,
             Some(fluent_components::ROOT_KEY_CONTEXT),
+        ),
+    ]);
+    // A Fluent text control opts into Tab navigation with a marker context.
+    // Naming gpui-base's deeper `Input` context makes this match at the same
+    // depth as its IndentInline/OutdentInline binding; installed afterwards, it
+    // takes precedence. Indent-mode controls do not carry the marker, so the
+    // upstream indent bindings remain untouched.
+    cx.bind_keys([
+        gpui::KeyBinding::new(
+            "tab",
+            fluent_components::FocusNext,
+            Some(fluent_components::TEXT_INPUT_NAVIGATE_BINDING_CONTEXT),
+        ),
+        gpui::KeyBinding::new(
+            "shift-tab",
+            fluent_components::FocusPrev,
+            Some(fluent_components::TEXT_INPUT_NAVIGATE_BINDING_CONTEXT),
         ),
     ]);
 }

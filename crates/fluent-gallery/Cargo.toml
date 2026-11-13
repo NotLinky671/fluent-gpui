@@ -20,3 +20,8 @@ fluent-ui.workspace = true
 gpui.workspace = true
 gpui_platform.workspace = true
 image = { version = "0.25", default-features = false, features = ["png"] }
+
+[dev-dependencies]
+# Behaviour tests use GPUI's TestAppContext; the feature must be enabled on the
+# same gpui package graph as fluent-ui. Production builds do not depend on it.
+gpui = { workspace = true, features = ["test-support"] }

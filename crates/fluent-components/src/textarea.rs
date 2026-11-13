@@ -8,14 +8,28 @@ use fluent_core::gpui_compat::{
 use fluent_core::spec::ControlSize;
 use fluent_core::spec::textarea::{self, TextareaAppearance, TextareaProps};
 use fluent_theme::FluentTheme;
+use gpui::Role;
+use gpui::prelude::FluentBuilder as _;
 use gpui_base::Textarea as BaseTextarea;
-use gpui_base::input::TextareaState;
+use gpui_base::input::{InputAccessibility, TextareaState};
+
+/// What Tab and Shift+Tab do while a [`Textarea`] is focused.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum TextareaTabBehavior {
+    /// gpui-base's default: indent/outdent the text in place.
+    #[default]
+    Indent,
+    /// Move focus to the next/previous control without touching the text.
+    Navigate,
+}
 
 /// A Fluent 2 multi-line text field.
 #[derive(IntoElement)]
 pub struct Textarea {
     state: Entity<TextareaState>,
     props: TextareaProps,
+    tab_behavior: TextareaTabBehavior,
+    a11y_label: Option<SharedString>,
     style: StyleRefinement,
 }
 
@@ -25,6 +39,8 @@ impl Textarea {
         Self {
             state: state.clone(),
             props: TextareaProps::default(),
+            tab_behavior: TextareaTabBehavior::default(),
+            a11y_label: None,
             style: StyleRefinement::default(),
         }
     }
@@ -48,6 +64,28 @@ impl Textarea {
         self.props.invalid = invalid;
         self
     }
+
+    /// Chooses whether Tab edits the text or moves focus.
+    ///
+    /// Defaults to [`TextareaTabBehavior::Indent`], gpui-base's existing
+    /// behavior. Use [`TextareaTabBehavior::Navigate`] when the field is part of
+    /// a normal form: Tab and Shift+Tab then leave the field without modifying
+    /// its value, and no window-level key interception is needed.
+    pub fn tab_behavior(mut self, behavior: TextareaTabBehavior) -> Self {
+        self.tab_behavior = behavior;
+        self
+    }
+
+    /// Sets the accessible name reported for this field.
+    ///
+    /// The name is merged into the text engine's accessibility state: a name
+    /// already provided directly on the state wins, and other caller settings
+    /// (placeholder, role, value visibility) are preserved. Without either, the
+    /// field still exposes the multiline-text role and its value.
+    pub fn accessibility_label(mut self, label: impl Into<SharedString>) -> Self {
+        self.a11y_label = Some(label.into());
+        self
+    }
 }
 
 impl Styled for Textarea {
@@ -63,6 +101,58 @@ impl RenderOnce for Textarea {
         let m = spec.metrics;
         let focus_handle = self.state.read(cx).presentation().focus_handle().clone();
         let is_disabled = self.props.disabled;
+
+        // Merge instead of replacing: the caller may already have set a
+        // placeholder, a custom role or hidden value exposure on the state.
+        // The builder's name overrides the state's name when present; every
+        // other field is preserved. A projection with no role gets the
+        // multiline role, and a missing projection gets one.
+        let requested_label = self.a11y_label.clone();
+        self.state.update(cx, |state, _| {
+            let fallback_placeholder = state.presentation().placeholder().clone();
+            let current = state.accessibility().map(|existing| {
+                (
+                    existing.role(),
+                    existing.label().cloned(),
+                    existing.placeholder().cloned(),
+                    existing.accessibility_id().cloned(),
+                    existing.value_exposed(),
+                )
+            });
+            match current {
+                Some((
+                    existing_role,
+                    existing_label,
+                    existing_placeholder,
+                    existing_id,
+                    exposed,
+                )) => {
+                    let role = existing_role.or(Some(Role::MultilineTextInput));
+                    let label = requested_label.clone().or(existing_label.clone());
+                    let placeholder = existing_placeholder.clone().or(Some(fallback_placeholder));
+                    // id and value exposure are preserved verbatim, so only
+                    // role, name and placeholder can change. Reinstalling the
+                    // same projection every frame would be needless churn.
+                    if existing_role != role
+                        || existing_label != label
+                        || existing_placeholder != placeholder
+                    {
+                        state.set_accessibility(
+                            InputAccessibility::new(role)
+                                .with_label(label)
+                                .with_placeholder(placeholder)
+                                .with_accessibility_id(existing_id)
+                                .with_value_exposed(exposed),
+                        );
+                    }
+                }
+                None => state.set_accessibility(
+                    InputAccessibility::new(Some(Role::MultilineTextInput))
+                        .with_label(requested_label.clone())
+                        .with_placeholder(Some(fallback_placeholder)),
+                ),
+            }
+        });
 
         let rest = spec.rest;
         let hover = spec.hover;
@@ -119,6 +209,9 @@ impl RenderOnce for Textarea {
             .relative()
             .flex()
             .flex_col()
+            .when(self.tab_behavior == TextareaTabBehavior::Navigate, |el| {
+                el.key_context(crate::TEXT_INPUT_NAVIGATE_KEY_CONTEXT)
+            })
             .min_h(m.min_height)
             .w_full()
             .bg(background)
@@ -233,3 +326,9 @@ impl RenderOnce for Textarea {
         root
     }
 }
+
+#[cfg(test)]
+mod ax_tests;
+
+#[cfg(test)]
+mod tab_tests;

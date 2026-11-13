@@ -64,8 +64,10 @@ FluentRoot
 ├─ 顶栏：标题、内存模式 Badge、设置 Popover（图标按钮 + Tooltip）
 └─ 主体
    ├─ 左侧：便签列表（新建按钮、列表、空列表态、内存提示）
-   └─ 右侧：标题 Field、操作栏（保存/取消/置顶/属性/更多/删除）、正文 Textarea、状态栏；确认以模态对话框呈现
+   └─ 右侧：标题 Field、正文 Textarea、操作栏（保存/取消/置顶/属性/更多/删除）、状态栏；确认以模态对话框呈现
 ```
+
+视觉顺序与 Tab 顺序一致（标题 → 正文 → 操作栏 → 状态栏）。此前的操作栏在正文之前，Tab 会从标题直接落到“保存”，正文只能绕到操作栏之后才可达；布局与验收预期已按当前顺序修正。
 
 - **数据**：`Vec<Note>` 保存在 `NotesApp` 内；每条便签有 `id`、`title`、`body`、`pinned`、`tone`、`updated_seq`。
   展示顺序为“置顶优先，其次最近更新”。所有修改只改内存。
@@ -74,6 +76,9 @@ FluentRoot
   因此光标、选择和未保存文本在重绘后保持；`set_value` 本身会把选择重置，取消/切换后的光标位置因此不保证保留。
 - **脏检查**：渲染时读取输入状态与 `editor_note` 的已保存值比较，用于“未保存”标记、取消按钮可用性和切换判断。
   输入实体的通知会驱动应用重绘，以便字数与脏标记实时更新。
+- **列表与草稿的边界**：左侧列表的标题、预览和字数读取的是**已保存的 `Note` 快照**；编辑区下方的字数读取的是
+  **当前草稿**。输入只改变草稿与编辑区字数，不会改写列表；只有保存（或“保存并切换/新建”）才写回模型并刷新列表。
+  这条契约不改变数据模型，也不做输入时自动保存。
 - **未保存切换**：点击另一条便签或“新建”时，若当前编辑有未保存内容，不直接切换，而是弹出模态
   `Dialog`：“保存并切换（新建） / 放弃修改并切换（新建） / 留在当前”。Esc 与点击 scrim 等价于
   “留在当前”；Enter 等价于第一项“保存并…”。只有显式选择前两项才会丢弃或提交草稿。
@@ -82,6 +87,14 @@ FluentRoot
   与空编辑页。AlertDialog 无 Esc/scrim 关闭，必须点“确认删除”或“取消”；Enter 视为确认。
 - **主题**：设置浮层内的受控 Radio 切换 `FluentTheme::global(cx).with_appearance(...).install(cx)`；
   三种主题都从 token 取色，不使用硬编码颜色。
+- **无障碍名称**：所有文字按钮与图标按钮都显式调用 `Button::accessibility_label`。文字按钮传入与可见文字相同的名称；
+  图标按钮（设置、更多操作）传入动作描述；便签行、置顶、未保存对话框等动态文字在渲染时从现有 `SharedString`
+  取值，不引入新的名称抽象。`Button` 不会从 `AnyElement` 子节点推导名称，缺失时该按钮在 AX 树中没有名字。
+  标题输入框使用 `TextInput::accessibility_label("标题")`，默认角色为 `TextInput`；正文使用
+  `Textarea::accessibility_label("正文")`，默认角色为 `MultilineTextInput`。两个组件只在名称/默认角色确有差异时
+  写入状态，并保留调用方设置的 role/placeholder/accessibility id/value_exposed；无 builder 时也保证文本角色存在。
+  模态 `Dialog`/`AlertDialog` 的宿主名称直接取自 `title` 文本（不需要再手写一份同文 label），
+  `accessibility_label` 仅用于覆盖；打开时 AX 树隐藏背景并保留该模态打开的 Popover/Menu，关闭后恢复。
 
 ## 手工验收清单
 
@@ -169,7 +182,7 @@ FluentRoot
 ### H. 键盘与焦点
 
 29. 从标题输入框开始连续按 Tab / Shift+Tab。
-    期望：顺序可预期（标题 → 正文 → 操作按钮/图标按钮 → 列表/设置等），不跳入浮层背后；Shift+Tab 可反向回到起点。
+    期望：顺序为标题 → 正文 → 保存/取消/置顶/属性/更多/删除 → 页面其余控件（继续 Tab 会离开编辑区），不跳入浮层背后；Shift+Tab 可逐步反向回到起点。Tab 落在“保存”只是移动焦点，不会自动保存；按 Enter/Space 才执行保存。
 30. 在 Popover 打开时连续 Tab。
     期望：焦点逐项移动，在末项按 Tab 回到首项、在首项按 Shift+Tab 回到末项；不出现无视觉焦点的面板容器停靠点，也不逃到背景页面。
 31. 在菜单中使用方向键、Home/End、Enter/Space、Esc。
@@ -201,8 +214,9 @@ FluentRoot
 
 ## 已知限制
 
+- **键盘离开正文**：正文显式使用 `TextareaTabBehavior::Navigate`，Tab/Shift+Tab 移出字段而不改正文；组件默认仍是 `Indent`，供需要缩进的调用方使用。`Textarea::tab_behavior(TextareaTabBehavior::Navigate)` 已合并到组件 API，回归测试保持启用，不得用 `#[ignore]` 掩盖。
 - **内存数据**：关闭窗口或进程后全部丢失；不写文件、不联网、不做恢复。
-- **Dialog**：删除与未保存切换已用模态对话框；对话框打开期间背景被 scrim 遮挡不可交互，Tab 在卡片内循环。`Role` 设在宿主内层，是否到达 accesskit 树未验证。
+- **Dialog**：删除与未保存切换已用模态对话框；对话框打开期间背景被 scrim 遮挡不可交互，Tab 在卡片内循环。宿主发布 `Role::Dialog` + `aria_modal`，打开期间 AX 树隐藏背景并在关闭后恢复；模态内 Popover/Menu 按 owner 保留。真实 VoiceOver 朗读未验证。
 - **没有 ContextMenu / Select**：设置用 Popover，属性编辑用 Popover；未提供右键菜单或下拉选择。`Tabs` 与 `Sheet` 组件已实现，但本应用尚未改用（设置仍是单列面板，窄窗口仍用顶栏 Popover）。
 - **菜单**：应用未使用子菜单（组件已支持任意层）；item 激活后不会自动关闭，应用的动作回调显式清 `menu_open`（“取消修改”已覆盖）；禁用状态不通过 accesskit 暴露（本版 GPUI 没有可用 API）。
 - **Popover**：边缘使用连续限位而不是上下翻转；面板大于视口时可能无法完整容纳；打开时焦点落在面板容器，不自动进入第一个控件，但容器本身不是 Tab 停靠点，Tab 只在控件之间循环；

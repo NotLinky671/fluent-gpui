@@ -619,6 +619,9 @@ fn menu_cancel_restores_the_draft_closes_and_returns_focus(cx: &mut TestAppConte
     );
 }
 
+// The body opts into `TextareaTabBehavior::Navigate`, so Tab/Shift+Tab move
+// focus instead of editing the text. The layout puts the body after the title,
+// so Tab reaches it and can leave it again.
 #[gpui::test]
 fn tab_moves_focus_forward_and_back(cx: &mut TestAppContext) {
     let (window, app) = open(cx);
@@ -732,25 +735,99 @@ fn dispatching_a_movement_key_keeps_the_input_state_entity(cx: &mut TestAppConte
 }
 
 #[gpui::test]
-fn tab_from_title_reaches_a_control_and_back(cx: &mut TestAppContext) {
+fn tab_from_title_reaches_the_body_before_the_toolbar(cx: &mut TestAppContext) {
+    // Layout contract: the body sits between the title and the action toolbar,
+    // so Tab from the title lands on the body rather than skipping it.
     let (window, app) = open(cx);
+    set_editor_text(cx, window, &app, "", "");
     focus_title(cx, window, &app);
+    type_text(cx, window, "临时标题");
+    assert!(is_dirty(cx, &app));
 
     press(cx, window, "tab");
-    let on_body = body_focused(cx, window, &app);
     assert!(
-        !title_focused(cx, window, &app),
-        "Tab leaves the title field (next stop is a toolbar button or the body)"
+        body_focused(cx, window, &app),
+        "Tab from the title must reach the body before any toolbar button"
+    );
+    type_text(cx, window, "正文草稿");
+    assert_eq!(
+        values(cx, &app).1,
+        "正文草稿",
+        "typing in the focused body updates the draft"
     );
     assert!(
-        !on_body,
-        "sanity: this layout puts the toolbar before the body in tab order"
+        is_dirty(cx, &app),
+        "reaching the body must not save the draft"
     );
+    assert_eq!(
+        note_snapshot(cx, &app, NoteId(1)).unwrap().title,
+        "欢迎使用便签",
+        "the model keeps the saved title until Save is activated"
+    );
+}
+
+// Forward from the body and the full reverse path rely on the body's explicit
+// `TextareaTabBehavior::Navigate` mode (the component default stays Indent).
+#[gpui::test]
+fn tab_from_body_reaches_save_and_back(cx: &mut TestAppContext) {
+    let (window, app) = open(cx);
+    set_editor_text(cx, window, &app, "", "");
+    focus_title(cx, window, &app);
+    type_text(cx, window, "临时标题");
+    press(cx, window, "tab");
+    assert!(body_focused(cx, window, &app));
+    type_text(cx, window, "正文草稿");
+
+    press(cx, window, "tab");
+    assert!(
+        !title_focused(cx, window, &app) && !body_focused(cx, window, &app),
+        "Tab from the body must reach the action toolbar"
+    );
+    assert!(
+        is_dirty(cx, &app),
+        "focusing a control must not save the draft on its own"
+    );
+    assert_eq!(
+        note_snapshot(cx, &app, NoteId(1)).unwrap().title,
+        "欢迎使用便签",
+        "the model keeps the saved title until Save is activated"
+    );
+
+    // Native keyboard activation fires on key up, not on key down alone.
+    let keystroke = Keystroke::parse("enter").unwrap();
+    cx.update_window(window.into(), move |_, window, cx| {
+        window.dispatch_event(
+            PlatformInput::KeyDown(KeyDownEvent {
+                keystroke: keystroke.clone(),
+                is_held: false,
+                prefer_character_input: false,
+            }),
+            cx,
+        );
+        window.dispatch_event(
+            PlatformInput::KeyUp(fluent_ui::gpui::KeyUpEvent { keystroke }),
+            cx,
+        );
+    })
+    .unwrap();
+    cx.run_until_parked();
+    assert!(
+        status_text(cx, &app).contains("已保存"),
+        "Enter on the first toolbar control (Save) saves the draft"
+    );
+    let saved = note_snapshot(cx, &app, NoteId(1)).unwrap();
+    assert_eq!(saved.title, "临时标题");
+    assert_eq!(saved.body, "正文草稿");
 
     press(cx, window, "shift-tab");
     assert!(
+        body_focused(cx, window, &app),
+        "Shift+Tab from Save returns to the body"
+    );
+    press(cx, window, "shift-tab");
+    assert!(
         title_focused(cx, window, &app),
-        "Shift+Tab returns to the title field"
+        "Shift+Tab from the body returns to the title"
     );
 }
 

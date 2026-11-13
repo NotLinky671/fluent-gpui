@@ -61,7 +61,7 @@ cargo test -p fluent-core --lib --locked
 - **阅读顺序**：[Checkbox / Radio](../../crates/fluent-components/src/selection.rs)、[Switch](../../crates/fluent-components/src/switch.rs)的 builder 和 `render` → [motion spec](../../crates/fluent-core/src/spec/motion.rs) → [动效适配](../../crates/fluent-components/src/motion.rs)。输入问题另看 [TextInput](../../crates/fluent-components/src/input.rs)和[Textarea](../../crates/fluent-components/src/textarea.rs)。
 - **实际路径**：选择控件通过 `checked` 选择受控模式、`default_checked` 选择非受控模式；非受控值保存在 window keyed state 中。事件更新允许内部持有的状态、通知重绘，并向调用方发回调。hover/pressed 状态选出 spec 的目标颜色后，由动效适配调用 gpui-base `transition`。
 - **边界与约束**：保持控件身份和动效 channel ID 稳定；不同 channel 不共用同一个 transition key。受控值由调用方更新，非受控默认值只用于 keyed state 初始化；不要把重绘当作重新初始化，也不要混用两种 builder 模式来猜测优先级。
-- **输入边界**：文本、选择、光标等状态来自调用方持有的 `InputState` / `TextareaState`；本库绘制外壳并转发部分交互。需要跨重绘保留 state entity，不能每次 render 创建新文本状态；IME 正确性需真实输入验证。
+- **输入边界**：文本、选择、光标等状态来自调用方持有的 `InputState` / `TextareaState`；本库绘制外壳并转发部分交互。需要跨重绘保留 state entity，不能每次 render 创建新文本状态；IME 正确性需真实输入验证。AX 侧，`TextInput`/`Textarea` 无 builder 也分别默认发布 `TextInput`/`MultilineTextInput`，已有 `InputAccessibility` 的 role/label/placeholder/value_exposed 保留，`accessibility_label` 只在显式提供时合并名称。`Textarea` 的 Tab 默认缩进，可显式 `TextareaTabBehavior::Navigate` 移出字段。
 - **动效边界**：transition 路径依赖 gpui-base 的 reduced-motion 策略，不等于所有动画都走该路径。[ProgressBar 不定态与 Spinner](../../crates/fluent-components/src/feedback.rs)直接使用循环 `Animation`，reduced-motion 由组件显式检查 `cx.reduce_motion()` 改为静态帧；该检查只在 `spinner_animation_allowed` / `indeterminate_animation_allowed` 纯函数中做决策。鼠标 pressed 接线存在，不证明键盘 pressed 或按住移出后释放等取消路径完整。
 - **透明色混色**：`spec::motion::mix` 按**预乘 alpha** 插值，透明端的颜色不参与。Fluent 的 `subtle` / `transparent` 按钮静止色是 `transparent_black()`；若按原始通道插值，淡入会经过半透明近黑（浅色主题实测 lightness 0.23，深色 0.05），表现为悬停时"深灰闪一下"。不透明两端的行为不变。
 - **Tabs**：`TabList` 让整条 strip 持焦点、方向键改选中（自动激活），选中项画焦点环；指示条位置取自上一帧记录的 tab 绘制边界并走 `motion::length`，所以切换是滑动而不是跳变。每个 tab 不是独立 tab stop，与严格 roving tabindex 有差异。
@@ -80,6 +80,15 @@ cargo test -p fluent-components --lib hover_tests --locked
 先读[浮层专题](overlays.md)，区分 Button 的根级 Tooltip overlay、通用原生 tooltip 助手及自研 Popover。不要因为名称相似就假设它们共用定位、事件或焦点机制。
 Dialog 与 Sheet 都复用 gpui-base 的模态宿主与焦点陷阱，但前者在自己的 deferred 卡片里渲染，后者由宿主做边缘锚定并用 `Presence` 驱动滑动；两者的关闭与焦点归还时机不同。
 菜单面板的视觉与点击实现见 [Menu](../../crates/fluent-components/src/menu.rs)；嵌套菜单的数据、状态与事件协议见 [menus.md](menus.md)。
+AX 契约：`Dialog`/`AlertDialog` 宿主与 `Sheet` 面板发布 `role=Dialog`/`AlertDialog` + `aria_modal`，名称默认取 `title`（`SharedString`），`accessibility_label` 覆盖，`title_element` 不提供名称；`Dialog::title` 不再接受 `IntoElement`。模态打开期间发布树只保留按真实绘制序（deferred priority + push order）选出的最上层模态子树，背景节点、背景 popup 与被覆盖模态删除，关闭后恢复；属于模态的 deferred Popover/Menu 按 owner reparent 到模态子树。普通 Popover 不是模态，不得触发背景隐藏。`aria_hidden` 只对带 role/id 的容器抑制子树。真实 VoiceOver/NVDA 在无 AX 权限时仍未验证。
+
+```text
+cargo test -p fluent-components --lib input::accessibility_tests --locked
+cargo test -p fluent-components --lib textarea::ax_tests --locked
+cargo test -p fluent-components --lib menu::ax_tests --locked
+cargo test -p fluent-components --lib dialog::tests --locked
+cargo test -p fluent-components --lib sheet::tests --locked
+```
 
 ## 焦点
 

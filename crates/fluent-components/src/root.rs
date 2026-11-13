@@ -2,7 +2,8 @@
 //!
 //! GPUI has no global text style, so an application has to apply the theme's
 //! surface colour, foreground and UI font once, at the top of its tree.
-//! [`FluentRoot`] does exactly that and nothing else.
+//! [`FluentRoot`] does that and owns Fluent's Tab traversal, including the
+//! active focus-trap walk described below.
 
 use fluent_core::gpui_compat::InteractiveElement as _;
 use fluent_core::gpui_compat::StyledExt as _;

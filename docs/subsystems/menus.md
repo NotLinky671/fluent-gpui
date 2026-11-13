@@ -38,7 +38,9 @@ MenuItem::new("export", "Export").submenu(
 整条菜单链只有一个焦点范围：焦点始终在根菜单容器上，子面板不构成独立 focus scope，
 屏幕阅读器不会把子面板播报为独立的子菜单焦点区域。**每个面板本身仍带 `role=menu`**
 （根面板与子面板都是），因为它们是独立的菜单弹出层；差异在焦点模型，而不是 role。
-真正分层的焦点范围（每层 `FocusHandle` + 嵌套陷阱）不在当前范围。
+根容器有可访问名（`Menu::accessibility_label`，默认 `Menu`），每个行发布 `Role::MenuItem`、
+`aria_label` 与 `aria_selected`，当前行通过根容器的 `aria_active_descendant` 暴露。
+子面板不各自声明 active descendant。真正分层的焦点范围（每层 `FocusHandle` + 嵌套陷阱）不在当前范围。
 
 ## 2. 状态
 
@@ -102,11 +104,12 @@ struct PendingOpen { path: Vec<ElementId>, row: ElementId, deadline: Instant }
 | `MenuSubmenuOpen` | → | **仅当**当前行存在、可用且带子菜单时打开 | 已打开则无操作；叶子行无操作 |
 | `MenuSubmenuClose` | ← | 无操作 | 退一层，当前行回到父行 |
 | `MenuEscape` | Esc | 派发 `Dismiss`（关整个菜单） | 退一层，**不**派发 `Dismiss` |
-| `MenuTabOut` | Tab / Shift+Tab | 派发 `Dismiss` | 派发 `Dismiss`（关整条链） |
+| `MenuTabOut` | Tab | 派发 `DismissAndFocusNext` | 派发 `DismissAndFocusNext`（关整条链后向前移交） |
+| `MenuTabBackward` | Shift+Tab | 派发 `DismissAndFocusPrev` | 派发 `DismissAndFocusPrev`（关整条链后向后移交） |
 
 要点：
 
-- **Esc 与 Tab 语义不同**：Tab 无论几层都请求关闭整条链；Esc 只在根层关整个菜单。
+- **Esc 与 Tab 语义不同**：Tab 无论几层都请求关闭整条链并移交焦点方向；Esc 只在根层关整个菜单，不移动焦点。
 - 打开子菜单时把该层 `active` 设为第一行可选行。
 - 叶子行、禁用行、没有当前行时，→ 不改变状态，不会生成不可见的“伪层级”。
 - 键盘动作会清除尚未触发的悬停请求：按键接管后旧 hover 不得再打开分支。
@@ -204,7 +207,7 @@ cargo test -p fluent-core --lib spec::menu --locked
 
 - **真实原生窗口**中的子面板命中、跨面板移动、窗口边缘翻转与逐层关闭尚未人工截图验证；
   自动测试直接派发平台事件并检查场景 quad，不覆盖 GPU 字体、DPI 与原生事件顺序。
-- 一个焦点范围：子面板不是独立 focus scope，也没有每层 `aria-activedescendant`。
+- 一个焦点范围：子面板不是独立 focus scope；只有根容器发布一个 `aria_active_descendant`，不是每层各有一个。
 - 本版 GPUI 未提供 accesskit 的禁用状态；禁用行在无障碍树里与普通行相同。
 - 子菜单数量很大或每层行很多时，每帧重建测量与边界集合的成本尚未做性能测量；
   当前按小规模菜单设计。

@@ -13,8 +13,8 @@
 | 组件 | 实现范围 | 说明 |
 |---|---|---|
 | `Button` | 基础实现 | Primary / Secondary / Outline / Subtle / Transparent；支持尺寸、形状和图标配置；Toggle / Compound / Menu / Split 派生未实现 |
-| `TextInput` | 基础实现 | 单行，含前置/后置内容、错误态、禁用态；点击别处会清除焦点，Tab 可在字段间切换；IME 尚未实测 |
-| `Textarea` | 基础实现 | 多行，三种外观；点击别处会清除焦点 |
+| `TextInput` | 基础实现 | 单行，含前置/后置内容、错误态、禁用态；点击别处会清除焦点，Tab 可在字段间切换；`aa1cf6c` 中文输入源用户已通过，修复后真机复测尚待 |
+| `Textarea` | 基础实现 | 多行，三种外观；点击别处会清除焦点；Tab 默认缩进，`Textarea::tab_behavior(TextareaTabBehavior::Navigate)` 让 Tab/Shift+Tab 移出字段 |
 | `Field` / `Label` | 基础实现 | 垂直/水平布局、hint、Error/Warning/Success 验证消息 |
 | `Checkbox` / `Radio` / `Switch` | 基础实现 | 受控与非受控模式；鼠标 hover / pressed 接线及颜色过渡已实现，完整交互验证待补 |
 | `Link` / `Divider` | 基础实现 | 三种 Link 配色、四种 Divider 外观 |
@@ -121,6 +121,8 @@ GPUI 精确锁定在快照版本（`gpui-pre = 0.3.10`）；用 caret 版本会�
 
 - 图库以 `TitleBar::window_options` 接入自绘标题栏。窗口按钮独立于内容层，位于普通模态之上、Popover/菜单之下；组件不退出应用。Windows/macOS 关闭检查由应用的 `on_window_should_close` 处理，Linux 自绘按钮另用 `TitleBar::on_close` 否决。原生平台与 DPI 验证范围见[修复记录](docs/validation/titlebar-2026-11-10.md)；macOS/Linux 真机、Snap、跨显示器缩放与屏幕阅读器仍需验证。Mica 未启用；便签应用仍用系统标题栏
 - `Tabs` 让整条标签条持焦点、方向键改选中（Fluent 的自动激活），不是严格 roving tabindex；hover/pressed 是瞬时样式而非过渡，选中态优先于两者；指示条位置取自上一帧记录的标签绘制边界，因此比布局变化晚一帧
+- 字体模式只做本机字体可用性解析：`SegoeCompat` 依次查找 `Segoe UI` / `Selawik`，都没有时回退到 `.SystemUIFont`；仓库未内置这两款字体。因此 macOS 等未安装 Selawik 的环境切换 Font mode 可能没有任何像素变化，这是预期的回退结果，不是渲染缺陷
+- Gallery 的两条默认 `TabList` 各自持有一个持久 `FocusHandle` 并 `track_focus`，是实际的 Tab 停靠点；像素 fixture 里的 `fx-tabs` / `fx-tabs-vertical` 用 keyed 焦点句柄保证跨重绘稳定。未接 `track_focus` 时标签条没有属于自己的焦点句柄，不参与 Tab 顺序与键盘导航
 - `Sheet` 的抽屉尺寸是组件常量（默认 320px，可用 `Sheet::size` 覆盖），内容超出时被裁剪，没有滚动区或拖拽关闭；Esc 与 scrim 按下都只上报 `on_open_change(false)`，底层不区分两者；退出动画结束前焦点仍被约束在抽屉内，之后只在焦点仍在抽屉内时归还——调用方若在 `open(false)` 的同一帧卸载元素，就不会发生归还
 - `Avatar` 只渲染首字母，无图片与状态徽标
 - Checkbox / Radio / Switch 已接入鼠标 hover / pressed 状态及颜色过渡；完整键盘与指针取消行为尚未验证
@@ -131,9 +133,11 @@ GPUI 精确锁定在快照版本（`gpui-pre = 0.3.10`）；用 caret 版本会�
 - `ProgressBar` 不定态与 `Spinner` 的像素基线待补；`Spinner` 弧度跨度与旋转周期为近似值，尚未与官方 Fluent 截图核对
 - `Button::tooltip` 的翻转由 gpui-base overlay 提供，悬停与翻转位置尚待人工验证；通用 `tooltip(text)` 助手使用 GPUI 原生定位，不提供相同锚定保证。测试只覆盖：根是否发布 service、实体身份是否跨重绘稳定、无根时调用方拿到 `None`
 - 不支持 RTL 布局、`letter_spacing`、CSS `outline`
-- 无 live region；状态变化不会主动播报给屏幕阅读器
+- 无通用 live region：保存/删除等状态变化不会主动播报。菜单当前项通过 active descendant 发布，但实际朗读未测
+- `Dialog`/`AlertDialog`/`Sheet` 的模态宿主名称默认取自 `title` 文本；`accessibility_label` 可覆盖，`title_element` 自定义内容不提供名称。模态打开期间 AX 树只保留最上层模态子树（背景节点消失，关闭后恢复）；属于模态的 deferred Popover/Menu 保留，背景中的 Popover/Menu 随背景消失。该行为已有 AX 树测试，但真实窗口中的 VoiceOver/屏幕阅读器表现尚未验证
+- `Dialog::title` 现接收 `SharedString`；自定义元素用 `title_element`，需要不同播报名时用 `accessibility_label`。`TextInput`/`Textarea` 默认发布 `TextInput`/`MultilineTextInput` 角色，`accessibility_label` 只覆盖名称。`Textarea` 的 Tab 默认缩进；需要 Tab/Shift+Tab 移出字段时使用 `TextareaTabBehavior::Navigate`
 - 高对比度需要手动切主题，未做系统级自动检测
-- 输入法（IME）组合输入尚未测试
+- `aa1cf6c` 中文输入源用户已通过；修复后真机复测尚待。不得据此声称当前构建已验证
 
 ## 开发
 

@@ -7,14 +7,14 @@
 use fluent_core::gpui_compat::StyledExt as _;
 use fluent_core::gpui_compat::{
     AnyElement, App, Entity, InteractiveElement, IntoElement, MouseButton, ParentElement,
-    RenderOnce, SharedString, StatefulInteractiveElement, StyleRefinement, Styled, Window, div, px,
-    relative,
+    RenderOnce, Role, SharedString, StatefulInteractiveElement, StyleRefinement, Styled, Window,
+    div, px, relative,
 };
 use fluent_core::spec::ControlSize;
 use fluent_core::spec::input::{self, InputAppearance, InputProps};
 use fluent_theme::FluentTheme;
 use gpui_base::Input;
-use gpui_base::input::InputState;
+use gpui_base::input::{InputAccessibility, InputState};
 
 /// A Fluent 2 single-line text field.
 ///
@@ -32,6 +32,7 @@ use gpui_base::input::InputState;
 pub struct TextInput {
     state: Entity<InputState>,
     props: InputProps,
+    a11y_label: Option<SharedString>,
     content_before: Option<AnyElement>,
     content_after: Option<AnyElement>,
     style: StyleRefinement,
@@ -43,6 +44,7 @@ impl TextInput {
         Self {
             state: state.clone(),
             props: InputProps::default(),
+            a11y_label: None,
             content_before: None,
             content_after: None,
             style: StyleRefinement::default(),
@@ -73,6 +75,17 @@ impl TextInput {
         self
     }
 
+    /// Explicit accessible name for the field.
+    ///
+    /// The name is merged into the state's `InputAccessibility` projection
+    /// without touching a caller's explicit role, placeholder, accessibility
+    /// id or value exposure. Without this builder the state's own explicit
+    /// accessibility (including its name) is left alone.
+    pub fn accessibility_label(mut self, label: impl Into<SharedString>) -> Self {
+        self.a11y_label = Some(label.into());
+        self
+    }
+
     /// Content before the text, such as an icon.
     pub fn content_before(mut self, element: impl IntoElement) -> Self {
         self.content_before = Some(element.into_any_element());
@@ -94,6 +107,37 @@ impl Styled for TextInput {
 
 impl RenderOnce for TextInput {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+        // Ensure every rendered field exposes at least the single-line role.
+        // A builder name overrides the state's name; the caller's role,
+        // placeholder, accessibility id and value exposure are preserved.
+        // Only write when the merged projection actually differs, so redraws
+        // never reinstall an equivalent value.
+        let needs_write = self.state.read(cx).accessibility().is_none_or(|current| {
+            current.role().is_none()
+                || self
+                    .a11y_label
+                    .as_ref()
+                    .is_some_and(|label| current.label() != Some(label))
+        });
+        if needs_write {
+            let builder_label = self.a11y_label.as_ref().cloned();
+            self.state.update(cx, move |state, _| {
+                let merged = match state.accessibility() {
+                    Some(current) => {
+                        InputAccessibility::new(current.role().or(Some(Role::TextInput)))
+                            .with_label(builder_label.or_else(|| current.label().cloned()))
+                            .with_placeholder(current.placeholder().cloned())
+                            .with_accessibility_id(current.accessibility_id().cloned())
+                            .with_value_exposed(current.value_exposed())
+                    }
+                    None => {
+                        InputAccessibility::new(Some(Role::TextInput)).with_label(builder_label)
+                    }
+                };
+                state.set_accessibility(merged);
+            });
+        }
+
         let theme = FluentTheme::global(cx);
         let spec = input::resolve(&theme, &self.props);
         let m = spec.metrics;
@@ -292,6 +336,8 @@ impl RenderOnce for TextInput {
     }
 }
 
+#[cfg(test)]
+mod accessibility_tests;
 #[cfg(test)]
 mod focus_tests;
 #[cfg(test)]

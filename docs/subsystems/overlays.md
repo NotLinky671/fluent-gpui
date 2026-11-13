@@ -75,7 +75,7 @@ deferred positioner prepaint：读取同一共享值，结合面板尺寸和视�
 - 打开时构建全视口 `anchored` + `deferred` 背板，先加入背板，再加入 deferred 面板。背板只负责“面板外”的关闭请求。
 - **绘制在上方不等于鼠标命中遮挡。** 面板容器调用 `InteractiveElement::occlude`（`HitboxBehavior::BlockMouse`）阻断其下命中，因此面板上的点击不会落到下方控件。行为测试用一块垫底元素验证了这一点：移除 `occlude` 后“面板内点击不穿透”的两条测试会失败。
 - **面板外仍有属于同一表面的内容时，外部按下判据要扩展。** 外部按下原本只比较面板自身的 hitbox；`Menu` 的子面板会超出该矩形，所以 `Menu` 每帧发布子面板的窗口边界（`InteriorRegions`），`Popover` 在关闭前检查这些区域。落在任一已发布区域内视为内部，不请求关闭；未重新发布的旧区域不会保留。该机制只影响关闭判据，不改变定位或焦点。回归测试：`a_press_inside_a_published_content_region_keeps_the_panel_open`、`a_region_not_published_again_is_treated_as_outside`、`a_press_outside_panel_and_regions_still_requests_a_close`。这是 crate 内部接线（`interior_regions` 为 `pub(crate)`），不是通用公开 API。
-- `Escape` 通过 `fluent_components::Dismiss` 关闭：`fluent_ui::init` 把它绑定到 `escape` 并限定在 `OVERLAY_KEY_CONTEXT`，Popover 在触发器包装层与面板上都设置该 context 并挂 `on_action`。**只有焦点位于浮层内时才会触发**，所以调用方必须通过 `track_focus` 提供焦点句柄；同一个句柄还用于打开时的焦点移入、关闭归还和 Tab 陷阱，见[焦点专题](focus.md#浮层焦点交接)。
+- `Escape` 通过 `fluent_components::Dismiss` 关闭：`fluent_ui::init` 把它绑定到 `escape` 并限定在 `OVERLAY_KEY_CONTEXT`，Popover 在触发器包装层与面板上都设置该 context 并挂 `on_action`。**只有焦点位于浮层内时才会触发**，所以调用方必须通过 `track_focus` 提供面板焦点句柄；该句柄用于打开时的焦点移入、关闭归还与 Tab 陷阱，但**不**再挂到触发器包装层上（两者共用会让已关闭的陷阱继续匹配焦点）。菜单的 Tab/Shift+Tab 还通过 `DismissAndFocusNext` / `DismissAndFocusPrev` 携带方向，Popover 在关闭帧之后调用 `focus_next` / `focus_prev`，见[焦点专题](focus.md#浮层焦点交接)。
 - 关闭行为已有测试覆盖：外部按下上报 `false`；面板本体、面板内交互子元素上的按下不上报且不穿透；按下触发器只上报一次变化（触发器自身的切换与“点击外部”不会重复上报）；受控调用方忽略请求时保持打开。
 - **表面归属**：`Popover` 默认给面板画卡片（内边距 12、圆角、背景、阴影）。内容自带表面时必须用 `draw_panel_surface(false)` 关掉，否则会叠出第二张卡片并把内容内缩一层——`Menu` 就是自带表面的例子，`MenuDropdown` 已经这样接线。打开动画由 `Menu` 自己做：下拉打开时把「代号」加一，菜单按 `now - opened_at` 在 350ms 内把**不透明度**从 0 抬到 1（四分 ease-out），同时整体向下归位约 4px（帧间互相关测得，30fps 录屏，精度 ±1–2px），所以观感是从按钮底部往下落定；独立摆在页面里的菜单不播这个动画。
 - 焦点进入/归还与 Tab 约束只在提供 `track_focus` 时成立，且均有行为测试；未提供时这些能力不成立。嵌套或同时打开的多个浮层仍没有协调机制。Menu 的键盘模型见[菜单实现](../../crates/fluent-components/src/menu.rs)。
@@ -93,6 +93,8 @@ deferred positioner prepaint：读取同一共享值，结合面板尺寸和视�
 **状态与关闭**。`.open(bool)` 为受控；`default_open` 仅初始化 window keyed store。Escape / scrim 按下 / `DialogHandle::close` 统一经 `DialogChangeReason::{Cancel,BackdropPress,Imperative}` 上报给 `on_open_change`，再（非受控时）写 keyed store 并 `cx.notify`。`on_ok`/`on_cancel` 返回 `false` 可否决；Enter 绑定到宿主的 `Confirm` 走 `on_ok`。`AlertDialog` 由 gpui-base 特化：`Role::AlertDialog`、无 scrim 关闭；本组件再叠加 `close_on_escape(false)`，因此必须点击 footer 动作。
 
 **焦点**。宿主自带 `focus_trap`，配合 `FluentRoot` 的 `advance_focus` 让 Tab 在卡片内循环。gpui-base 不记忆旧焦点，本组件在 wrapper 里用 keyed state 复刻 Popover 的交接：打开首帧记录 `window.focused` 并聚焦宿主句柄，关闭首帧在焦点仍位于对话框内时归还。**如果调用方在关闭的同一帧直接把对话框元素卸载，归还永远不会发生**——组件必须保持挂载并用受控 `open` 驱动，notes 应用就是这么接的。
+
+**AX 与模态隔离**。宿主发布 `Role::Dialog`/`Role::AlertDialog` 与 `aria_modal(true)`，名称默认取 `title`（`SharedString`；`accessibility_label` 覆盖，`title_element` 不提供名称），每个 `Dialog` 用调用方 id 生成独立 host id。打开期间 AX 树只保留真实绘制序最上层模态的子树：背景节点与被覆盖模态删除，关闭后恢复。属于模态的 deferred Popover/Menu 按 schedule 时的 owner reparent 到模态子树；owner 被裁掉时随 owner 删除。选择最上层按 `(deferred priority, push order)`，不是节点深度或 render 顺序。普通 Popover 不带 modal，不得据此隐藏背景。回归入口：`dialog::tests`。
 
 **命令入口**：`cargo test -p fluent-components --lib dialog --locked`。
 
@@ -114,7 +116,9 @@ deferred positioner prepaint：读取同一共享值，结合面板尺寸和视�
 
 **焦点**。宿主自带焦点陷阱；wrapper 在进入首帧记录 `window.focused` 并把焦点交给宿主句柄，退出动画结束且焦点仍在抽屉内时才归还。**调用方若在 `open(false)` 同帧卸载元素，归还不会发生**——保持挂载并用受控 `open` 驱动。
 
-**尚未覆盖**：真实窗口中的滑入/滑出观感与系统 reduced-motion、固定尺寸下的长内容裁剪、拖拽关闭与滚动区都没有实现或验证；`Role::Dialog` 挂在面板上，AccessKit 的模态语义与焦点顺序留给 T-049 审计。
+**AX 与模态隔离**。面板发布 `Role::Dialog` + `aria_modal(true)`，名称默认取 `title`，`accessibility_label` 覆盖；打开期间 AX 树隐藏背景，关闭后恢复。与 Dialog 共用同一套最上层模态裁剪，但 Sheet 的宿主/面板布局不同，不能从 Dialog 的焦点测试推定 Sheet 的朗读顺序。真实 VoiceOver 未验证。回归入口：`sheet::tests`。
+
+**尚未覆盖**：真实窗口中的滑入/滑出观感与系统 reduced-motion、固定尺寸下的长内容裁剪、拖拽关闭与滚动区都没有实现或验证；真实屏幕阅读器对面板模态语义的朗读与焦点顺序未验证。
 
 **命令入口**：`cargo test -p fluent-components --lib sheet --locked`。
 

@@ -31,6 +31,7 @@ use fluent_core::spec::feedback;
 use fluent_core::spec::menu::{self, MenuItemProps};
 use fluent_icons::FluentIcon;
 use fluent_theme::FluentTheme;
+use gpui::AppContext as _;
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
     Bounds, Display, Element, GlobalElementId, InspectorElementId, LayoutId, Pixels, Point,
@@ -57,6 +58,9 @@ type PanelLeave = Rc<dyn Fn(&mut Window, &mut App, Vec<ElementId>)>;
 
 /// Reports an actual pointer move inside one panel, with that panel's rows.
 type PanelMove = Rc<dyn Fn(&mut App, Vec<ElementId>, RowBounds, Point<Pixels>)>;
+
+/// Receives text committed by the platform input method.
+pub(super) type MenuImeCommit = Rc<dyn Fn(&str, &mut Window, &mut App)>;
 /// Measured bounds of the rows drawn in one panel of the menu chain.
 ///
 /// The map is rebuilt into a fresh frame-local value on every render, so a row
@@ -307,6 +311,104 @@ fn normalize_state(state: &mut MenuState, levels: &[LevelSnapshot]) -> bool {
     }
 
     *state != before
+}
+
+/// Closes the whole chain on Tab and asks the host to hand focus to the next
+/// (or previous) control. The direction travels as a distinct action: a unit
+/// `Dismiss` cannot tell Shift+Tab from a click or Escape.
+fn tab_out(
+    tree: &MenuTree,
+    levels: &[LevelSnapshot],
+    typeahead: &gpui::Entity<Typeahead>,
+    forward: bool,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    let (mut state, mut changed) = read_normalized(tree, cx, levels);
+    changed |= state.pending.take().is_some();
+    reset_typeahead(typeahead, cx);
+    commit(tree, cx, &state, changed);
+    let action: Box<dyn gpui::Action> = if forward {
+        Box::new(crate::DismissAndFocusNext)
+    } else {
+        Box::new(crate::DismissAndFocusPrev)
+    };
+    window.dispatch_action(action, cx);
+}
+
+/// Applies one typed character (keyboard) or one committed string (IME) to the
+/// typeahead prefix. The committed string is matched as-is; there is no pinyin
+/// or candidate special-casing, because the platform already resolved it.
+fn apply_typeahead(
+    tree: &MenuTree,
+    levels: &[LevelSnapshot],
+    typeahead: &gpui::Entity<Typeahead>,
+    text: &str,
+    cx: &mut App,
+) {
+    let (mut state, mut changed) = read_normalized(tree, cx, levels);
+    // Typing is keyboard input: it cancels a hover that has not fired.
+    changed |= state.pending.take().is_some();
+    let path = level_path(&state);
+    let session = state.session;
+    let level_epoch = state.level_epoch;
+    let now = std::time::Instant::now();
+    let prefix = typeahead.update(cx, |typeahead, _| {
+        // Typing belongs to one *visit* of a level: the full path is not
+        // enough, because leaving and re-entering the same branch ends at the
+        // same path. The epoch changes on every open, close or truncation, so
+        // such a re-entry starts fresh.
+        if typeahead.path != path
+            || typeahead.session != session
+            || typeahead.level_epoch != level_epoch
+        {
+            typeahead.prefix.clear();
+            typeahead.at = None;
+            typeahead.path = path.clone();
+            typeahead.session = session;
+            typeahead.level_epoch = level_epoch;
+        }
+        let expired = typeahead
+            .at
+            .is_none_or(|at| now.duration_since(at) > TYPEAHEAD_RESET);
+        // Repeating one character restarts from that character so it cycles
+        // through matches instead of building an unmatchable prefix like "oo".
+        let mut characters = text.chars();
+        let first = characters.next();
+        let single = first.is_some() && characters.next().is_none();
+        let repeating = !expired && single && typeahead.prefix.chars().all(|c| Some(c) == first);
+        if expired || repeating {
+            typeahead.prefix.clear();
+        }
+        typeahead.prefix.push_str(text);
+        typeahead.at = Some(now);
+        typeahead.prefix.clone()
+    });
+
+    if let Some(level) = level_by_path(levels, &path) {
+        let rows: Vec<&RowSnapshot> = level.selectable().collect();
+        if !rows.is_empty() {
+            // Search from the row after the current one, wrapping, so
+            // repeated characters advance instead of staying on the first
+            // match.
+            let current = deepest_active(&state);
+            let start = current
+                .and_then(|id| rows.iter().position(|row| row.id == id))
+                .map_or(0, |position| position + 1);
+            let mut target = None;
+            for offset in 0..rows.len() {
+                let position = (start + offset) % rows.len();
+                if rows[position].label.to_lowercase().starts_with(&prefix) {
+                    target = Some(rows[position].id.clone());
+                    break;
+                }
+            }
+            if let Some(id) = target {
+                changed |= set_level_active(&mut state, levels, &path, Some(id), false);
+            }
+        }
+    }
+    commit(tree, cx, &state, changed);
 }
 
 fn read_normalized(tree: &MenuTree, cx: &App, levels: &[LevelSnapshot]) -> (MenuState, bool) {
@@ -769,6 +871,7 @@ pub struct Menu {
     /// the popover's own bounds, so the bounds of the popover alone cannot tell
     /// "inside this menu" from "outside the overlay".
     interior: Option<InteriorRegions>,
+    a11y_label: Option<SharedString>,
     style: StyleRefinement,
 }
 
@@ -780,8 +883,19 @@ impl Menu {
             focus: None,
             reveal: None,
             interior: None,
+            a11y_label: None,
             style: StyleRefinement::default(),
         }
+    }
+
+    /// Accessible name for the menu surface.
+    ///
+    /// Defaults to “Menu”; callers with a meaningful trigger (“Sort”, “File”)
+    /// should pass it so assistive technology announces the menu's purpose.
+    /// MenuDropdown forwards its own label when one is supplied.
+    pub fn accessibility_label(mut self, label: impl Into<SharedString>) -> Self {
+        self.a11y_label = Some(label.into());
+        self
     }
 
     /// Adds a selectable row.
@@ -849,6 +963,7 @@ impl RenderOnce for Menu {
             focus,
             reveal,
             interior,
+            a11y_label,
             style,
         } = self;
         let theme = FluentTheme::global(cx);
@@ -929,6 +1044,33 @@ impl RenderOnce for Menu {
             |_, _| Typeahead::default(),
         );
 
+        // Platform input methods have no text field here: the menu container
+        // owns focus. Register an input handler for it so committed CJK text
+        // reaches the same matcher as printable keys.
+        let ime_sink_state = window.use_keyed_state(
+            SharedString::from(format!("menu-ime-{}", menu_id)),
+            cx,
+            |_, cx| cx.new(|_| ime::MenuImeSink::default()),
+        );
+        // `use_keyed_state` stores the entity handle itself; unwrap it once so
+        // the rest of the frame talks to the sink, not Entity<Entity<_>>.
+        let ime_sink = ime_sink_state.read(cx).clone();
+        {
+            let tree = tree.clone();
+            let levels = levels.clone();
+            let typeahead = typeahead.clone();
+            let ime_sink = ime_sink.clone();
+            let generation = (state.session, state.level_epoch);
+            ime_sink.update(cx, |sink, _| {
+                sink.set_handler(
+                    Rc::new(move |text, _window, cx| {
+                        apply_typeahead(&tree, &levels, &typeahead, text, cx);
+                    }),
+                    generation,
+                );
+            });
+        }
+
         let hover: LevelHover = {
             let tree = tree.clone();
             let levels = levels.clone();
@@ -985,6 +1127,7 @@ impl RenderOnce for Menu {
             .shadow(shadow.clone())
             .key_context(crate::MENU_KEY_CONTEXT)
             .role(Role::Menu)
+            .aria_label(a11y_label.unwrap_or_else(|| SharedString::from("Menu")))
             .when_some(focus.clone(), |el, focus| el.track_focus(&focus))
             .on_hover({
                 let leave = leave.clone();
@@ -1032,7 +1175,15 @@ impl RenderOnce for Menu {
         container = container.on_action({
             let tree = tree.clone();
             let levels = levels.clone();
-            move |_: &crate::MenuActivate, window, cx| activate_row(&tree, &levels, window, cx)
+            let ime_sink = ime_sink.clone();
+            move |_: &crate::MenuActivate, window, cx| {
+                // Enter during an active composition commits text; it must not
+                // also run the menu's current action.
+                if ime_sink.read(cx).has_marked() {
+                    return;
+                }
+                activate_row(&tree, &levels, window, cx)
+            }
         });
         container = container.on_action({
             let tree = tree.clone();
@@ -1044,72 +1195,23 @@ impl RenderOnce for Menu {
             let tree = tree.clone();
             let levels = levels.clone();
             let typeahead = typeahead.clone();
-            move |event, _, cx| {
+            let ime_sink = ime_sink.clone();
+            move |event, window, cx| {
                 let Some(character) = typed_character(&event.keystroke) else {
                     return;
                 };
-                let (mut state, mut changed) = read_normalized(&tree, cx, &levels);
-                // Typing is keyboard input: it cancels a hover that has not fired.
-                changed |= state.pending.take().is_some();
-                let path = level_path(&state);
-                let session = state.session;
-                let level_epoch = state.level_epoch;
-                let now = std::time::Instant::now();
-                let prefix = typeahead.update(cx, |typeahead, _| {
-                    // Typing belongs to one *visit* of a level: the full path is
-                    // not enough, because leaving and re-entering the same branch
-                    // ends at the same path. The epoch changes on every open,
-                    // close or truncation, so such a re-entry starts fresh.
-                    if typeahead.path != path
-                        || typeahead.session != session
-                        || typeahead.level_epoch != level_epoch
-                    {
-                        typeahead.prefix.clear();
-                        typeahead.at = None;
-                        typeahead.path = path.clone();
-                        typeahead.session = session;
-                        typeahead.level_epoch = level_epoch;
-                    }
-                    let expired = typeahead
-                        .at
-                        .is_none_or(|at| now.duration_since(at) > TYPEAHEAD_RESET);
-                    // Repeating one character restarts from that character so it
-                    // cycles through matches instead of building an unmatchable
-                    // prefix like "oo".
-                    let repeating = !expired && typeahead.prefix.chars().all(|c| c == character);
-                    if expired || repeating {
-                        typeahead.prefix.clear();
-                    }
-                    typeahead.prefix.push(character);
-                    typeahead.at = Some(now);
-                    typeahead.prefix.clone()
+                let text = character.to_string();
+                // On platforms that follow KeyDown with insertText, remember
+                // this text so the commit does not apply it a second time. The
+                // marker lasts one dispatch only: a key-only path must not
+                // swallow a later independent commit of the same character.
+                ime_sink.update(cx, |sink, _| sink.note_key(&text));
+                let sink_for_next_frame = ime_sink.clone();
+                let text_for_next_frame = text.clone();
+                window.on_next_frame(move |_, cx| {
+                    sink_for_next_frame.update(cx, |sink, _| sink.clear_key(&text_for_next_frame));
                 });
-
-                if let Some(level) = level_by_path(&levels, &path) {
-                    let rows: Vec<&RowSnapshot> = level.selectable().collect();
-                    if !rows.is_empty() {
-                        // Search from the row after the current one, wrapping, so
-                        // repeated characters advance instead of staying on the
-                        // first match.
-                        let current = deepest_active(&state);
-                        let start = current
-                            .and_then(|id| rows.iter().position(|row| row.id == id))
-                            .map_or(0, |position| position + 1);
-                        let mut target = None;
-                        for offset in 0..rows.len() {
-                            let position = (start + offset) % rows.len();
-                            if rows[position].label.to_lowercase().starts_with(&prefix) {
-                                target = Some(rows[position].id.clone());
-                                break;
-                            }
-                        }
-                        if let Some(id) = target {
-                            changed |=
-                                set_level_active(&mut state, &levels, &path, Some(id), false);
-                        }
-                    }
-                }
-                commit(&tree, cx, &state, changed);
+                apply_typeahead(&tree, &levels, &typeahead, &text, cx);
             }
         });
 
@@ -1151,11 +1253,16 @@ impl RenderOnce for Menu {
             let levels = levels.clone();
             let typeahead = typeahead.clone();
             move |_: &crate::MenuTabOut, window, cx| {
-                let (mut state, mut changed) = read_normalized(&tree, cx, &levels);
-                changed |= state.pending.take().is_some();
-                reset_typeahead(&typeahead, cx);
-                commit(&tree, cx, &state, changed);
-                window.dispatch_action(Box::new(crate::Dismiss), cx);
+                tab_out(&tree, &levels, &typeahead, true, window, cx);
+            }
+        });
+
+        container = container.on_action({
+            let tree = tree.clone();
+            let levels = levels.clone();
+            let typeahead = typeahead.clone();
+            move |_: &crate::MenuTabBackward, window, cx| {
+                tab_out(&tree, &levels, &typeahead, false, window, cx);
             }
         });
 
@@ -1176,6 +1283,16 @@ impl RenderOnce for Menu {
                 regions: regions.clone(),
             });
         }
+
+        let container: AnyElement = match focus.as_ref() {
+            Some(focus) => ime::MenuImeElement {
+                child: container.into_any_element(),
+                focus: focus.clone(),
+                sink: ime_sink,
+            }
+            .into_any_element(),
+            None => container.into_any_element(),
+        };
 
         // Publish this panel's window bounds so pointer leave from a submenu can
         // tell "moved back onto the root panel" from "left the menu chain".
@@ -1572,6 +1689,7 @@ pub struct MenuDropdown {
     default_open: bool,
     focus: Option<gpui::FocusHandle>,
     on_open_change: Option<OpenChangeHandler>,
+    a11y_label: Option<SharedString>,
 }
 
 impl MenuDropdown {
@@ -1584,7 +1702,14 @@ impl MenuDropdown {
             default_open: false,
             focus: None,
             on_open_change: None,
+            a11y_label: None,
         }
+    }
+
+    /// Accessible name for the menu surface; overrides `Menu::accessibility_label`.
+    pub fn accessibility_label(mut self, label: impl Into<SharedString>) -> Self {
+        self.a11y_label = Some(label.into());
+        self
     }
 
     /// Controlled open state, forwarded to the popover.
@@ -1653,6 +1778,9 @@ impl RenderOnce for MenuDropdown {
             .menu
             .reveal_generation(generation_value)
             .interior_regions(interior.clone());
+        if let Some(label) = self.a11y_label.as_ref() {
+            menu = menu.accessibility_label(label.clone());
+        }
         if let Some(focus) = self.focus.as_ref() {
             menu = menu.track_focus(focus);
         }
@@ -1917,7 +2045,13 @@ impl RenderOnce for MenuItem {
             .text_size(spec.font_size)
             .line_height(spec.line_height)
             .role(Role::MenuItem)
+            .aria_label(label.clone())
             .aria_selected(self.active && !self.disabled)
+            .when(self.active && !self.disabled, |el| {
+                // Focus stays on the menu container; this child is the active
+                // descendant assistive technology should announce.
+                el.aria_active_descendant()
+            })
             .child(leading)
             .child(label)
             .refine_style(&self.style);
@@ -2017,6 +2151,17 @@ impl RenderOnce for MenuHeader {
     }
 }
 
+mod ime;
+
+#[cfg(test)]
+mod ax_tests;
+
+#[cfg(test)]
+mod ime_tests;
+
+#[cfg(test)]
+mod cjk_consumer_tests;
+
 #[cfg(test)]
 mod keyboard_tests;
 
@@ -2025,6 +2170,9 @@ mod input_mode_tests;
 
 #[cfg(test)]
 mod typeahead_tests;
+
+#[cfg(test)]
+mod tab_handoff_tests;
 
 #[cfg(test)]
 mod surface_tests;

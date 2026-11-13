@@ -9,8 +9,8 @@ mod fixtures;
 use std::time::Duration;
 
 use fluent_ui::gpui::{
-    AnyElement, App, Bounds, ClickEvent, Context, Hsla, Render, StatefulInteractiveElement,
-    Subscription, Window, WindowBounds, WindowOptions, div, px, size,
+    AnyElement, App, Bounds, ClickEvent, Context, FocusHandle, Hsla, Render,
+    StatefulInteractiveElement, Subscription, Window, WindowBounds, WindowOptions, div, px, size,
 };
 use fluent_ui::gpui_base::input::{InputState, TextareaState};
 use fluent_ui::prelude::*;
@@ -65,7 +65,13 @@ struct Gallery {
     switch_b: bool,
     dialog_open: bool,
     tab_index: usize,
+    /// Focus for the horizontal strip. The strip is one Tab stop; arrows move
+    /// the selection. Without `track_focus` the strip is unreachable by Tab.
+    tab_focus: FocusHandle,
     vertical_tab_index: usize,
+    /// Focus for the vertical strip, kept separate so each strip is its own
+    /// stop and the two never share selection state.
+    vertical_tab_focus: FocusHandle,
     alert_open: bool,
     /// The edge of the open sheet, or `None` when it is closed.
     sheet_side: Option<SheetSide>,
@@ -114,7 +120,9 @@ impl Gallery {
             switch_b: false,
             dialog_open: false,
             tab_index: 0,
+            tab_focus: cx.focus_handle().tab_stop(true),
             vertical_tab_index: 0,
+            vertical_tab_focus: cx.focus_handle().tab_stop(true),
             alert_open: false,
             sheet_side: None,
             fixture,
@@ -194,6 +202,7 @@ impl Render for Gallery {
                         .appearance(appearance)
                         .size(size)
                         .on_click(handler())
+                        .accessibility_label(size_name(size))
                         .child(size_name(size)),
                 );
                 index += 1;
@@ -213,6 +222,7 @@ impl Render for Gallery {
                     .appearance(appearance)
                     .disabled(true)
                     .on_click(handler())
+                    .accessibility_label("disabled")
                     .child("disabled"),
             );
             index += 1;
@@ -230,15 +240,17 @@ impl Render for Gallery {
             ButtonShape::Circular,
             ButtonShape::Square,
         ] {
+            let shape_label = match shape {
+                ButtonShape::Rounded => "rounded",
+                ButtonShape::Circular => "circular",
+                ButtonShape::Square => "square",
+            };
             shapes = shapes.child(
                 Button::new(("shape", index))
                     .shape(shape)
                     .on_click(handler())
-                    .child(match shape {
-                        ButtonShape::Rounded => "rounded",
-                        ButtonShape::Circular => "circular",
-                        ButtonShape::Square => "square",
-                    }),
+                    .accessibility_label(shape_label)
+                    .child(shape_label),
             );
             index += 1;
         }
@@ -259,6 +271,7 @@ impl Render for Gallery {
                 Button::new(("icon", index))
                     .icon(icon)
                     .on_click(handler())
+                    .accessibility_label(label)
                     .child(label),
             );
             index += 1;
@@ -268,20 +281,22 @@ impl Render for Gallery {
                 .appearance(ButtonAppearance::Primary)
                 .icon_after(FluentIcon::ChevronDown)
                 .on_click(handler())
+                .accessibility_label("Options")
                 .child("Options"),
         );
         index += 1;
-        for icon in [
-            FluentIcon::Add,
-            FluentIcon::MoreHorizontal,
-            FluentIcon::Dismiss,
+        for (icon, label) in [
+            (FluentIcon::Add, "Add"),
+            (FluentIcon::MoreHorizontal, "More actions"),
+            (FluentIcon::Dismiss, "Dismiss"),
         ] {
             icon_row = icon_row.child(
                 Button::new(("icon-only", index))
                     .appearance(ButtonAppearance::Subtle)
                     .icon(icon)
                     .icon_only()
-                    .on_click(handler()),
+                    .on_click(handler())
+                    .accessibility_label(label),
             );
             index += 1;
         }
@@ -296,16 +311,17 @@ impl Render for Gallery {
         ];
         let mut input_index = 0usize;
         for appearance in input_appearances {
+            let appearance_label = match appearance {
+                InputAppearance::Outline => "outline",
+                InputAppearance::Underline => "underline",
+                InputAppearance::FilledDarker => "filled-darker",
+                InputAppearance::FilledLighter => "filled-lighter",
+            };
             let mut row = div().flex().items_center().gap(px(12.)).child(
                 div()
                     .w(px(96.))
                     .text_color(t.color.neutral_foreground_3)
-                    .child(match appearance {
-                        InputAppearance::Outline => "outline",
-                        InputAppearance::Underline => "underline",
-                        InputAppearance::FilledDarker => "filled-darker",
-                        InputAppearance::FilledLighter => "filled-lighter",
-                    }),
+                    .child(appearance_label),
             );
             if matches!(appearance, InputAppearance::FilledLighter) {
                 row = row.bg(FluentTheme::global(cx).tokens().color.neutral_background_2);
@@ -315,7 +331,11 @@ impl Render for Gallery {
                     div().w(px(220.)).child(
                         TextInput::new(&self.inputs[input_index])
                             .appearance(appearance)
-                            .size(size),
+                            .size(size)
+                            .accessibility_label(format!(
+                                "{appearance_label} input, {}",
+                                size_name(size)
+                            )),
                     ),
                 );
                 input_index += 1;
@@ -334,21 +354,24 @@ impl Render for Gallery {
                 div().w(px(220.)).child(
                     TextInput::new(&self.inputs[12])
                         .disabled(true)
-                        .size(ControlSize::Medium),
+                        .size(ControlSize::Medium)
+                        .accessibility_label("disabled input"),
                 ),
             )
             .child(
                 div().w(px(220.)).child(
                     TextInput::new(&self.inputs[13])
                         .invalid(true)
-                        .size(ControlSize::Medium),
+                        .size(ControlSize::Medium)
+                        .accessibility_label("invalid input"),
                 ),
             )
             .child(
                 div().w(px(220.)).child(
                     TextInput::new(&self.inputs[14])
                         .content_before(fluent_ui::Icon::new(FluentIcon::Search).size(px(16.)))
-                        .size(ControlSize::Medium),
+                        .size(ControlSize::Medium)
+                        .accessibility_label("search input"),
                 ),
             );
         input_matrix = input_matrix.child(input_extras);
@@ -360,17 +383,18 @@ impl Render for Gallery {
         ];
         let mut textarea_index = 0usize;
         for appearance in textarea_appearances {
+            let appearance_label = match appearance {
+                TextareaAppearance::Outline => "outline",
+                TextareaAppearance::Filled => "filled",
+                TextareaAppearance::FilledDarker => "filled-darker",
+                TextareaAppearance::FilledLighter => "filled-lighter",
+            };
             let mut row = div().flex().items_start().gap(px(12.)).child(
                 div()
                     .w(px(96.))
                     .pt(px(8.))
                     .text_color(t.color.neutral_foreground_3)
-                    .child(match appearance {
-                        TextareaAppearance::Outline => "outline",
-                        TextareaAppearance::Filled => "filled",
-                        TextareaAppearance::FilledDarker => "filled-darker",
-                        TextareaAppearance::FilledLighter => "filled-lighter",
-                    }),
+                    .child(appearance_label),
             );
             if matches!(appearance, TextareaAppearance::FilledLighter) {
                 row = row.bg(FluentTheme::global(cx).tokens().color.neutral_background_2);
@@ -380,7 +404,11 @@ impl Render for Gallery {
                     div().w(px(220.)).child(
                         Textarea::new(&self.textareas[textarea_index])
                             .appearance(appearance)
-                            .size(size),
+                            .size(size)
+                            .accessibility_label(format!(
+                                "{appearance_label} textarea, {}",
+                                size_name(size)
+                            )),
                     ),
                 );
                 textarea_index += 1;
@@ -403,14 +431,16 @@ impl Render for Gallery {
                     div().w(px(220.)).child(
                         Textarea::new(&self.textareas[9])
                             .disabled(true)
-                            .size(ControlSize::Medium),
+                            .size(ControlSize::Medium)
+                            .accessibility_label("disabled textarea"),
                     ),
                 )
                 .child(
                     div().w(px(220.)).child(
                         Textarea::new(&self.textareas[10])
                             .invalid(true)
-                            .size(ControlSize::Medium),
+                            .size(ControlSize::Medium)
+                            .accessibility_label("invalid textarea"),
                     ),
                 ),
         );
@@ -425,7 +455,9 @@ impl Render for Gallery {
                     Field::new("Display name")
                         .required(true)
                         .hint("Shown to other people.")
-                        .child(TextInput::new(&self.inputs[15])),
+                        .child(
+                            TextInput::new(&self.inputs[15]).accessibility_label("Display name"),
+                        ),
                 ),
             )
             .child(
@@ -435,7 +467,11 @@ impl Render for Gallery {
                         .validation_message(ValidationMessage::Error(
                             "Enter a valid email address".into(),
                         ))
-                        .child(TextInput::new(&self.inputs[16]).invalid(true)),
+                        .child(
+                            TextInput::new(&self.inputs[16])
+                                .invalid(true)
+                                .accessibility_label("Email"),
+                        ),
                 ),
             )
             .child(
@@ -443,14 +479,16 @@ impl Render for Gallery {
                     Field::new("Storage")
                         .horizontal()
                         .hint("Used across all workspaces.")
-                        .child(TextInput::new(&self.inputs[17])),
+                        .child(TextInput::new(&self.inputs[17]).accessibility_label("Storage")),
                 ),
             )
             .child(
                 div().w(px(300.)).child(
-                    Field::new("Disabled field")
-                        .disabled(true)
-                        .child(TextInput::new(&self.inputs[2]).disabled(true)),
+                    Field::new("Disabled field").disabled(true).child(
+                        TextInput::new(&self.inputs[2])
+                            .disabled(true)
+                            .accessibility_label("Disabled field"),
+                    ),
                 ),
             );
 
@@ -643,6 +681,7 @@ impl Render for Gallery {
                     .child(
                         Button::new("tooltip-btn")
                             .tooltip("Saves the current document")
+                            .accessibility_label("Hover for tooltip")
                             .child("Hover for tooltip"),
                     )
                     // Static preview of the surface, since screenshots cannot hover.
@@ -657,7 +696,11 @@ impl Render for Gallery {
                     .child(
                         Popover::new("popover-demo")
                             .default_open(true)
-                            .trigger(Button::new("popover-trigger").child("Open popover"))
+                            .trigger(
+                                Button::new("popover-trigger")
+                                    .accessibility_label("Open popover")
+                                    .child("Open popover"),
+                            )
                             .content("Popover content"),
                     )
                     // Reproduction for popover positioning inside a scroll
@@ -683,6 +726,7 @@ impl Render for Gallery {
                                             .default_open(true)
                                             .trigger(
                                                 Button::new("popover-scroll-trigger")
+                                                    .accessibility_label("Scroll me")
                                                     .child("Scroll me"),
                                             )
                                             .content("Anchored panel"),
@@ -712,7 +756,9 @@ impl Render for Gallery {
                 div().p(px(16.)).child(
                     MenuDropdown::new(
                         "menu-dropdown",
-                        Button::new("menu-dropdown-trigger").child("Open menu"),
+                        Button::new("menu-dropdown-trigger")
+                            .accessibility_label("Open menu")
+                            .child("Open menu"),
                         Menu::new("menu-dropdown-panel")
                             .item(MenuItem::new("dd-rename", "Rename").icon(FluentIcon::Settings))
                             .item(MenuItem::new("dd-copy", "Copy"))
@@ -732,6 +778,7 @@ impl Render for Gallery {
             .p(px(16.))
             .child(
                 TabList::new("gallery-tabs")
+                    .track_focus(&self.tab_focus)
                     .selected(self.tab_index)
                     .on_change(cx.listener(|this, index, _, cx| {
                         this.tab_index = *index;
@@ -748,6 +795,7 @@ impl Render for Gallery {
                     // separate selections; sharing one index made the shorter
                     // strip jump back to its first tab.
                     TabList::new("gallery-tabs-vertical")
+                        .track_focus(&self.vertical_tab_focus)
                         .vertical()
                         .selected(self.vertical_tab_index)
                         .on_change(cx.listener(|this, index, _, cx| {
@@ -853,12 +901,14 @@ impl Render for Gallery {
                             Button::new("gallery-dialog-open")
                                 .appearance(ButtonAppearance::Primary)
                                 .on_click(move |_, _, cx| open_dialog(true, cx))
+                                .accessibility_label("Open dialog")
                                 .child("Open dialog"),
                         )
                         .child(
                             Button::new("gallery-alert-open")
                                 .appearance(ButtonAppearance::Secondary)
                                 .on_click(move |_, _, cx| open_alert(true, cx))
+                                .accessibility_label("Open alert dialog")
                                 .child("Open alert dialog"),
                         )
                         .child(
@@ -884,6 +934,7 @@ impl Render for Gallery {
                                 // Fluent's dialog dismiss action is a bordered
                                 // secondary button, not a borderless one.
                                 .appearance(ButtonAppearance::Secondary)
+                                .accessibility_label("Cancel")
                                 .on_click({
                                     let close = close_dialog.clone();
                                     move |_, _, cx| close(false, cx)
@@ -893,6 +944,7 @@ impl Render for Gallery {
                         .footer_child(
                             Button::new("gallery-dialog-save")
                                 .appearance(ButtonAppearance::Primary)
+                                .accessibility_label("Save")
                                 .on_click({
                                     let close = close_dialog.clone();
                                     move |_, _, cx| close(false, cx)
@@ -914,6 +966,7 @@ impl Render for Gallery {
                         .footer_child(
                             Button::new("gallery-alert-keep")
                                 .appearance(ButtonAppearance::Secondary)
+                                .accessibility_label("Keep editing")
                                 .on_click({
                                     let close = close_alert.clone();
                                     move |_, _, cx| close(false, cx)
@@ -924,6 +977,7 @@ impl Render for Gallery {
                             Button::new("gallery-alert-discard")
                                 .appearance(ButtonAppearance::Secondary)
                                 .text_color(t.color.status_danger_foreground_1)
+                                .accessibility_label("Discard")
                                 .on_click({
                                     let close = close_alert.clone();
                                     move |_, _, cx| close(false, cx)
@@ -967,6 +1021,7 @@ impl Render for Gallery {
                     Button::new(id)
                         .appearance(ButtonAppearance::Secondary)
                         .on_click(move |_, _, cx| open_sheet(side, cx))
+                        .accessibility_label(label)
                         .child(label),
                 );
             }
@@ -996,6 +1051,7 @@ impl Render for Gallery {
                             Button::new("gallery-sheet-cancel")
                                 .appearance(ButtonAppearance::Secondary)
                                 .on_click(move |_, _, cx| close_from_button(cx))
+                                .accessibility_label("Cancel")
                                 .child("Cancel"),
                         )
                         .footer_child(
@@ -1005,6 +1061,7 @@ impl Render for Gallery {
                                     let close_sheet = close_sheet.clone();
                                     move |_, _, cx| close_sheet(cx)
                                 })
+                                .accessibility_label("Apply")
                                 .child("Apply"),
                         ),
                 )
@@ -1156,4 +1213,147 @@ fn main() {
 
         cx.activate(true);
     });
+}
+
+#[cfg(test)]
+mod tab_stop_tests {
+    //! Tab-order regression for the two tab strips in the *default* gallery
+    //! view (not a fixture). On the pre-fix code neither strip was wired to a
+    //! focus handle, so the strip was skipped by Tab and its arrows only worked
+    //! after programmatic focus.
+    use super::*;
+    use fluent_ui::gpui::{
+        Entity, KeyDownEvent, Keystroke, PlatformInput, TestAppContext, WindowHandle,
+    };
+
+    type Handle = WindowHandle<Gallery>;
+
+    fn settle(cx: &mut TestAppContext, window: Handle) {
+        for _ in 0..2 {
+            cx.update_window(window.into(), |_, window, cx| {
+                window.refresh();
+                window.draw(cx).clear(cx);
+            })
+            .unwrap();
+            cx.run_until_parked();
+        }
+    }
+
+    fn open(cx: &mut TestAppContext) -> (Handle, Entity<Gallery>) {
+        cx.update(fluent_ui::init);
+        let window = cx.open_window(size(px(1400.), px(900.)), |window, cx| {
+            Gallery::new(window, cx)
+        });
+        cx.run_until_parked();
+        let app = cx
+            .update_window(window.into(), |root, _, _| {
+                root.downcast::<Gallery>()
+                    .expect("the gallery view is the root")
+            })
+            .unwrap();
+        settle(cx, window);
+        (window, app)
+    }
+
+    fn focus_strip(cx: &mut TestAppContext, window: Handle, focus: &FocusHandle) {
+        cx.update_window(window.into(), |_, window, cx| focus.focus(window, cx))
+            .unwrap();
+        settle(cx, window);
+    }
+
+    fn focused(cx: &mut TestAppContext, window: Handle) -> Option<FocusHandle> {
+        cx.update_window(window.into(), |_, window, cx| window.focused(cx))
+            .unwrap()
+    }
+
+    fn press(cx: &mut TestAppContext, window: Handle, key: &'static str) {
+        let keystroke = Keystroke::parse(key).unwrap();
+        cx.update_window(window.into(), move |_, window, cx| {
+            window.dispatch_event(
+                PlatformInput::KeyDown(KeyDownEvent {
+                    keystroke,
+                    is_held: false,
+                    prefer_character_input: false,
+                }),
+                cx,
+            );
+        })
+        .unwrap();
+        cx.run_until_parked();
+        settle(cx, window);
+    }
+
+    #[gpui::test]
+    fn default_tab_strips_are_stops_and_own_arrow_and_home_end(cx: &mut TestAppContext) {
+        let (window, app) = open(cx);
+        let (horizontal, vertical) = cx.update(|cx| {
+            let gallery = app.read(cx);
+            (
+                gallery.tab_focus.clone(),
+                gallery.vertical_tab_focus.clone(),
+            )
+        });
+
+        focus_strip(cx, window, &horizontal);
+        assert_eq!(focused(cx, window), Some(horizontal.clone()));
+
+        // Enter the strip from the real stop before it instead of relying only
+        // on programmatic focus: Shift+Tab out, then Tab back in. This proves
+        // the horizontal strip is registered in the page's tab order, not just
+        // that a handle exists. On the pre-fix code the first Shift+Tab lands on
+        // some other stop and the following Tab never reaches this strip.
+        press(cx, window, "shift-tab");
+        let before = focused(cx, window).expect("a real tab stop precedes the strips");
+        assert!(
+            before != horizontal && before != vertical,
+            "Shift+Tab from the horizontal strip must land outside the tab strips"
+        );
+        press(cx, window, "tab");
+        assert_eq!(
+            focused(cx, window),
+            Some(horizontal.clone()),
+            "Tab from the preceding real stop must enter the horizontal strip"
+        );
+
+        // The consumer path: the strip's own handlers update the caller-owned
+        // selection, and disabled tabs are skipped.
+        press(cx, window, "right");
+        assert_eq!(cx.update(|cx| app.read(cx).tab_index), 1);
+        press(cx, window, "right");
+        assert_eq!(cx.update(|cx| app.read(cx).tab_index), 3);
+        press(cx, window, "home");
+        assert_eq!(cx.update(|cx| app.read(cx).tab_index), 0);
+        press(cx, window, "end");
+        assert_eq!(cx.update(|cx| app.read(cx).tab_index), 3);
+
+        // Both default strips are real Tab stops; the vertical one follows the
+        // horizontal one in the page's paint order.
+        press(cx, window, "tab");
+        assert_eq!(
+            focused(cx, window),
+            Some(vertical.clone()),
+            "Tab must leave the horizontal strip and stop on the vertical strip"
+        );
+        press(cx, window, "down");
+        assert_eq!(cx.update(|cx| app.read(cx).vertical_tab_index), 1);
+
+        press(cx, window, "tab");
+        let after = focused(cx, window).expect("Tab leaves the strips for the next stop");
+        assert!(
+            after != horizontal && after != vertical,
+            "Tab must continue past the strips instead of wrapping inside them"
+        );
+        press(cx, window, "shift-tab");
+        assert_eq!(
+            focused(cx, window),
+            Some(vertical),
+            "Shift+Tab returns to the vertical strip"
+        );
+        press(cx, window, "shift-tab");
+        assert_eq!(
+            focused(cx, window),
+            Some(horizontal),
+            "Shift+Tab from the vertical strip returns to the horizontal strip"
+        );
+    }
 }

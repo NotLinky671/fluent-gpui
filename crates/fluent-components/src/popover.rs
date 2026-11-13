@@ -33,6 +33,15 @@ type TriggerBounds = Rc<Cell<Option<Bounds<Pixels>>>>;
 /// that depth has been painted and are rebuilt each render.
 pub(crate) type InteriorRegions = Rc<RefCell<Vec<Option<Bounds<Pixels>>>>>;
 
+/// Direction requested by a Tab close. `Dismiss` carries no direction, so the
+/// menu emits a dedicated action and the popover consumes it once, after the
+/// panel has left the frame.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum TabHandoff {
+    Next,
+    Prev,
+}
+
 struct PopoverPositioner {
     trigger_bounds: TriggerBounds,
     /// Written back during prepaint so the panel's own mouse-out handler knows
@@ -281,6 +290,11 @@ impl RenderOnce for Popover {
         // Focus handover. Opening moves focus into the panel and remembers what
         // had it; closing gives it back only if it is still inside, so a click
         // that focused something else is not undone.
+        let tab_handoff = window.use_keyed_state(
+            SharedString::from(format!("popover-tab-handoff-{:?}", self.id)),
+            cx,
+            |_, _| None::<TabHandoff>,
+        );
         if let Some(panel_focus) = focus.as_ref() {
             let previous = window.use_keyed_state(
                 SharedString::from(format!("popover-previous-focus-{:?}", self.id)),
@@ -293,21 +307,81 @@ impl RenderOnce for Popover {
                 |_, _| false,
             );
             let previously_open = *was_open.read(cx);
-            if is_open && !previously_open {
-                let current = window.focused(cx);
-                previous.update(cx, |slot, _| *slot = current);
-                panel_focus.focus(window, cx);
-                was_open.update(cx, |open, _| *open = true);
-            } else if !is_open && previously_open {
+            if is_open {
+                // Every close request forces a frame. If this frame still
+                // shows the panel, the controlled caller rejected (or has not
+                // synchronously accepted) that request; the direction belongs
+                // to that request only, so it is dropped here. A later close
+                // therefore restores focus without advancing.
+                tab_handoff.update(cx, |slot, _| *slot = None);
+                if !previously_open {
+                    let current = window.focused(cx);
+                    previous.update(cx, |slot, _| *slot = current);
+                    panel_focus.focus(window, cx);
+                    was_open.update(cx, |open, _| *open = true);
+                }
+            } else if previously_open {
                 let restore = previous.update(cx, |slot, _| slot.take());
-                if panel_focus.contains_focused(window, cx)
-                    && let Some(handle) = restore
-                {
+                // Taking focus from somewhere the user has just clicked would
+                // be wrong; both restoration and Tab handoff require that the
+                // panel still owns focus when the close is rendered.
+                let inside = panel_focus.contains_focused(window, cx);
+                let direction = tab_handoff.update(cx, |slot, _| slot.take());
+                let missing_restore = restore.is_none();
+                if inside && let Some(handle) = restore {
                     handle.focus(window, cx);
                 }
                 was_open.update(cx, |open, _| *open = false);
+                if inside {
+                    // No saved handle means the panel was opened without a
+                    // focused trigger. Leaving focus on the unmounted panel
+                    // would strand it: the closed handle has no dispatch path,
+                    // so even the root Tab binding stops matching. Advance to
+                    // the first real stop instead; a Tab direction still wins.
+                    let handoff = direction.or(missing_restore.then_some(TabHandoff::Next));
+                    if let Some(direction) = handoff {
+                        // `on_next_frame` runs at the start of the following
+                        // frame, after this frame committed `rendered_frame`
+                        // without the panel. Advancing here instead would use
+                        // the still-open tab-stop map and could visit a control
+                        // that is leaving.
+                        window.on_next_frame(move |window, cx| match direction {
+                            TabHandoff::Next => window.focus_next(cx),
+                            TabHandoff::Prev => window.focus_prev(cx),
+                        });
+                    }
+                }
             }
         }
+
+        // One close path for every surface: record whether Tab asked for a
+        // direction, flip the uncontrolled store, and report once. Escape and
+        // outside presses pass `None` so they never take the handoff.
+        let close_with = {
+            let store = store.clone();
+            let on_change = on_change.clone();
+            let tab_handoff = tab_handoff.clone();
+            Rc::new(
+                move |direction: Option<TabHandoff>, window: &mut Window, cx: &mut App| {
+                    tab_handoff.update(cx, |slot, _| *slot = direction);
+                    store.update(cx, |open, cx| {
+                        if *open {
+                            *open = false;
+                            cx.notify();
+                        }
+                    });
+                    if let Some(handler) = on_change.as_ref() {
+                        handler(false, window, cx);
+                    }
+                    // A controlled caller may leave its `open` prop true or
+                    // unchanged. Force the frame anyway: if it still renders
+                    // open, the request is dropped there; if it renders closed,
+                    // the close edge consumes the direction. Never wait for a
+                    // later, unrelated close to decide by time.
+                    window.refresh();
+                },
+            ) as Rc<dyn Fn(Option<TabHandoff>, &mut Window, &mut App)>
+        };
 
         let panel_focus = focus.clone();
         let anchor = div()
@@ -321,24 +395,29 @@ impl RenderOnce for Popover {
                 div()
                     .id(self.id)
                     .when(is_open, |el| {
-                        let store = store.clone();
-                        let on_change = on_change.clone();
+                        let dismiss = close_with.clone();
+                        let next = close_with.clone();
+                        let prev = close_with.clone();
                         el.on_action(move |_: &crate::Dismiss, window, cx| {
-                            store.update(cx, |open, cx| {
-                                if *open {
-                                    *open = false;
-                                    cx.notify();
-                                }
-                            });
-                            if let Some(handler) = on_change.as_ref() {
-                                handler(false, window, cx);
-                            }
+                            dismiss(None, window, cx)
                         })
+                        .on_action(move |_: &crate::DismissAndFocusNext, window, cx| {
+                            next(Some(TabHandoff::Next), window, cx)
+                        })
+                        .on_action(
+                            move |_: &crate::DismissAndFocusPrev, window, cx| {
+                                prev(Some(TabHandoff::Prev), window, cx)
+                            },
+                        )
                     })
                     .when(!controlled, |el| {
                         let store = store.clone();
                         let on_change = on_change.clone();
+                        let tab_handoff = tab_handoff.clone();
                         el.on_click(move |_, window, cx| {
+                            // A pointer close is not a Tab handoff, even if a
+                            // controlled caller ignored an earlier Tab request.
+                            tab_handoff.update(cx, |slot, _| *slot = None);
                             let mut next = false;
                             store.update(cx, |open, cx| {
                                 *open = !*open;
@@ -350,13 +429,15 @@ impl RenderOnce for Popover {
                             }
                         })
                     })
+                    // Deliberately not `track_focus`: the trigger owns its own
+                    // focus node (or none), while the panel handle belongs to
+                    // the panel's trap. Sharing one handle kept the registered
+                    // trap "active" after close because the wrapper was still
+                    // focused, so FluentRoot kept wrapping Tab.
                     .key_context(crate::OVERLAY_KEY_CONTEXT)
-                    .when_some(focus, |el, focus| el.track_focus(&focus))
                     .when_some(trigger, |el, trigger| el.child(trigger)),
             );
 
-        let close_store = store.clone();
-        let close_handler = on_change.clone();
         let panel_bounds: TriggerBounds = TriggerBounds::default();
         let close_bounds = panel_bounds.clone();
         let interior = self.interior.clone();
@@ -378,8 +459,7 @@ impl RenderOnce for Popover {
                 // open" true rather than merely intended by paint order.
                 panel = panel.occlude().key_context(crate::OVERLAY_KEY_CONTEXT);
                 {
-                    let close_store = close_store.clone();
-                    let close_handler = close_handler.clone();
+                    let close = close_with.clone();
                     let close_bounds = close_bounds.clone();
                     let close_trigger = trigger_bounds.clone();
                     let interior = interior.clone();
@@ -412,34 +492,25 @@ impl RenderOnce for Popover {
                         if on_trigger {
                             return;
                         }
-                        close_store.update(cx, |open, cx| {
-                            if *open {
-                                *open = false;
-                                cx.notify();
-                            }
-                        });
-                        if let Some(handler) = close_handler.as_ref() {
-                            handler(false, window, cx);
-                        }
+                        close(None, window, cx);
                     });
                 }
                 // Escape must work from inside the panel too: once focus moves
                 // here the trigger wrapper is no longer an ancestor of the
                 // focused element, so its handler cannot receive the action.
+                // Tab uses the same surface but carries a handoff direction.
                 {
-                    let close_store = close_store.clone();
-                    let close_handler = close_handler.clone();
-                    panel = panel.on_action(move |_: &crate::Dismiss, window, cx| {
-                        close_store.update(cx, |open, cx| {
-                            if *open {
-                                *open = false;
-                                cx.notify();
-                            }
+                    let dismiss = close_with.clone();
+                    let next = close_with.clone();
+                    let prev = close_with.clone();
+                    panel = panel
+                        .on_action(move |_: &crate::Dismiss, window, cx| dismiss(None, window, cx))
+                        .on_action(move |_: &crate::DismissAndFocusNext, window, cx| {
+                            next(Some(TabHandoff::Next), window, cx)
+                        })
+                        .on_action(move |_: &crate::DismissAndFocusPrev, window, cx| {
+                            prev(Some(TabHandoff::Prev), window, cx)
                         });
-                        if let Some(handler) = close_handler.as_ref() {
-                            handler(false, window, cx);
-                        }
-                    });
                 }
                 if let Some(content) = content {
                     panel = panel.child(content);

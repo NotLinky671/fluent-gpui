@@ -80,6 +80,8 @@ impl Render for SheetView {
             .child(
                 div()
                     .id("behind")
+                    .role(Role::Group)
+                    .aria_label("Behind")
                     .track_focus(&self.handles.behind)
                     .w(px(120.))
                     .h(px(28.))
@@ -966,5 +968,65 @@ fn a_button_behind_the_scrim_keeps_its_rest_fill(cx: &mut TestAppContext) {
             && (fill.s - rest.s).abs() < 1e-3
             && (fill.l - rest.l).abs() < 1e-3,
         "the button must keep its rest fill under the scrim: rest={rest:?} hover={hover:?} painted={fill:?}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Accessibility: the sheet is modal, titled, and isolates the page.
+// ---------------------------------------------------------------------------
+
+fn a11y_tree(cx: &mut TestAppContext, window: WindowHandle<SheetView>) -> serde_json::Value {
+    for _ in 0..2 {
+        cx.update_window(window.into(), |_, window, cx| {
+            window.refresh();
+            window.draw(cx).clear(cx);
+        })
+        .unwrap();
+        cx.run_until_parked();
+    }
+    let json = cx
+        .update_window(window.into(), |_, window, _| window.debug_a11y_tree_json())
+        .unwrap()
+        .expect("the activated window must publish an accessibility tree");
+    serde_json::from_str(&json).expect("the debug tree is valid JSON")
+}
+
+fn node_with_label<'a>(tree: &'a serde_json::Value, label: &str) -> Option<&'a serde_json::Value> {
+    tree["nodes"]
+        .as_object()
+        .expect("nodes object")
+        .values()
+        .find(|node| node["aria"]["label"].as_str() == Some(label))
+}
+
+#[gpui::test]
+fn open_sheet_is_modal_named_and_restores_background_when_closed(cx: &mut TestAppContext) {
+    let (window, _log, _handles) = open_view(cx, SheetSide::Right, Some(true), false);
+    cx.enable_accessibility();
+    let tree = a11y_tree(cx, window);
+
+    let panel = node_with_label(&tree, "Filters").expect("sheet title must name the panel");
+    assert_eq!(panel["aria"]["role"].as_str(), Some("Dialog"), "{tree}");
+    assert_eq!(
+        panel["aria"]["modal"].as_bool(),
+        Some(true),
+        "the sheet traps focus and must be reported as modal: {tree}"
+    );
+    assert!(
+        node_with_label(&tree, "Behind").is_none(),
+        "an open sheet must hide the page: {tree}"
+    );
+
+    set_open(cx, window, false);
+    advance(cx, window, 400);
+    settle(cx, window);
+    let restored = a11y_tree(cx, window);
+    assert!(
+        node_with_label(&restored, "Behind").is_some(),
+        "closing must restore the page: {restored}"
+    );
+    assert!(
+        node_with_label(&restored, "Filters").is_none(),
+        "the closed sheet must not remain in the tree: {restored}"
     );
 }

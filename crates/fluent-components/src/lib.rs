@@ -9,6 +9,8 @@ actions!(
     fluent,
     [
         Dismiss,
+        DismissAndFocusNext,
+        DismissAndFocusPrev,
         FocusNext,
         FocusPrev,
         MenuNext,
@@ -17,6 +19,7 @@ actions!(
         MenuLast,
         MenuActivate,
         MenuTabOut,
+        MenuTabBackward,
         MenuSubmenuOpen,
         MenuSubmenuClose,
         MenuEscape,
@@ -48,6 +51,15 @@ pub const ROOT_KEY_CONTEXT: &str = "FluentRoot";
 pub const TABS_KEY_CONTEXT: &str = "FluentTabs";
 
 pub const MENU_KEY_CONTEXT: &str = "FluentMenu";
+
+/// Marker a Fluent text control sets when Tab should move focus instead of
+/// editing the text. It is an ancestor context, so the binding must also name
+/// gpui-base's deeper `Input` context to tie at that depth and win as the later
+/// binding.
+pub const TEXT_INPUT_NAVIGATE_KEY_CONTEXT: &str = "FluentTextInputNavigate";
+
+/// Binding context for Tab/Shift+Tab on a text control in navigate mode.
+pub const TEXT_INPUT_NAVIGATE_BINDING_CONTEXT: &str = "FluentTextInputNavigate > Input";
 
 pub mod button;
 pub mod dialog;
@@ -87,5 +99,8 @@ pub use selection::{Checkbox, Radio};
 pub use sheet::{Sheet, SheetOpenChange};
 pub use switch::Switch;
 pub use tabs::{TabItem, TabList};
-pub use textarea::Textarea;
+pub use textarea::{Textarea, TextareaTabBehavior};
 pub use titlebar::{TitleBar, TitleBarLabels};
+
+#[cfg(test)]
+mod input_selection_tests;

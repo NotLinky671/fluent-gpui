@@ -45,17 +45,16 @@ impl Render for Probe {
                     .logo_bytes(ImageFormat::Png, logo_png()),
             )
             .child(
-                div()
-                    .p(px(24.))
-                    .child(
-                        Button::new("open-dialog")
-                            .child("Open dialog")
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.dialog = true;
-                                println!("dialog-open");
-                                cx.notify();
-                            })),
-                    ),
+                div().p(px(24.)).child(
+                    Button::new("open-dialog")
+                        .accessibility_label("Open dialog")
+                        .child("Open dialog")
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.dialog = true;
+                            println!("dialog-open");
+                            cx.notify();
+                        })),
+                ),
             )
             .child(
                 Dialog::new("probe-dialog")
