@@ -5,8 +5,8 @@
 //!
 //! The strip is a single focus stop that tracks the selected index rather than
 //! giving every tab its own stop. Arrow keys move the selection (Fluent's
-//! automatic activation) and the selected tab paints the focus ring while the
-//! strip holds focus.
+//! automatic activation). The selected tab is marked by the sliding indicator;
+//! focus does not add an outline.
 //!
 //! The indicator is positioned from the tabs' painted bounds, recorded during the
 //! previous frame's prepaint and fed through the same transition helper the other
@@ -296,13 +296,6 @@ impl RenderOnce for TabList {
                 .on_action(move |_: &crate::TabsLast, window, cx| last(window, cx));
         }
 
-        let focused = self
-            .focus
-            .as_ref()
-            .map(|focus| focus.is_focused(window))
-            .unwrap_or(false);
-        let ring_color = theme.tokens().color.neutral_foreground_1;
-
         let mut row = div()
             .relative()
             .flex()
@@ -333,15 +326,6 @@ impl RenderOnce for TabList {
                 .bg(colors.background)
                 .role(Role::Tab)
                 .aria_selected(is_selected)
-                .when(is_selected && focused, |el| {
-                    el.shadow(vec![gpui::BoxShadow {
-                        color: ring_color,
-                        offset: gpui::point(px(0.), px(0.)),
-                        blur_radius: px(0.),
-                        spread_radius: px(1.),
-                        inset: true,
-                    }])
-                })
                 .when(!item.disabled, |el| {
                     let select = select.clone();
                     el.cursor_pointer()

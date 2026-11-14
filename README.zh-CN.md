@@ -26,7 +26,7 @@
 | `Spinner` | 基础实现 | 四档尺寸按上游梯度（16/20/24/28），`Spinner::label` 提供无障碍名称，遵循 reduced motion |
 | `Dialog` / `AlertDialog` | 基础实现 | 自渲染 deferred 模态：Fluent scrim 与卡片（background overlay、x-large 圆角、shadow64），受控/非受控开关，打开移入焦点、关闭归还，Tab 约束在卡片内；`AlertDialog` 必须显式选择——无 Esc 与 scrim 关闭 |
 | `Sheet` / 侧边抽屉 | 基础实现 | 四向抽屉（默认右侧），滑入/滑出过渡遵循 reduced motion；复用 Dialog 的 `colorBackgroundOverlay` scrim 与焦点陷阱，打开移入焦点、退出动画结束后归还；受控/非受控开关，Esc 与 scrim 按下都请求关闭；固定尺寸、内容裁剪，无滚动与拖拽关闭 |
-| `Tabs` / `TabList` / `Tab` | 基础实现 | 横向/纵向标签条；选中/hover/禁用三态，指示条按上一帧记录的标签绘制边界滑动；方向键与 Home/End 移动并跳过禁用项，`role=tablist`/`tab`，选中项画焦点环 |
+| `Tabs` / `TabList` / `Tab` | 基础实现 | 横向/纵向标签条；选中/hover/禁用三态，指示条按上一帧记录的标签绘制边界滑动；方向键与 Home/End 移动并跳过禁用项，`role=tablist`/`tab`；聚焦时不加外框 |
 | `TitleBar` | 基础实现 | Windows 原生命中、最大化/还原图形与 hover/pressed；macOS 原生红绿灯、Linux 按实际装饰绘制按钮；配套窗口配置与可本地化无障碍名称；标题前有 16px 图标槽（Fluent 字形、位图 logo 或空槽预留），系统窗口图标仅在 X11 生效；见[标题栏专题](docs/subsystems/titlebar.md) |
 
 ## 快速开始

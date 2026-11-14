@@ -33,7 +33,7 @@
 | `Field` / `Label` | 无 | 不自动关联；调用方给输入控件 `accessibility_label` | — | — | 调用方负责命名 |
 | `Menu` / `MenuItem` | 每个面板 `Role::Menu`，行 `Role::MenuItem` | 面板名默认 `Menu`，可用 `accessibility_label` 覆盖；行有 `aria_label`、`aria_selected`；当前行作为 focused 容器的 active descendant | 方向键/Home/End/Enter/Space/typeahead/→ 子菜单/Esc 逐层/Tab 关闭 | 最深当前项填充 + 父行 path hint | 已实现（单焦点范围，见 [menus.md](subsystems/menus.md)） |
 | `MenuDropdown` | 继承 `Menu` | 继承，真实 Popover 面板 | 同上 + Esc/Tab | — | 已实现；模态内打开时按 owner 挂到模态子树 |
-| `TabList` / `Tab` | `TabList` / `Tab` + `aria_selected` | 无 label | 方向键/Home/End | 选中项 2px 内描边 | 已实现（模型差异见缺口 2） |
+| `TabList` / `Tab` | `TabList` / `Tab` + `aria_selected` | 无 label | 方向键/Home/End | 选中指示条；聚焦不加外框 | 已实现（模型差异见缺口 2） |
 | `Popover` | 无 role（容器） | — | Esc/外部点击 | — | 非模态；不隐藏背景，也不得当作模态处理 |
 | `Dialog` | 宿主 `Role::Dialog`（`AlertDialog` 为 `Role::AlertDialog`） | 宿主 `aria_modal(true)`；名称默认取 `title` 文本，`accessibility_label` 覆盖，`title_element` 不提供名称；不同 Dialog 使用不同 host id | 主机焦点陷阱 + Enter/Esc | 卡片内 | 已实现；打开时 AX 树只保留最上层模态子树，背景节点消失，关闭恢复；模态内 deferred popup 按 owner reparent |
 | `AlertDialog` | 宿主 `Role::AlertDialog` | 同上 | 无 Esc/无 backdrop 关闭 | — | 已实现 |
@@ -57,7 +57,7 @@
 2. **Tabs 不是 roving tabindex**。整条 strip 持焦点、方向键改选中；严格来说 `role=tab` 要求 tab 自身可聚焦。行为可用，但屏幕阅读器语义不完整。
 3. **禁用态没有暴露给 accesskit**。本版 GPUI 没有对应 API（`MenuItem` 源码里已注明）；禁用项在无障碍树里与普通项相同。
 4. **没有通用 live region**。保存/删除等状态变化不会主动播报；菜单当前项通过 active descendant 发布 AX 焦点更新，但实际朗读未测。GPUI 当前无通用 live-region API。
-5. **焦点环覆盖不全**。只有 Button、Tabs、Menu 当前项、Input 下划线；Checkbox/Radio/Switch 依赖基类绘制，未逐项核对。
+5. **焦点环覆盖不全**。Button 有焦点环，Menu 当前项有填充，Input 有下划线；Tabs 按设计仅保留选中指示条，无独立焦点外框。Checkbox/Radio/Switch 依赖基类绘制，未逐项核对。
 6. **`aria_hidden` 当前 API 限制**。抑制子树依赖带 role/id 的容器产生发布节点；没有 role/id 的包裹层不会抑制后代。使用方应把 `aria_hidden` 放在带 `role` 与 `id` 的容器上；本轮不扩大 API 去修这个限制。
 7. **`title_element` 不提供名称**。自定义标题必须另给 `accessibility_label`，否则宿主无名。
 8. **`Dialog::title` 已改为 `SharedString`**。需要自定义元素时用 `title_element`；旧 `IntoElement` 调用方必须 clean cutover。
