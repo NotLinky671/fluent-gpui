@@ -2,8 +2,8 @@
 
 use fluent_core::gpui_compat::StyledExt as _;
 use fluent_core::gpui_compat::{
-    App, ElementId, InteractiveElement, IntoElement, MouseButton, ParentElement, RenderOnce,
-    SharedString, StyleRefinement, Styled, Window, div, px,
+    App, ElementId, InteractiveElement, IntoElement, ParentElement, RenderOnce, SharedString,
+    StyleRefinement, Styled, Window, div,
 };
 use fluent_core::spec::ControlSize;
 use fluent_core::spec::switch::{self, SwitchProps};
@@ -11,12 +11,11 @@ use fluent_theme::FluentTheme;
 use gpui::prelude::FluentBuilder as _;
 use gpui_base::Switch as BaseSwitch;
 
-/// Change handler shape shared by the selection controls.
-pub type ChangeHandler = Box<dyn Fn(&bool, &mut Window, &mut App) + 'static>;
+pub use crate::selection::ChangeHandler;
 
 /// A Fluent 2 switch.
 ///
-/// Controlled by default: pass [`Switch::checked`] and update it in
+/// Uncontrolled by default. Pass [`Switch::checked`] and update it in
 /// [`Switch::on_change`]. Use [`Switch::default_checked`] for an uncontrolled
 /// switch that keeps its own state.
 #[derive(IntoElement)]
@@ -114,15 +113,15 @@ impl RenderOnce for Switch {
         );
 
         // Hover and press drive animated colours, same as the checkbox.
-        let hovered_state = window.use_keyed_state(
+        let hovered_state = crate::interaction::flag(
             SharedString::from(format!("switch-hovered-{:?}", self.id)),
+            window,
             cx,
-            |_, _| false,
         );
-        let pressed_state = window.use_keyed_state(
+        let pressed_state = crate::interaction::flag(
             SharedString::from(format!("switch-pressed-{:?}", self.id)),
+            window,
             cx,
-            |_, _| false,
         );
         let hovered = *hovered_state.read(cx) && !self.disabled;
         let pressed = *pressed_state.read(cx) && !self.disabled;
@@ -166,7 +165,11 @@ impl RenderOnce for Switch {
         // the same window as the track colours.
         let thumb_left = crate::motion::length(
             SharedString::from(format!("switch-thumb-x-{:?}", self.id)),
-            if checked { spec.thumb_offset } else { px(3.) },
+            if checked {
+                spec.thumb_offset
+            } else {
+                spec.thumb_rest_offset
+            },
             fluent_core::spec::motion::motion_policy(),
             window,
             cx,
@@ -176,8 +179,8 @@ impl RenderOnce for Switch {
             .flex_shrink_0()
             .w(spec.track_width)
             .h(spec.track_height)
-            .rounded(px(10000.))
-            .border_1()
+            .rounded(spec.radius)
+            .border(spec.border_width)
             .border_color(track_border)
             .bg(track_bg)
             .flex()
@@ -187,14 +190,14 @@ impl RenderOnce for Switch {
                 div()
                     .flex_shrink_0()
                     .size(spec.thumb_size)
-                    .rounded(px(10000.))
+                    .rounded(spec.radius)
                     .bg(thumb_color),
             );
 
         let content = div()
             .flex()
             .items_center()
-            .gap(px(8.))
+            .gap(spec.label_gap)
             .child(track)
             .when_some(self.label, |el, label| el.child(label));
 
@@ -202,32 +205,9 @@ impl RenderOnce for Switch {
         let handler = self.on_change;
         let store_for_click = store.clone();
 
-        let hover_listener = hovered_state.clone();
-        let press_down = pressed_state.clone();
-        let press_up = pressed_state.clone();
         let mut base = BaseSwitch::new(self.id.clone());
-        base.interactivity().on_hover(move |is_hovered, _, cx| {
-            hover_listener.update(cx, |state, cx| {
-                if *state != *is_hovered {
-                    *state = *is_hovered;
-                    cx.notify();
-                }
-            });
-        });
-        base.interactivity()
-            .on_mouse_down(MouseButton::Left, move |_, _, cx| {
-                press_down.update(cx, |state, cx| {
-                    *state = true;
-                    cx.notify();
-                });
-            });
-        base.interactivity()
-            .on_mouse_up(MouseButton::Left, move |_, _, cx| {
-                press_up.update(cx, |state, cx| {
-                    *state = false;
-                    cx.notify();
-                });
-            });
+        crate::interaction::hover(base.interactivity(), hovered_state);
+        crate::interaction::press(base.interactivity(), pressed_state);
         base.checked(checked)
             .disabled(self.disabled)
             .child(content)

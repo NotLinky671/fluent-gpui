@@ -9,7 +9,6 @@ use fluent_core::gpui_compat::InteractiveElement as _;
 use fluent_core::gpui_compat::StyledExt as _;
 use fluent_core::gpui_compat::{
     AnyElement, App, IntoElement, ParentElement, RenderOnce, StyleRefinement, Styled, Window, div,
-    px,
 };
 use fluent_theme::FluentTheme;
 
@@ -100,7 +99,7 @@ impl RenderOnce for FluentRoot {
             .bg(tokens.color.neutral_background_1)
             .text_color(tokens.color.neutral_foreground_1)
             .font_family(theme.font_family().clone())
-            .text_size(px(14.))
+            .text_size(fluent_core::spec::root::font_size(&theme))
             // Tab order: gpui-base binds tab to its own Root context, which only
             // fires under its own root view. Carrying this context here is what
             // lets the binding reach controls mounted under FluentRoot.

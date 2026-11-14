@@ -1,10 +1,15 @@
-//! Fluent 2 `Checkbox` and `Radio`.
+//! Fluent 2 `Checkbox`, `Radio` and `RadioGroup`.
+
+mod group;
+pub use group::RadioGroup;
+#[cfg(test)]
+mod group_tests;
 
 use crate::icon::Icon;
 use fluent_core::gpui_compat::StyledExt as _;
 use fluent_core::gpui_compat::{
-    App, ElementId, InteractiveElement, IntoElement, MouseButton, ParentElement, RenderOnce,
-    SharedString, StyleRefinement, Styled, Window, div, px,
+    App, ElementId, InteractiveElement, IntoElement, ParentElement, RenderOnce, SharedString,
+    StyleRefinement, Styled, Window, div, px,
 };
 use fluent_core::spec::ControlSize;
 use fluent_core::spec::selection::{self, CheckboxProps, RadioProps};
@@ -20,7 +25,8 @@ pub type ChangeHandler = Box<dyn Fn(&bool, &mut Window, &mut App) + 'static>;
 
 /// A Fluent 2 checkbox.
 ///
-/// Controlled by default; use [`Checkbox::default_checked`] for an
+/// Uncontrolled by default; use [`Checkbox::checked`] for a controlled value, or
+/// [`Checkbox::default_checked`] for an
 /// uncontrolled checkbox that keeps its own state.
 #[derive(IntoElement)]
 pub struct Checkbox {
@@ -120,8 +126,8 @@ impl RenderOnce for Checkbox {
         // eases over Fluent's 100 ms instead of snapping.
         let hovered_key = SharedString::from(format!("cb-hovered-{:?}", self.id));
         let pressed_key = SharedString::from(format!("cb-pressed-{:?}", self.id));
-        let hovered_state = window.use_keyed_state(hovered_key, cx, |_, _| false);
-        let pressed_state = window.use_keyed_state(pressed_key, cx, |_, _| false);
+        let hovered_state = crate::interaction::flag(hovered_key, window, cx);
+        let pressed_state = crate::interaction::flag(pressed_key, window, cx);
         let hovered = *hovered_state.read(cx) && !self.disabled;
         let pressed = *pressed_state.read(cx) && !self.disabled;
 
@@ -152,57 +158,34 @@ impl RenderOnce for Checkbox {
             .flex_shrink_0()
             .size(spec.box_size)
             .rounded(spec.radius)
-            .border_1()
+            .border(spec.border_width)
             .border_color(border)
             .bg(background)
             .flex()
             .items_center()
             .justify_center()
             .when(checked, |el| {
-                el.child(Icon::new(FluentIcon::Checkmark).size(px(12.)).color(mark))
+                el.child(
+                    Icon::new(FluentIcon::Checkmark)
+                        .size(spec.mark_size)
+                        .color(mark),
+                )
             });
 
         let content = div()
             .flex()
             .items_center()
-            .gap(px(8.))
+            .gap(spec.label_gap)
             .child(indicator)
-            .when_some(self.label, |el, label| el.child(label));
+            .when_some(self.label.clone(), |el, label| el.child(label));
 
         let controlled = self.controlled;
         let handler = self.on_change;
         let store_for_click = store.clone();
 
-        let hover_listener = hovered_state.clone();
-        let press_down = pressed_state.clone();
-        let press_up = pressed_state.clone();
-
-        // `Checkbox` delegates its interactivity to an inner div, so these
-        // listeners share the hitbox the control already has: no extra element,
-        // no chance of swallowing the click.
         let mut base = BaseCheckbox::new(self.id);
-        base.interactivity().on_hover(move |is_hovered, _, cx| {
-            hover_listener.update(cx, |state, cx| {
-                if *state != *is_hovered {
-                    *state = *is_hovered;
-                    cx.notify();
-                }
-            });
-        });
-        base.interactivity()
-            .on_mouse_down(MouseButton::Left, move |_, _, cx| {
-                press_down.update(cx, |state, cx| {
-                    *state = true;
-                    cx.notify();
-                });
-            });
-        base.interactivity()
-            .on_mouse_up(MouseButton::Left, move |_, _, cx| {
-                press_up.update(cx, |state, cx| {
-                    *state = false;
-                    cx.notify();
-                });
-            });
+        crate::interaction::hover(base.interactivity(), hovered_state);
+        crate::interaction::press(base.interactivity(), pressed_state);
         base.checked(checked)
             .disabled(self.disabled)
             .child(content)
@@ -226,10 +209,14 @@ impl RenderOnce for Checkbox {
 #[derive(IntoElement)]
 pub struct Radio {
     id: ElementId,
+    group_focus: Option<gpui::FocusHandle>,
+    tab_stop: bool,
+    position_in_set: Option<(usize, usize)>,
     controlled: bool,
     checked: bool,
     default_checked: bool,
     disabled: bool,
+    size: ControlSize,
     label: Option<SharedString>,
     on_change: Option<ChangeHandler>,
     style: StyleRefinement,
@@ -239,10 +226,14 @@ impl Radio {
     pub fn new(id: impl Into<ElementId>) -> Self {
         Self {
             id: id.into(),
+            group_focus: None,
+            tab_stop: true,
+            position_in_set: None,
             controlled: false,
             checked: false,
             default_checked: false,
             disabled: false,
+            size: ControlSize::Medium,
             label: None,
             on_change: None,
             style: StyleRefinement::default(),
@@ -265,6 +256,12 @@ impl Radio {
 
     pub fn disabled(mut self, disabled: bool) -> Self {
         self.disabled = disabled;
+        self
+    }
+
+    /// Sets the visual size; small/medium use a 16px ring, large uses 20px.
+    pub fn size(mut self, size: ControlSize) -> Self {
+        self.size = size;
         self
     }
 
@@ -302,21 +299,22 @@ impl RenderOnce for Radio {
         let spec = selection::radio(
             &theme,
             &RadioProps {
+                size: self.size,
                 checked,
                 disabled: self.disabled,
             },
         );
 
         // Same animated treatment as the checkbox.
-        let hovered_state = window.use_keyed_state(
+        let hovered_state = crate::interaction::flag(
             SharedString::from(format!("radio-hovered-{:?}", self.id)),
+            window,
             cx,
-            |_, _| false,
         );
-        let pressed_state = window.use_keyed_state(
+        let pressed_state = crate::interaction::flag(
             SharedString::from(format!("radio-pressed-{:?}", self.id)),
+            window,
             cx,
-            |_, _| false,
         );
         let hovered = *hovered_state.read(cx) && !self.disabled;
         let pressed = *pressed_state.read(cx) && !self.disabled;
@@ -348,7 +346,7 @@ impl RenderOnce for Radio {
             .relative()
             .flex_shrink_0()
             .size(spec.circle)
-            .rounded(px(10000.))
+            .rounded(spec.radius)
             .flex()
             .items_center()
             .justify_center()
@@ -357,7 +355,7 @@ impl RenderOnce for Radio {
                     div()
                         .flex_shrink_0()
                         .size(spec.dot)
-                        .rounded(px(10000.))
+                        .rounded(spec.radius)
                         .bg(dot_color),
                 )
             })
@@ -367,48 +365,34 @@ impl RenderOnce for Radio {
                     .top(px(0.))
                     .left(px(0.))
                     .size(spec.circle)
-                    .rounded(px(10000.))
-                    .border_1()
+                    .rounded(spec.radius)
+                    .border(spec.border_width)
                     .border_color(border),
             );
 
         let content = div()
             .flex()
             .items_center()
-            .gap(px(8.))
+            .gap(spec.label_gap)
             .child(indicator)
-            .when_some(self.label, |el, label| el.child(label));
+            .when_some(self.label.clone(), |el, label| el.child(label));
 
         let controlled = self.controlled;
         let handler = self.on_change;
         let store_for_click = store.clone();
 
-        let hover_listener = hovered_state.clone();
-        let press_down = pressed_state.clone();
-        let press_up = pressed_state.clone();
-        let mut base = BaseRadio::new(self.id.clone());
-        base.interactivity().on_hover(move |is_hovered, _, cx| {
-            hover_listener.update(cx, |state, cx| {
-                if *state != *is_hovered {
-                    *state = *is_hovered;
-                    cx.notify();
-                }
-            });
-        });
-        base.interactivity()
-            .on_mouse_down(MouseButton::Left, move |_, _, cx| {
-                press_down.update(cx, |state, cx| {
-                    *state = true;
-                    cx.notify();
-                });
-            });
-        base.interactivity()
-            .on_mouse_up(MouseButton::Left, move |_, _, cx| {
-                press_up.update(cx, |state, cx| {
-                    *state = false;
-                    cx.notify();
-                });
-            });
+        let mut base = BaseRadio::new(self.id.clone()).tab_stop(self.tab_stop);
+        if let Some(focus) = self.group_focus {
+            base = base.track_focus(&focus);
+        }
+        if let Some((position, count)) = self.position_in_set {
+            base = base.set_position(position, count);
+        }
+        if let Some(label) = &self.label {
+            base = base.accessibility_label(label.clone());
+        }
+        crate::interaction::hover(base.interactivity(), hovered_state);
+        crate::interaction::press(base.interactivity(), pressed_state);
         base.checked(checked)
             .disabled(self.disabled)
             .child(content)

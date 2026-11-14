@@ -21,6 +21,8 @@ pub struct CheckboxProps {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct CheckboxSpec {
     pub box_size: Pixels,
+    pub mark_size: Pixels,
+    pub label_gap: Pixels,
     pub radius: Pixels,
     pub border_width: Pixels,
     pub border: Hsla,
@@ -36,6 +38,7 @@ pub struct CheckboxSpec {
 /// Radio state that affects visuals.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct RadioProps {
+    pub size: ControlSize,
     pub checked: bool,
     pub disabled: bool,
 }
@@ -44,6 +47,8 @@ pub struct RadioProps {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct RadioSpec {
     pub circle: Pixels,
+    pub label_gap: Pixels,
+    pub radius: Pixels,
     pub dot: Pixels,
     pub border_width: Pixels,
     pub border: Hsla,
@@ -68,6 +73,8 @@ pub fn checkbox(theme: &FluentTheme, props: &CheckboxProps) -> CheckboxSpec {
     if props.disabled {
         return CheckboxSpec {
             box_size,
+            mark_size: box_size - px(4.),
+            label_gap: t.spacing.horizontal.s,
             radius: t.radius.small,
             border_width: t.stroke_width.thin,
             border: c.neutral_stroke_disabled,
@@ -88,6 +95,8 @@ pub fn checkbox(theme: &FluentTheme, props: &CheckboxProps) -> CheckboxSpec {
     if props.checked {
         CheckboxSpec {
             box_size,
+            mark_size: box_size - px(4.),
+            label_gap: t.spacing.horizontal.s,
             radius: t.radius.small,
             border_width: t.stroke_width.thin,
             border: c.compound_brand_background,
@@ -102,6 +111,8 @@ pub fn checkbox(theme: &FluentTheme, props: &CheckboxProps) -> CheckboxSpec {
     } else {
         CheckboxSpec {
             box_size,
+            mark_size: box_size - px(4.),
+            label_gap: t.spacing.horizontal.s,
             radius: t.radius.small,
             border_width: t.stroke_width.thin,
             border: c.neutral_stroke_accessible,
@@ -120,16 +131,26 @@ pub fn checkbox(theme: &FluentTheme, props: &CheckboxProps) -> CheckboxSpec {
 pub fn radio(theme: &FluentTheme, props: &RadioProps) -> RadioSpec {
     let t = theme.tokens();
     let c = &t.color;
-    let circle = px(16.);
+    let circle = if props.size == ControlSize::Large {
+        px(20.)
+    } else {
+        px(16.)
+    };
     // Fluent paints the dot as a 16px box scaled to 0.625, i.e. 10px. Keep the
     // gap between the two diameters an even number of pixels: a fractional dot
     // (9.5) leaves a 0.5px inset that the renderer snaps to a whole pixel, so
     // the dot lands visibly off-centre on both 1x and 2x displays.
-    let dot = px(10.);
+    let dot = if props.size == ControlSize::Large {
+        px(12.)
+    } else {
+        px(10.)
+    };
 
     if props.disabled {
         return RadioSpec {
             circle,
+            label_gap: t.spacing.horizontal.s,
+            radius: t.radius.circular,
             dot,
             border_width: t.stroke_width.thin,
             border: c.neutral_stroke_disabled,
@@ -145,6 +166,8 @@ pub fn radio(theme: &FluentTheme, props: &RadioProps) -> RadioSpec {
     if props.checked {
         RadioSpec {
             circle,
+            label_gap: t.spacing.horizontal.s,
+            radius: t.radius.circular,
             dot,
             border_width: t.stroke_width.thin,
             border: c.compound_brand_stroke,
@@ -158,6 +181,8 @@ pub fn radio(theme: &FluentTheme, props: &RadioProps) -> RadioSpec {
     } else {
         RadioSpec {
             circle,
+            label_gap: t.spacing.horizontal.s,
+            radius: t.radius.circular,
             dot,
             border_width: t.stroke_width.thin,
             border: c.neutral_stroke_accessible,
@@ -175,6 +200,27 @@ pub fn radio(theme: &FluentTheme, props: &RadioProps) -> RadioSpec {
 mod tests {
     use super::*;
     use fluent_tokens::Tokens;
+
+    #[test]
+    fn large_selection_geometry_scales_without_fractional_insets() {
+        let theme = FluentTheme::web_light();
+        let cb = checkbox(
+            &theme,
+            &CheckboxProps {
+                size: ControlSize::Large,
+                ..Default::default()
+            },
+        );
+        assert_eq!(cb.mark_size, px(16.));
+        let radio = radio(
+            &theme,
+            &RadioProps {
+                size: ControlSize::Large,
+                ..Default::default()
+            },
+        );
+        assert_eq!((radio.circle, radio.dot), (px(20.), px(12.)));
+    }
 
     #[test]
     fn checkbox_sizes_match_fluent() {

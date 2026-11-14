@@ -26,6 +26,17 @@ upstream target declarations. Dependencies, features and the `[lib]` target are
 unchanged. Re-copy from the registry source and re-apply the hook patches if the
 pins ever change.
 
+## Reproducible patches
+
+[Exporter/checker](../scripts/vendor-patches.py): Python 3 standard library plus Git. Reads checksum-verified .crate archives from the Cargo cache (or --cache); trims only the directories listed above; writes [gpui-base.patch](patches/gpui-base.patch) and [gpui-pre.patch](patches/gpui-pre.patch). Reconstructs every retained file in a temporary target/vendor-patch-check directory and compares with vendor. No source modification or network downloads. Unified-diff blank context lines require a single space; .gitattributes preserves this format by disabling only blank-at-eol checks for these patch files.
+
+```text
+python scripts/vendor-patches.py
+python scripts/vendor-patches.py --check
+```
+
+A missing or wrong-checksum archive fails explicitly. Run cargo fetch --locked or supply --cache with the exact upstream archives. For a future pin, update version/checksum metadata deliberately, regenerate and review patches. Trimmed upstream tests remain unavailable; Fluent behavior tests cover the hooks it consumes.
+
 ## Applied local hooks
 
 - `vendor/gpui-base/src/input/base/state.rs`: added
@@ -66,6 +77,11 @@ pins ever change.
   last frame's scene paths, and deferred draws capture the current a11y node as
   their owner; `src/window/a11y.rs` uses that owner to keep overlays opened from
   inside a modal instead of guessing by role.
+- `vendor/gpui-base/src/input/base/state.rs`: disabled builder/setter updates
+  the stored focus handle Tab-stop flag. Disabled text fields leave Tab order
+  and rejoin when enabled.
+- `vendor/gpui-pre/src/window.rs`: test-support `painted_monochrome_sprites()`
+  exposes painted SVG/glyph colours for Fluent icon regression assertions.
 - `vendor/gpui-base/src/input/editor/highlighting.rs`: input selection prefers
   `InputEditorStyle::selection`, then the theme's `colors.selection`, and only
   falls back to `colors.accent` (alpha 0.4) when the theme has no selection

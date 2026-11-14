@@ -1,0 +1,805 @@
+--- a/gpui-pre/Cargo.toml
++++ b/gpui-pre/Cargo.toml
+@@ -94,186 +94,6 @@
+ name = "gpui"
+ path = "src/gpui.rs"
+ 
+-[[example]]
+-name = "a11y"
+-path = "examples/a11y.rs"
+-
+-[[example]]
+-name = "active_state_bug"
+-path = "examples/active_state_bug.rs"
+-
+-[[example]]
+-name = "anchor"
+-path = "examples/anchor.rs"
+-
+-[[example]]
+-name = "animation"
+-path = "examples/animation.rs"
+-
+-[[example]]
+-name = "data_table"
+-path = "examples/data_table.rs"
+-
+-[[example]]
+-name = "drag_drop"
+-path = "examples/drag_drop.rs"
+-
+-[[example]]
+-name = "focus_visible"
+-path = "examples/focus_visible.rs"
+-
+-[[example]]
+-name = "gif_viewer"
+-path = "examples/gif_viewer.rs"
+-
+-[[example]]
+-name = "gradient"
+-path = "examples/gradient.rs"
+-
+-[[example]]
+-name = "grid_layout"
+-path = "examples/grid_layout.rs"
+-
+-[[example]]
+-name = "hello_world"
+-path = "examples/hello_world.rs"
+-
+-[[example]]
+-name = "image"
+-path = "examples/image/image.rs"
+-
+-[[example]]
+-name = "image_gallery"
+-path = "examples/image_gallery.rs"
+-
+-[[example]]
+-name = "image_loading"
+-path = "examples/image_loading.rs"
+-
+-[[example]]
+-name = "input"
+-path = "examples/input.rs"
+-
+-[[example]]
+-name = "layer_shell"
+-path = "examples/layer_shell.rs"
+-
+-[[example]]
+-name = "list_example"
+-path = "examples/list_example.rs"
+-
+-[[example]]
+-name = "mouse_pressure"
+-path = "examples/mouse_pressure.rs"
+-
+-[[example]]
+-name = "move_entity_between_windows"
+-path = "examples/move_entity_between_windows.rs"
+-
+-[[example]]
+-name = "on_window_close_quit"
+-path = "examples/on_window_close_quit.rs"
+-
+-[[example]]
+-name = "opacity"
+-path = "examples/opacity.rs"
+-
+-[[example]]
+-name = "ownership_post"
+-path = "examples/ownership_post.rs"
+-
+-[[example]]
+-name = "painting"
+-path = "examples/painting.rs"
+-
+-[[example]]
+-name = "paths_bench"
+-path = "examples/paths_bench.rs"
+-
+-[[example]]
+-name = "pattern"
+-path = "examples/pattern.rs"
+-
+-[[example]]
+-name = "popover"
+-path = "examples/popover.rs"
+-
+-[[example]]
+-name = "scrollable"
+-path = "examples/scrollable.rs"
+-
+-[[example]]
+-name = "set_menus"
+-path = "examples/set_menus.rs"
+-
+-[[example]]
+-name = "shadow"
+-path = "examples/shadow.rs"
+-
+-[[example]]
+-name = "svg"
+-path = "examples/svg/svg.rs"
+-
+-[[example]]
+-name = "system_notifications"
+-path = "examples/system_notifications.rs"
+-
+-[[example]]
+-name = "tab_stop"
+-path = "examples/tab_stop.rs"
+-
+-[[example]]
+-name = "testing"
+-path = "examples/testing.rs"
+-
+-[[example]]
+-name = "text"
+-path = "examples/text.rs"
+-
+-[[example]]
+-name = "text_layout"
+-path = "examples/text_layout.rs"
+-
+-[[example]]
+-name = "text_wrapper"
+-path = "examples/text_wrapper.rs"
+-
+-[[example]]
+-name = "toggle_headless"
+-path = "examples/toggle_headless.rs"
+-
+-[[example]]
+-name = "tree"
+-path = "examples/tree.rs"
+-
+-[[example]]
+-name = "uniform_list"
+-path = "examples/uniform_list.rs"
+-
+-[[example]]
+-name = "view_example"
+-path = "examples/view_example/view_example_main.rs"
+-
+-[[example]]
+-name = "window"
+-path = "examples/window.rs"
+-
+-[[example]]
+-name = "window_movable"
+-path = "examples/window_movable.rs"
+-
+-[[example]]
+-name = "window_positioning"
+-path = "examples/window_positioning.rs"
+-
+-[[example]]
+-name = "window_shadow"
+-path = "examples/window_shadow.rs"
+-
+-[[test]]
+-name = "action_macros"
+-path = "tests/action_macros.rs"
+-
+ [dependencies.accesskit]
+ version = "0.24.0"
+ features = ["enumn"]
+--- a/gpui-pre/src/app/test_context.rs
++++ b/gpui-pre/src/app/test_context.rs
+@@ -195,6 +195,29 @@
+     /// Disables accessibility for subsequently created test windows.
+     pub fn disable_accessibility(&mut self) {
+         self.update(|cx| cx.accessibility_force_disabled = true);
++    }
++
++    /// Feeds marked composition text through the focused window's platform
++    /// input handler, as an IME does before commit.
++    pub fn replace_and_mark_text(&self, window: AnyWindowHandle, text: &str) {
++        self.test_window(window).replace_and_mark_text(None, text, None);
++    }
++
++    /// Commits text through the focused window's platform input handler.
++    pub fn commit_text(&self, window: AnyWindowHandle, text: &str) {
++        self.test_window(window).replace_text(text);
++    }
++
++    /// Activates accessibility for all existing test windows, as if a screen
++    /// reader had connected to each one.
++    ///
++    /// This invokes the activation callback the window registered with the
++    /// test platform. Draw the window again (and run until parked) before
++    /// reading [`crate::Window::debug_a11y_tree_json`].
++    pub fn enable_accessibility(&self) {
++        for handle in self.windows() {
++            self.test_window(handle).activate_accessibility();
++        }
+     }
+ 
+     /// Skip all drawing operations for the duration of this test.
+--- a/gpui-pre/src/elements/div.rs
++++ b/gpui-pre/src/elements/div.rs
+@@ -1482,6 +1482,26 @@
+         self
+     }
+ 
++    /// Mark this element as a modal surface.
++    ///
++    /// When any visible node is modal, the accessibility tree keeps only the
++    /// topmost modal subtree: background nodes are pruned until it closes and
++    /// the next frame rebuilds them. Elements without this flag (popovers,
++    /// menus, sheets) never hide the page.
++    fn aria_modal(mut self, modal: bool) -> Self {
++        self.interactivity().aria.modal = modal;
++        self
++    }
++
++    /// Hide this element and its whole subtree from the accessibility tree.
++    ///
++    /// The elements still lay out and paint; only the published a11y nodes are
++    /// suppressed. Clearing the flag restores the subtree on the next frame.
++    fn aria_hidden(mut self, hidden: bool) -> Self {
++        self.interactivity().aria.hidden = hidden;
++        self
++    }
++
+     /// Set the minimum numeric value for this element.
+     fn aria_min_numeric_value(mut self, value: f64) -> Self {
+         self.interactivity().aria.min_numeric_value = Some(value);
+@@ -1954,10 +1974,17 @@
+ 
+     fn a11y_role(&self) -> Option<accesskit::Role> {
+         // Nodes with `GenericContainer` should never be reported to accesskit.
+-        // Equivalent to an HTML div with no role.
++        // Equivalent to an HTML div with no role. A hidden element still needs
++        // an identity in the tree build so its whole subtree can be suppressed.
+         self.interactivity
+             .override_role
+             .filter(|role| *role != accesskit::Role::GenericContainer)
++            .or_else(|| {
++                self.interactivity
++                    .aria
++                    .hidden
++                    .then_some(accesskit::Role::Group)
++            })
+     }
+ 
+     fn write_a11y_info(&self, node: &mut accesskit::Node) {
+@@ -2175,6 +2202,8 @@
+     pub(crate) column_index: Option<usize>,
+     pub(crate) row_count: Option<usize>,
+     pub(crate) column_count: Option<usize>,
++    pub(crate) hidden: bool,
++    pub(crate) modal: bool,
+ }
+ 
+ /// The interactivity struct. Powers all of the general-purpose
+@@ -3650,6 +3679,12 @@
+         if let Some(count) = self.aria.column_count {
+             node.set_column_count(count);
+         }
++        if self.aria.hidden {
++            node.set_hidden();
++        }
++        if self.aria.modal {
++            node.set_modal();
++        }
+         if !self.click_listeners.is_empty() {
+             node.add_action(accesskit::Action::Click);
+         }
+--- a/gpui-pre/src/platform/test/window.rs
++++ b/gpui-pre/src/platform/test/window.rs
+@@ -1,6 +1,6 @@
+ use crate::{
+-    AnyWindowHandle, Bounds, DevicePixels, DispatchEventResult, DisplayId, GpuSpecs, HeadlessAtlas,
+-    Pixels, PlatformAtlas, PlatformDisplay, PlatformHeadlessRenderer, PlatformInput,
++    A11yCallbacks, AnyWindowHandle, Bounds, DevicePixels, DispatchEventResult, DisplayId, GpuSpecs,
++    HeadlessAtlas, Pixels, PlatformAtlas, PlatformDisplay, PlatformHeadlessRenderer, PlatformInput,
+     PlatformInputHandler, PlatformWindow, Point, PromptButton, RequestFrameOptions, Scene, Size,
+     TestDisplay, TestPlatform, TextInputConfiguration, TextInputStateChange, WindowAppearance,
+     WindowBackgroundAppearance, WindowBounds, WindowControlArea, WindowInsets, WindowParams,
+@@ -58,6 +58,7 @@
+     appearance: WindowAppearance,
+     external_drag_files: Vec<(PathBuf, bool)>,
+     start_external_drag_result: bool,
++    a11y_callbacks: Option<A11yCallbacks>,
+ }
+ 
+ #[derive(Clone)]
+@@ -133,6 +134,7 @@
+             appearance: WindowAppearance::Light,
+             external_drag_files: Vec::new(),
+             start_external_drag_result: false,
++            a11y_callbacks: None,
+         })))
+     }
+     pub fn simulate_scheduled_frame(&self) -> bool {
+@@ -302,6 +304,42 @@
+ 
+     pub fn set_start_external_drag_result(&self, result: bool) {
+         self.0.lock().start_external_drag_result = result;
++    }
++
++    /// Drives the stored platform input handler's IME marking path, as a real
++    /// input method does while composing.
++    #[cfg(any(test, feature = "test-support"))]
++    pub fn replace_and_mark_text(
++        &self,
++        range_utf16: Option<std::ops::Range<usize>>,
++        text: &str,
++        selected_range: Option<std::ops::Range<usize>>,
++    ) {
++        let mut handler = self.0.lock().input_handler.take();
++        if let Some(handler) = handler.as_mut() {
++            handler.replace_and_mark_text_in_range(range_utf16, text, selected_range);
++        }
++        self.0.lock().input_handler = handler;
++    }
++
++    /// Commits text through the stored platform input handler, as the platform
++    /// does when composition finishes.
++    #[cfg(any(test, feature = "test-support"))]
++    pub fn replace_text(&self, text: &str) {
++        let mut handler = self.0.lock().input_handler.take();
++        if let Some(handler) = handler.as_mut() {
++            handler.replace_text_in_range(None, text);
++        }
++        self.0.lock().input_handler = handler;
++    }
++
++    /// Invokes the stored accessibility activation callback once, as a real
++    /// platform adapter does when a screen reader connects.
++    pub(crate) fn activate_accessibility(&self) {
++        let state = self.0.lock();
++        if let Some(callbacks) = state.a11y_callbacks.as_ref() {
++            let _ = (callbacks.activation)();
++        }
+     }
+ }
+ 
+@@ -424,6 +462,10 @@
+         false
+     }
+ 
++    fn a11y_init(&self, callbacks: A11yCallbacks) {
++        self.0.lock().a11y_callbacks = Some(callbacks);
++    }
++
+     fn visibility(&self) -> WindowVisibility {
+         self.0.lock().visibility
+     }
+--- a/gpui-pre/src/window.rs
++++ b/gpui-pre/src/window.rs
+@@ -1040,6 +1040,9 @@
+     absolute_offset: Point<Pixels>,
+     prepaint_range: Range<PrepaintStateIndex>,
+     paint_range: Range<PaintIndex>,
++    /// Node current when the draw was scheduled; deferred overlays inherit it
++    /// so modal pruning can tell which modal opened them.
++    a11y_owner: Option<accesskit::NodeId>,
+ }
+ 
+ pub(crate) struct Frame {
+@@ -2899,6 +2902,12 @@
+         self.rendered_frame.scene.quads.clone()
+     }
+ 
++    /// Returns painted monochrome sprites (including SVG icons) for render assertions.
++    #[cfg(any(test, feature = "test-support"))]
++    pub fn painted_monochrome_sprites(&self) -> Vec<crate::MonochromeSprite> {
++        self.rendered_frame.scene.monochrome_sprites.clone()
++    }
++
+     /// Returns the underlines in the most recently rendered frame's scene.
+     #[cfg(any(test, feature = "test-support"))]
+     pub fn painted_underlines(&self) -> Vec<Underline> {
+@@ -3913,7 +3922,16 @@
+             traversal_order.sort_by_key(|ix| self.next_frame.deferred_draws[*ix].priority);
+ 
+             for deferred_draw_ix in traversal_order {
+-                let (element, parent_node, current_view, rem_size, absolute_offset, prepaint_range) = {
++                let (
++                    element,
++                    parent_node,
++                    current_view,
++                    rem_size,
++                    absolute_offset,
++                    prepaint_range,
++                    a11y_owner,
++                    priority,
++                ) = {
+                     let deferred_draw = &mut self.next_frame.deferred_draws[deferred_draw_ix];
+                     self.element_id_stack
+                         .clone_from(&deferred_draw.element_id_stack);
+@@ -3926,8 +3944,12 @@
+                         deferred_draw.rem_size,
+                         deferred_draw.absolute_offset,
+                         deferred_draw.prepaint_range.clone(),
++                        deferred_draw.a11y_owner,
++                        deferred_draw.priority,
+                     )
+                 };
++                self.a11y.nodes.deferred_owner = a11y_owner;
++                self.a11y.nodes.deferred_priority = priority;
+                 self.next_frame.dispatch_tree.set_active_node(parent_node);
+ 
+                 let prepaint_start = self.prepaint_index();
+@@ -3950,6 +3972,8 @@
+ 
+             self.element_id_stack.clear();
+             self.text_style_stack.clear();
++            self.a11y.nodes.deferred_owner = None;
++            self.a11y.nodes.deferred_priority = 0;
+             round_start = round_end;
+         }
+     }
+@@ -4058,6 +4082,7 @@
+                     absolute_offset: deferred_draw.absolute_offset,
+                     prepaint_range: deferred_draw.prepaint_range.clone(),
+                     paint_range: deferred_draw.paint_range.clone(),
++                    a11y_owner: deferred_draw.a11y_owner,
+                 }),
+         );
+     }
+@@ -4540,6 +4565,7 @@
+             absolute_offset,
+             prepaint_range: PrepaintStateIndex::default()..PrepaintStateIndex::default(),
+             paint_range: PaintIndex::default()..PaintIndex::default(),
++            a11y_owner: self.a11y.current_node_id(),
+         });
+     }
+ 
+@@ -7054,6 +7080,15 @@
+     /// Debug representation of the last frame's accessibility information.
+     pub fn debug_a11y_tree_json(&self) -> Option<String> {
+         self.a11y.debug_tree_json()
++    }
++
++    /// Test-support: paths from the last rendered frame's scene.
++    ///
++    /// Useful for asserting that selection highlights and other decorations
++    /// were actually painted, not merely stored in component state.
++    #[cfg(any(test, feature = "test-support"))]
++    pub fn painted_paths(&self) -> Vec<Path<ScaledPixels>> {
++        self.rendered_frame.scene.paths.clone()
+     }
+ 
+     /// Register a listener for an accessibility action on a specific node.
+--- a/gpui-pre/src/window/a11y.rs
++++ b/gpui-pre/src/window/a11y.rs
+@@ -222,6 +222,9 @@
+     }
+ 
+     pub(crate) fn set_focusable(&mut self, node_id: NodeId, focus_id: FocusId) {
++        if self.nodes.hidden_depth > 0 {
++            return;
++        }
+         self.focus_ids.insert(node_id, focus_id);
+     }
+ 
+@@ -230,6 +233,9 @@
+     ///
+     /// Must only be called once per frame.
+     pub(crate) fn set_focus(&mut self, node_id: NodeId) {
++        if self.nodes.hidden_depth > 0 {
++            return;
++        }
+         // A focused node must have been registered as focusable this frame.
+         if !self.focus_ids.contains_key(&node_id) {
+             if cfg!(debug_assertions) {
+@@ -256,6 +262,9 @@
+     }
+ 
+     pub(crate) fn set_active_descendant(&mut self, node_id: NodeId) {
++        if self.nodes.hidden_depth > 0 {
++            return;
++        }
+         // The active descendant must be a descendant of the focused container,
+         // not the focused node itself.
+         if self.nodes.node_is_focused(node_id) {
+@@ -292,6 +301,10 @@
+         #[cfg(debug_assertions)]
+         self.debug.capture_node_info(&self.nodes.node_info);
+         update
++    }
++
++    pub(crate) fn current_node_id(&self) -> Option<NodeId> {
++        self.nodes.current_node_id()
+     }
+ 
+     pub(crate) fn debug_tree_json(&self) -> Option<String> {
+@@ -371,6 +384,12 @@
+ pub(crate) struct A11yNodeBuilder {
+     ids_stack: SmallVec<[NodeId; 16]>,
+     nodes_stack: SmallVec<[accesskit::Node; 16]>,
++    /// Per stack entry: whether this node itself asked to be hidden.
++    hidden_stack: SmallVec<[bool; 16]>,
++    /// Per stack entry: whether the node is outside the published tree because
++    /// it or an ancestor is hidden.
++    suppressed_stack: SmallVec<[bool; 16]>,
++    hidden_depth: usize,
+     /// This is the exact type required by accesskit, so we can't just make it a
+     /// `HashMap<NodeId, Node>` to remove the need for `seen_ids`
+     all_nodes: Vec<(NodeId, accesskit::Node)>,
+@@ -378,6 +397,17 @@
+     /// The node that GPUI considers focused. Note that this may be different to
+     /// what is reported to accesskit - see [`Self::active_descendant`]
+     focus: Option<NodeId>,
++    /// Modal nodes with the deferred priority they were pushed under. The
++    /// topmost is the one with the greatest (priority, push order).
++    modal_order: Vec<(NodeId, usize)>,
++    /// Owner captured when a deferred draw was scheduled. Top-level nodes
++    /// created while that draw prepaints are attributed to it, so an overlay
++    /// opened from inside a modal stays attached to that modal.
++    pub(crate) deferred_owner: Option<NodeId>,
++    pub(crate) deferred_priority: usize,
++    /// Deferred nodes are recorded only as ROOT children (ids_stack.len()==1),
++    /// so a reparent in finalize is a flat root-child move.
++    owners: FxHashMap<NodeId, NodeId>,
+     /// If a node calls `.aria_active_descendant()`, AND an ancestor is focused,
+     /// override it as the focused node. This supports the "active descendant"
+     /// pattern, which allows a focused container to act as if a descendant is
+@@ -392,9 +422,16 @@
+         Self {
+             ids_stack: SmallVec::new(),
+             nodes_stack: SmallVec::new(),
++            hidden_stack: SmallVec::new(),
++            suppressed_stack: SmallVec::new(),
++            hidden_depth: 0,
+             all_nodes: Vec::new(),
+             seen_ids: FxHashSet::default(),
+             focus: None,
++            modal_order: Vec::new(),
++            deferred_owner: None,
++            deferred_priority: 0,
++            owners: FxHashMap::default(),
+             active_descendant: None,
+             #[cfg(debug_assertions)]
+             node_info: FxHashMap::default(),
+@@ -431,11 +468,26 @@
+             return false;
+         }
+ 
+-        if let Some(parent) = self.nodes_stack.last_mut() {
++        let self_hidden = node.is_hidden();
++        let suppressed = self.hidden_depth > 0 || self_hidden;
++        if !suppressed && let Some(parent) = self.nodes_stack.last_mut() {
+             parent.push_child(id);
++        }
++        if self_hidden {
++            self.hidden_depth += 1;
++        }
++        if node.is_modal() {
++            self.modal_order.push((id, self.deferred_priority));
++        }
++        if self.ids_stack.len() == 1
++            && let Some(owner) = self.deferred_owner
++        {
++            self.owners.insert(id, owner);
+         }
+         self.ids_stack.push(id);
+         self.nodes_stack.push(node);
++        self.hidden_stack.push(self_hidden);
++        self.suppressed_stack.push(suppressed);
+         true
+     }
+ 
+@@ -449,11 +501,26 @@
+             return false;
+         }
+ 
++        if self.hidden_depth > 0 || node.is_hidden() {
++            return true;
++        }
++        if node.is_modal() {
++            self.modal_order.push((id, self.deferred_priority));
++        }
++        if self.ids_stack.len() == 1
++            && let Some(owner) = self.deferred_owner
++        {
++            self.owners.insert(id, owner);
++        }
+         if let Some(parent) = self.nodes_stack.last_mut() {
+             parent.push_child(id);
+         }
+         self.all_nodes.push((id, node));
+         true
++    }
++
++    pub(crate) fn current_node_id(&self) -> Option<NodeId> {
++        self.ids_stack.last().copied()
+     }
+ 
+     pub(crate) fn current_node_mut(&mut self) -> Option<&mut accesskit::Node> {
+@@ -466,7 +533,14 @@
+         debug_assert!(self.ids_stack.len() > 1, "pop would remove the root node");
+ 
+         if let (Some(id), Some(node)) = (self.ids_stack.pop(), self.nodes_stack.pop()) {
+-            self.all_nodes.push((id, node));
++            let self_hidden = self.hidden_stack.pop().unwrap_or(false);
++            let suppressed = self.suppressed_stack.pop().unwrap_or(false);
++            if self_hidden {
++                self.hidden_depth = self.hidden_depth.saturating_sub(1);
++            }
++            if !suppressed {
++                self.all_nodes.push((id, node));
++            }
+         }
+     }
+ 
+@@ -475,6 +549,13 @@
+         self.all_nodes.clear();
+         self.ids_stack.clear();
+         self.nodes_stack.clear();
++        self.hidden_stack.clear();
++        self.suppressed_stack.clear();
++        self.hidden_depth = 0;
++        self.modal_order.clear();
++        self.deferred_owner = None;
++        self.deferred_priority = 0;
++        self.owners.clear();
+         self.seen_ids.clear();
+         #[cfg(debug_assertions)]
+         self.node_info.clear();
+@@ -485,6 +566,8 @@
+ 
+         self.ids_stack.push(ROOT_NODE_ID);
+         self.nodes_stack.push(root_node);
++        self.hidden_stack.push(false);
++        self.suppressed_stack.push(false);
+         self.focus = None;
+         self.active_descendant = None;
+     }
+@@ -558,6 +641,135 @@
+         while !self.ids_stack.is_empty() {
+             if let (Some(id), Some(node)) = (self.ids_stack.pop(), self.nodes_stack.pop()) {
+                 self.all_nodes.push((id, node));
++            }
++            self.hidden_stack.pop();
++            self.suppressed_stack.pop();
++        }
++
++        // Keep only the topmost modal subtree while any modal is exposed.
++        // `aria_modal` is explicit; the topmost modal is the one painted last,
++        // which is the greatest (deferred priority, push order) pair. Ordinary
++        // frames with no modal skip the index and all pruning work.
++        if !self.modal_order.is_empty() {
++            let index: FxHashMap<NodeId, usize> = self
++                .all_nodes
++                .iter()
++                .enumerate()
++                .map(|(index, (id, _))| (*id, index))
++                .collect();
++            let modal = self
++                .modal_order
++                .iter()
++                .enumerate()
++                .filter(|(_, (id, _))| index.contains_key(id))
++                .max_by_key(|(order, (_, priority))| (*priority, *order))
++                .map(|(_, (id, _))| *id);
++
++            if let Some(modal) = modal {
++                let mut keep = FxHashSet::default();
++                let mut pending = vec![modal];
++                while let Some(id) = pending.pop() {
++                    if !keep.insert(id) {
++                        continue;
++                    }
++                    if let Some(node) = index.get(&id).map(|index| &self.all_nodes[*index].1) {
++                        pending.extend(node.children().iter().copied());
++                    }
++                }
++
++                // A deferred overlay (popover/menu/tooltip) records the node that
++                // was current when it was scheduled. Keep overlays owned by a node
++                // inside the modal subtree; overlays owned by background nodes are
++                // pruned with that background. Ownership chains are followed so an
++                // overlay opened from another modal-owned overlay stays attached.
++                let mut by_owner: FxHashMap<NodeId, Vec<NodeId>> = FxHashMap::default();
++                for (node, owner) in &self.owners {
++                    by_owner.entry(*owner).or_default().push(*node);
++                }
++                let mut pending: Vec<NodeId> = keep.iter().copied().collect();
++                while let Some(owner) = pending.pop() {
++                    let Some(owned) = by_owner.remove(&owner) else {
++                        continue;
++                    };
++                    for root in owned {
++                        let mut subtree = vec![root];
++                        while let Some(id) = subtree.pop() {
++                            if !keep.insert(id) {
++                                continue;
++                            }
++                            pending.push(id);
++                            if let Some(node) =
++                                index.get(&id).map(|index| &self.all_nodes[*index].1)
++                            {
++                                subtree.extend(node.children().iter().copied());
++                            }
++                        }
++                    }
++                }
++
++                self.all_nodes
++                    .retain(|(id, _)| *id == ROOT_NODE_ID || keep.contains(id));
++                if let Some((_, root)) = self
++                    .all_nodes
++                    .iter_mut()
++                    .find(|(id, _)| *id == ROOT_NODE_ID)
++                {
++                    let mut retained_children: Vec<NodeId> = root
++                        .children()
++                        .iter()
++                        .copied()
++                        .filter(|child| keep.contains(child))
++                        .collect();
++                    if !retained_children.contains(&modal) {
++                        retained_children.push(modal);
++                    }
++                    root.set_children(retained_children);
++                }
++
++                // An owned overlay was recorded as a ROOT child. Reattach it under
++                // its owner so assistive technology sees it inside the modal (or
++                // inside another modal-owned overlay), not as a page sibling.
++                let mut reparent: Vec<(NodeId, NodeId)> = self
++                    .owners
++                    .iter()
++                    .filter(|(node, owner)| {
++                        keep.contains(*node) && keep.contains(*owner) && **node != modal
++                    })
++                    .map(|(node, owner)| (*node, *owner))
++                    .collect();
++                if !reparent.is_empty() {
++                    let reparented: FxHashSet<NodeId> =
++                        reparent.iter().map(|(node, _)| *node).collect();
++                    let retained_index: FxHashMap<NodeId, usize> = self
++                        .all_nodes
++                        .iter()
++                        .enumerate()
++                        .map(|(index, (id, _))| (*id, index))
++                        .collect();
++                    if let Some(root_index) = retained_index.get(&ROOT_NODE_ID).copied() {
++                        let children: Vec<NodeId> = self.all_nodes[root_index]
++                            .1
++                            .children()
++                            .iter()
++                            .copied()
++                            .filter(|child| keep.contains(child) && !reparented.contains(child))
++                            .collect();
++                        self.all_nodes[root_index].1.set_children(children);
++                    }
++                    for (node, owner) in reparent.drain(..) {
++                        if let Some(owner_index) = retained_index.get(&owner).copied() {
++                            self.all_nodes[owner_index].1.push_child(node);
++                        }
++                    }
++                }
++
++                // A pruned background node must not stay referenced as focus.
++                if self.focus.is_some_and(|id| !keep.contains(&id)) {
++                    self.focus = Some(modal);
++                }
++                if self.active_descendant.is_some_and(|id| !keep.contains(&id)) {
++                    self.active_descendant = None;
++                }
+             }
+         }
+ 
+--- a/gpui-pre/src/window/a11y/debug.rs
++++ b/gpui-pre/src/window/a11y/debug.rs
+@@ -271,6 +271,12 @@
+     if let Some(v) = node.orientation() {
+         aria.insert("orientation".into(), json!(format!("{v:?}")));
+     }
++    if node.is_modal() {
++        aria.insert("modal".into(), json!(true));
++    }
++    if node.is_hidden() {
++        aria.insert("hidden".into(), json!(true));
++    }
+ 
+     // Numeric properties.
+     if let Some(v) = node.numeric_value() {

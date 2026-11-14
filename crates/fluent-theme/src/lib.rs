@@ -80,10 +80,13 @@ impl FluentTheme {
     }
 
     /// A theme generated from a custom brand ramp, like `createLightTheme(brand)`.
+    /// High contrast uses the fixed accessible palette; the brand is retained
+    /// for later switches back to light or dark.
     pub fn custom(brand: BrandVariants, appearance: Appearance) -> Self {
         let tokens = match appearance {
             Appearance::Light => Tokens::web_light_with(&brand),
-            _ => Tokens::web_dark_with(&brand),
+            Appearance::Dark => Tokens::web_dark_with(&brand),
+            Appearance::HighContrast => Tokens::high_contrast(),
         };
         Self::new(tokens, appearance, brand)
     }
@@ -203,14 +206,12 @@ impl FluentTheme {
     ///
     /// The callback fires once immediately, so the window starts on the system
     /// appearance. Keep the returned [`Subscription`] alive for as long as the
-    /// window should track the system.
+    /// window should track the system. A manually selected high-contrast palette
+    /// is preserved; select light/dark explicitly to resume following the OS.
     pub fn follow_system(window: &mut Window) -> Subscription {
         window.observe_window_appearance(|window, cx| {
-            let appearance = match window.appearance() {
-                WindowAppearance::Dark | WindowAppearance::VibrantDark => Appearance::Dark,
-                WindowAppearance::Light | WindowAppearance::VibrantLight => Appearance::Light,
-            };
             let current = Self::global(cx);
+            let appearance = system_appearance(current.appearance(), window.appearance());
             if current.appearance() != appearance {
                 current.with_appearance(appearance).install(cx);
             }
@@ -235,6 +236,16 @@ impl FluentTheme {
                 name == SYSTEM_FONT || available.iter().any(|a| a.eq_ignore_ascii_case(name))
             })
             .unwrap_or_else(|| SharedString::from(SYSTEM_FONT))
+    }
+}
+
+fn system_appearance(current: Appearance, system: WindowAppearance) -> Appearance {
+    if current == Appearance::HighContrast {
+        return current;
+    }
+    match system {
+        WindowAppearance::Dark | WindowAppearance::VibrantDark => Appearance::Dark,
+        WindowAppearance::Light | WindowAppearance::VibrantLight => Appearance::Light,
     }
 }
 
@@ -269,6 +280,43 @@ pub fn init(cx: &mut App) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn custom_high_contrast_uses_the_fixed_palette_and_retains_brand() {
+        let custom = FluentTheme::custom(BrandVariants::TEAMS, Appearance::HighContrast);
+        let fixed = FluentTheme::high_contrast();
+        assert_eq!(custom.tokens().color, fixed.tokens().color);
+        assert_eq!(custom.brand(), BrandVariants::TEAMS);
+        assert_eq!(
+            custom.with_appearance(Appearance::Dark).tokens().color,
+            FluentTheme::custom(BrandVariants::TEAMS, Appearance::Dark)
+                .tokens()
+                .color
+        );
+    }
+
+    #[test]
+    fn system_tracking_preserves_high_contrast_and_maps_both_normal_palettes() {
+        for system in [
+            WindowAppearance::Light,
+            WindowAppearance::VibrantLight,
+            WindowAppearance::Dark,
+            WindowAppearance::VibrantDark,
+        ] {
+            assert_eq!(
+                system_appearance(Appearance::HighContrast, system),
+                Appearance::HighContrast
+            );
+        }
+        assert_eq!(
+            system_appearance(Appearance::Dark, WindowAppearance::Light),
+            Appearance::Light
+        );
+        assert_eq!(
+            system_appearance(Appearance::Light, WindowAppearance::Dark),
+            Appearance::Dark
+        );
+    }
 
     #[test]
     fn light_and_dark_carry_the_right_appearance() {

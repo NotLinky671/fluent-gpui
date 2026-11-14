@@ -63,20 +63,6 @@ pub fn length(
     transition(id, AnimPixels(target), policy, window, cx).0
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use fluent_core::gpui_compat::px;
-
-    #[test]
-    fn lengths_interpolate_linearly() {
-        let from = AnimPixels(px(4.));
-        let to = AnimPixels(px(24.));
-        assert_eq!(from.interpolate(&to, 0.0), from);
-        assert_eq!(from.interpolate(&to, 1.0), to);
-        assert_eq!(from.interpolate(&to, 0.5), AnimPixels(px(14.)));
-    }
-}
 /// A fraction of the parent's size, animatable by GPUI.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct AnimFraction(pub f32);
@@ -100,4 +86,18 @@ pub fn fraction(
     cx: &mut App,
 ) -> f32 {
     transition(id, AnimFraction(target), policy, window, cx).0
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use fluent_core::gpui_compat::px;
+
+    #[test]
+    fn lengths_interpolate_linearly() {
+        let from = AnimPixels(px(4.));
+        let to = AnimPixels(px(24.));
+        assert_eq!(from.interpolate(&to, 0.0), from);
+        assert_eq!(from.interpolate(&to, 1.0), to);
+        assert_eq!(from.interpolate(&to, 0.5), AnimPixels(px(14.)));
+    }
 }

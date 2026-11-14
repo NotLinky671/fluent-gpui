@@ -3,7 +3,7 @@
 use fluent_core::gpui_compat::StyledExt as _;
 use fluent_core::gpui_compat::{
     App, Entity, InteractiveElement, IntoElement, MouseButton, ParentElement, RenderOnce,
-    SharedString, StatefulInteractiveElement, StyleRefinement, Styled, Window, div, px, relative,
+    SharedString, StyleRefinement, Styled, Window, div, px, relative,
 };
 use fluent_core::spec::ControlSize;
 use fluent_core::spec::textarea::{self, TextareaAppearance, TextareaProps};
@@ -28,6 +28,8 @@ pub enum TextareaTabBehavior {
 pub struct Textarea {
     state: Entity<TextareaState>,
     props: TextareaProps,
+    /// Explicit `disabled` from the builder; `None` defers to the state.
+    disabled: Option<bool>,
     tab_behavior: TextareaTabBehavior,
     a11y_label: Option<SharedString>,
     style: StyleRefinement,
@@ -39,6 +41,7 @@ impl Textarea {
         Self {
             state: state.clone(),
             props: TextareaProps::default(),
+            disabled: None,
             tab_behavior: TextareaTabBehavior::default(),
             a11y_label: None,
             style: StyleRefinement::default(),
@@ -55,8 +58,14 @@ impl Textarea {
         self
     }
 
+    /// Disables the field.
+    ///
+    /// The value is written to the [`TextareaState`], so a disabled field also
+    /// rejects pointer focus, Tab traversal and edits, not just the styling.
+    /// Without this builder the state's own flag (`set_disabled`) decides, and
+    /// the component never re-enables a state the caller disabled.
     pub fn disabled(mut self, disabled: bool) -> Self {
-        self.props.disabled = disabled;
+        self.disabled = Some(disabled);
         self
     }
 
@@ -79,7 +88,7 @@ impl Textarea {
     /// Sets the accessible name reported for this field.
     ///
     /// The name is merged into the text engine's accessibility state: a name
-    /// already provided directly on the state wins, and other caller settings
+    /// provided by this builder wins over the state name, and other caller settings
     /// (placeholder, role, value visibility) are preserved. Without either, the
     /// field still exposes the multiline-text role and its value.
     pub fn accessibility_label(mut self, label: impl Into<SharedString>) -> Self {
@@ -96,11 +105,23 @@ impl Styled for Textarea {
 
 impl RenderOnce for Textarea {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+        // See input.rs: an explicit builder value is pushed into the text
+        // engine; otherwise the state's own flag wins.
+        let state_disabled = self.state.read(cx).presentation().is_disabled();
+        if let Some(disabled) = self.disabled
+            && disabled != state_disabled
+        {
+            self.state
+                .update(cx, |state, cx| state.set_disabled(disabled, cx));
+        }
+        let mut props = self.props;
+        props.disabled = self.disabled.unwrap_or(state_disabled);
+
         let theme = FluentTheme::global(cx);
-        let spec = textarea::resolve(&theme, &self.props);
+        let spec = textarea::resolve(&theme, &props);
         let m = spec.metrics;
         let focus_handle = self.state.read(cx).presentation().focus_handle().clone();
-        let is_disabled = self.props.disabled;
+        let is_disabled = props.disabled;
 
         // Merge instead of replacing: the caller may already have set a
         // placeholder, a custom role or hidden value exposure on the state.
@@ -174,7 +195,7 @@ impl RenderOnce for Textarea {
 
         let target_border = if is_disabled {
             disabled.border
-        } else if self.props.invalid {
+        } else if props.invalid {
             invalid
         } else if hovered {
             hover.border
@@ -228,9 +249,14 @@ impl RenderOnce for Textarea {
             .text_size(m.font_size)
             .line_height(m.line_height)
             .text_color(text_color)
+            // Read the live flag: a disabled field must not take focus.
             .on_mouse_down(MouseButton::Left, move |_, window, cx| {
                 weak_state
-                    .update(cx, |state, cx| state.focus(window, cx))
+                    .update(cx, |state, cx| {
+                        if !state.presentation().is_disabled() {
+                            state.focus(window, cx);
+                        }
+                    })
                     .ok();
             })
             // Same gap as input.rs: neither GPUI nor the text engine clears focus
@@ -251,18 +277,22 @@ impl RenderOnce for Textarea {
                     }
                 }
             })
+            // Capture runs before the text engine's tracked-focus default.
+            .capture_any_mouse_down({
+                let state = self.state.downgrade();
+                move |_, window, cx| {
+                    if state
+                        .upgrade()
+                        .is_some_and(|state| state.read(cx).presentation().is_disabled())
+                    {
+                        window.prevent_default();
+                    }
+                }
+            })
             .refine_style(&self.style);
 
         if !is_disabled {
-            let hover_listener = hover_state.clone();
-            root = root.on_hover(move |is_hovered, _, cx| {
-                hover_listener.update(cx, |state, cx| {
-                    if *state != *is_hovered {
-                        *state = *is_hovered;
-                        cx.notify();
-                    }
-                });
-            });
+            crate::interaction::hover(root.interactivity(), hover_state);
         }
 
         root = root.child(
@@ -274,7 +304,7 @@ impl RenderOnce for Textarea {
 
         let bottom_edge = if is_disabled {
             disabled.border_bottom
-        } else if self.props.invalid {
+        } else if props.invalid {
             invalid
         } else {
             rest.border_bottom
@@ -329,6 +359,8 @@ impl RenderOnce for Textarea {
 
 #[cfg(test)]
 mod ax_tests;
+#[cfg(test)]
+mod disabled_tests;
 
 #[cfg(test)]
 mod tab_tests;

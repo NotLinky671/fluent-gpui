@@ -25,7 +25,8 @@
 | 组件 | role | aria | 键盘 | 焦点可见 | 状态 |
 |---|---|---|---|---|---|
 | `Button` | 基类 `Button` | `accessibility_label` 必须显式提供；可见文字不会被自动推导为名称 | 基类 click/Enter | `focus_visible` 内描边 | 已实现；真实屏幕阅读器未验证 |
-| `Checkbox` / `Radio` | 基类 `CheckBox` | 基类 `aria_checked` | 基类 | 基类 | 继承 |
+| `Checkbox` / `Radio` | 基类 `CheckBox` / `RadioButton` | Radio label、selected/toggled；组内有 position/size | 基类 | 基类 | 继承 |
+| `RadioGroup` | `RadioGroup` | 名称与 orientation | 方向键/Home/End 跳过禁用项并移动焦点，roving Tab stop | 基类 Radio | 互斥、受控与状态保持有行为/AX 测试；真实屏幕阅读器未验证 |
 | `Switch` | 基类 `Switch` | 基类 | 基类 | 基类 | 继承 |
 | `TextInput` | 无 builder 也默认 `Role::TextInput`；已有 `InputAccessibility` 的 role/label/placeholder/value_exposed 保留，builder 只改名称 | `accessibility_label` 仅在显式提供时合并名称 | 原生 IME/光标 | 聚焦下划线动画 | 已实现；真机 IME 修复后复测待做 |
 | `Textarea` | 无 builder 也默认 `Role::MultilineTextInput`；已有 accessibility 状态保留 | `accessibility_label` 只改名称 | 原生 IME/光标；Tab 默认 Indent，可显式 `Navigate` | 聚焦下划线动画 | 已实现；真机 IME 修复后复测待做 |

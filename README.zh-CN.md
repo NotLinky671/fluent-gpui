@@ -13,7 +13,7 @@
 | 组件 | 实现范围 | 说明 |
 |---|---|---|
 | `Button` | 基础实现 | Primary / Secondary / Outline / Subtle / Transparent；支持尺寸、形状和图标配置；Toggle / Compound / Menu / Split 派生未实现 |
-| `TextInput` | 基础实现 | 单行，含前置/后置内容、错误态、禁用态；点击别处会清除焦点，Tab 可在字段间切换；`aa1cf6c` 中文输入源用户已通过，修复后真机复测尚待 |
+| `TextInput` | 基础实现 | 单行，含前置/后置内容、错误态、禁用态；点击别处会清除焦点，Tab 可在字段间切换 |
 | `Textarea` | 基础实现 | 多行，三种外观；点击别处会清除焦点；Tab 默认缩进，`Textarea::tab_behavior(TextareaTabBehavior::Navigate)` 让 Tab/Shift+Tab 移出字段 |
 | `Field` / `Label` | 基础实现 | 垂直/水平布局、hint、Error/Warning/Success 验证消息 |
 | `Checkbox` / `Radio` / `Switch` | 基础实现 | 受控与非受控模式；鼠标 hover / pressed 接线及颜色过渡已实现，完整交互验证待补 |
@@ -69,7 +69,7 @@ fn main() {
 cargo run -p fluent-notes
 ```
 
-数据只保存在内存中，关闭窗口即丢失；不联网、不做账号或持久化。删除与未保存切换已使用真正的 `AlertDialog` / `Dialog` 模态对话框。使用说明、可重复的手工验收清单、已知限制与 M2 接入点见 [docs/apps/notes.md](docs/apps/notes.md)；本次实际验证记录见 [docs/validation/notes-app-2026-11-03.md](docs/validation/notes-app-2026-11-03.md)。
+数据只保存在内存中，关闭窗口即丢失；不联网、不做账号或持久化。删除与未保存切换已使用真正的 `AlertDialog` / `Dialog` 模态对话框。使用说明、可重复的手工验收清单、已知限制与 M2 接入点见 [docs/apps/notes.md](docs/apps/notes.md)。
 
 ## 受控与非受控
 
@@ -88,6 +88,10 @@ Switch::new("wifi")
 Switch::new("wifi").default_checked(true)
 ```
 
+组内互斥使用 `RadioGroup`。
+
+`RadioGroup::radio(Radio::new("a").label("选项 A"))` 添加选项；`default_value("a")` 初始化非受控选择，`value(Some("a".into()))` 受控，`value(None)` 清空。组内方向键循环并跳过禁用项；Tab 只停靠当前可用项。`Radio::size` 和组级 `size` 支持大小配置。
+
 ## 主题
 
 token 数据包含 5 套官方主题；当前 `FluentTheme` 提供以下 3 个内置主题构造器，不提供 `teams_light()` / `teams_dark()`：
@@ -98,7 +102,9 @@ FluentTheme::web_dark().install(cx);
 FluentTheme::high_contrast().install(cx);
 ```
 
-也可以跟随系统外观：`FluentTheme::follow_system(window)`。
+也可以跟随系统外观：`FluentTheme::follow_system(window)`。手动选中的高对比度不会被系统 light/dark 变化覆盖；显式切回普通主题后恢复跟随。自定义品牌在高对比度下使用固定可访问调色板，品牌保留给后续 light/dark。
+
+文本控件的显式 `disabled(bool)` 同步到文本状态；省略该 builder 时保留状态自身的禁用设置。禁用字段不能通过点击或 Tab 聚焦，也拒绝文本编辑。
 
 ## 架构
 
@@ -127,7 +133,7 @@ GPUI 精确锁定在快照版本（`gpui-pre = 0.3.10`）；用 caret 版本会�
 - `Avatar` 只渲染首字母，无图片与状态徽标
 - Checkbox / Radio / Switch 已接入鼠标 hover / pressed 状态及颜色过渡；完整键盘与指针取消行为尚未验证
 - `Popover` 的关闭路径已有行为测试：外部按下上报 `false`，面板本体与面板内交互子元素上的按下不上报，按下触发器只上报一次变化，受控调用方忽略请求时保持打开。提供 `track_focus` 时，打开会把焦点移入面板，关闭且焦点仍在面板内时归还；Esc 仅在焦点位于浮层内时生效。焦点进入的是面板容器，不自动进入第一个控件；窗口边缘采用限位而非上下自动翻转。面板容器不必标记为 Tab 停靠点；若调用方标记，它会加入控件循环
-- `Badge` 前景按对比度选取：每种外观取主题的一对静态深/浅标签 token 中与徽标背景对比更高的一个，因此在 light、dark 与 high-contrast 下文字都可辨（此前 Warning 在 dark 是白字黄底、高对比度是白底白字）。映射仍取自 token 且有 spec 断言覆盖；受影响外观的原生窗口视觉检查尚待进行。见[修复记录](docs/validation/badge-contrast-2026-11-03.md)
+- `Badge` 前景按对比度选取：每种外观取主题的一对静态深/浅标签 token 中与徽标背景对比更高的一个，因此在 light、dark 与 high-contrast 下文字都可辨。映射仍取自 token 且有 spec 断言覆盖；受影响外观的原生窗口视觉检查尚待进行。见[修复记录](docs/validation/badge-contrast-2026-11-03.md)
 - `Textarea` 在本版 GPUI 快照中不处理鼠标滚轮；长正文可用光标/键盘滚动，滚动条会随光标出现
 - `MenuDropdown` 把 `Menu` 组合进 `Popover`，因此菜单继承锚定定位与关闭语义。方向键、Home/End、Enter/Space 与跳过禁用行均已可用；鼠标移动时写入的当前行与键盘一致，静止指针下的布局变化不会改选。子菜单支持任意层：每层各有当前行，最深层的当前行才是键盘激活目标，打开更深层的那一行用独立的 path hint 样式；→ 或 Enter 只在行确实带子菜单时打开，←/Esc 退一层，Tab 关闭整条链；悬停 300ms 自动打开，移到别的行、标题/分隔线/禁用行、离开整条链或键盘接管都会取消；右侧放不下时首帧即翻到行左侧。点击子面板属于菜单链内部（由实际发布的面板边界判断并遮挡命中），不会误关根菜单或穿透到背后控件；点击整条链外仍请求关闭。typeahead 前缀按完整层路径与会话归属，换分支、离开再返回或重新打开都不会继承。item 激活后菜单不会自动关闭，调用方必须在动作中显式关闭（便签应用每个 item 都这样做）。真实原生窗口中的子面板命中、DPI 与长内容仍未人工验证，且本版 GPUI 未提供 accesskit 的禁用状态
 - `ProgressBar` 不定态与 `Spinner` 的像素基线待补；`Spinner` 弧度跨度与旋转周期为近似值，尚未与官方 Fluent 截图核对
@@ -137,7 +143,7 @@ GPUI 精确锁定在快照版本（`gpui-pre = 0.3.10`）；用 caret 版本会�
 - `Dialog`/`AlertDialog`/`Sheet` 的模态宿主名称默认取自 `title` 文本；`accessibility_label` 可覆盖，`title_element` 自定义内容不提供名称。模态打开期间 AX 树只保留最上层模态子树（背景节点消失，关闭后恢复）；属于模态的 deferred Popover/Menu 保留，背景中的 Popover/Menu 随背景消失。该行为已有 AX 树测试，但真实窗口中的 VoiceOver/屏幕阅读器表现尚未验证
 - `Dialog::title` 现接收 `SharedString`；自定义元素用 `title_element`，需要不同播报名时用 `accessibility_label`。`TextInput`/`Textarea` 默认发布 `TextInput`/`MultilineTextInput` 角色，`accessibility_label` 只覆盖名称。`Textarea` 的 Tab 默认缩进；需要 Tab/Shift+Tab 移出字段时使用 `TextareaTabBehavior::Navigate`
 - 高对比度需要手动切主题，未做系统级自动检测
-- `aa1cf6c` 中文输入源用户已通过；修复后真机复测尚待。不得据此声称当前构建已验证
+- 真机 IME、屏幕阅读器和平台覆盖的历史验证与未验证项见[验证记录](docs/validation/macos-app-workflows-2026-11-13.md)，不能据历史结果宣称当前构建通过
 
 ## 开发
 
@@ -149,8 +155,8 @@ cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo test --workspace --locked
 cargo doc --workspace --no-deps --locked
 cargo deny check
-cargo xtask gen-tokens --check
-cargo xtask gen-icons --check
+cargo run -p xtask --locked -- gen-tokens --check
+cargo run -p xtask --locked -- gen-icons --check
 ```
 
 编译器版本固定在 `rust-toolchain.toml`（Rust 1.98.0），CI 安装同一版本。macOS 专属依赖 `gpui-pre-macos` 调用 `Option::map_or_default`，该 API 到 1.98.0 才稳定，因此更旧的 stable 工具链会在编译本工作区之前就报 E0658。rustup 会自动安装固定版本及 `rustfmt`/`clippy` 组件。
@@ -163,7 +169,7 @@ cargo run -p fluent-notes
 cargo test -p fluent-gallery --features screenshot --test baselines --locked
 ```
 
-像素比对需要 `screenshot` feature 和可用 GPU surface，目前仅在本地运行，未接入 CI。已有 15 张 Windows / light 基线，尚未覆盖 dark/high-contrast 或 hover/focus/pressed/disabled。当前目录只按 OS 区分，DPI、字体及渲染环境也需一致。只有有意接受视觉变化时才设置 `FLUENT_BASELINE_UPDATE=1`，审查图片差异后取消更新模式重跑；不要以重录基线代替排查回归。
+像素比对需要 `screenshot` feature 和可用 GPU surface，目前仅在本地运行，未接入 CI。已有 20 张 Windows / light 基线，尚未覆盖 dark/high-contrast 或 hover/focus/pressed/disabled。当前目录只按 OS 区分，DPI、字体及渲染环境也需一致。只有有意接受视觉变化时才设置 `FLUENT_BASELINE_UPDATE=1`，审查图片差异后取消更新模式重跑；不要以重录基线代替排查回归。
 
 ## 许可
 

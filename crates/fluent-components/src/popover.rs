@@ -8,7 +8,7 @@
 use fluent_core::gpui_compat::StyledExt as _;
 use fluent_core::gpui_compat::{
     AnyElement, App, ElementId, InteractiveElement, IntoElement, ParentElement, RenderOnce,
-    SharedString, StatefulInteractiveElement, StyleRefinement, Styled, Window, div, px,
+    SharedString, StatefulInteractiveElement, StyleRefinement, Styled, Window, div,
 };
 use fluent_core::spec::feedback;
 use fluent_theme::FluentTheme;
@@ -48,6 +48,7 @@ struct PopoverPositioner {
     /// where the surface ended up.
     panel_bounds: TriggerBounds,
     panel: AnyElement,
+    geometry: fluent_core::spec::popover::PopoverSpec,
 }
 
 /// Clamp against the inset viewport from the outset, rather than applying the
@@ -57,17 +58,14 @@ fn panel_origin(
     panel_size: Size<Pixels>,
     viewport: Size<Pixels>,
     margin: Pixels,
+    gap: Pixels,
 ) -> Point<Pixels> {
     let fit = |desired: Pixels, panel: Pixels, viewport: Pixels| {
         desired.clamp(margin, (viewport - panel - margin).max(margin))
     };
     point(
         fit(trigger.left(), panel_size.width, viewport.width),
-        fit(
-            trigger.bottom() + px(4.),
-            panel_size.height,
-            viewport.height,
-        ),
+        fit(trigger.bottom() + gap, panel_size.height, viewport.height),
     )
 }
 
@@ -130,7 +128,8 @@ impl Element for PopoverPositioner {
             trigger,
             panel.size,
             window.viewport_size(),
-            px(8.) + window.client_inset().unwrap_or_default(),
+            self.geometry.viewport_margin + window.client_inset().unwrap_or_default(),
+            self.geometry.anchor_gap,
         );
         // layout_bounds includes the pixel-snapped ancestor scroll offset.
         // Replace that offset, preserving GPUI's physical-pixel snapping rather
@@ -266,6 +265,7 @@ impl Styled for Popover {
 impl RenderOnce for Popover {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let theme = FluentTheme::global(cx);
+        let geometry = fluent_core::spec::popover::resolve(&theme);
         let surface = feedback::tooltip(&theme);
         let shadow = surface.shadow.to_vec();
         let draw_surface = self.draw_surface;
@@ -448,11 +448,11 @@ impl RenderOnce for Popover {
                 let mut panel = div().whitespace_nowrap();
                 if draw_surface {
                     panel = panel
-                        .min_w(px(160.))
-                        .rounded(px(4.))
+                        .min_w(geometry.min_width)
+                        .rounded(geometry.radius)
                         .bg(surface.background)
                         .text_color(surface.foreground)
-                        .p(px(12.))
+                        .p(geometry.padding)
                         .shadow(shadow);
                 }
                 // Blocking here is what makes "clicks inside the panel keep it
@@ -532,6 +532,7 @@ impl RenderOnce for Popover {
                         trigger_bounds,
                         panel_bounds,
                         panel,
+                        geometry,
                     })
                     .with_priority(gpui_base::POPUP_PRIORITY),
                 )
@@ -548,5 +549,7 @@ mod coordination_tests;
 mod focus_probe_tests;
 #[cfg(test)]
 mod focus_trap_tests;
+#[cfg(test)]
+use gpui::px;
 #[cfg(test)]
 mod tests;

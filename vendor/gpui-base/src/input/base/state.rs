@@ -1377,6 +1377,8 @@ impl<M: InputModeKind> InputBaseState<M> {
     #[allow(unused)]
     pub(crate) fn disabled(mut self, disabled: bool) -> Self {
         self.disabled = disabled;
+        // Local patch (see vendor/VENDORED.md): a disabled field leaves the Tab order.
+        self.focus_handle = self.focus_handle.clone().tab_stop(!disabled);
         self
     }
 
@@ -1386,6 +1388,10 @@ impl<M: InputModeKind> InputBaseState<M> {
         }
 
         self.disabled = disabled;
+        // Local patch (see vendor/VENDORED.md): a disabled field leaves the Tab
+        // order. The tracked handle is cloned from this field every render, so
+        // updating it here is what the next frame's tab map sees.
+        self.focus_handle = self.focus_handle.clone().tab_stop(!disabled);
         if disabled {
             M::hide_context_menu(self, cx);
             M::clear_inline_completion(self, cx);

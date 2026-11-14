@@ -19,13 +19,23 @@
 因此“点击别处失焦”是组件自身的责任：
 
 ```text
-点击输入框内部  → on_mouse_down → state.focus()
+点击输入框内部  → disabled capture guard → 未禁用时 on_mouse_down → state.focus()
 点击输入框外部  → on_mouse_down_out → is_focused() 为真时 window.blur(cx)
 ```
 
 `on_mouse_down_out` 在 capture 阶段触发，判据是“指针不在本元素 hitbox 内”，所以点输入框内部不会误触发。先判 `is_focused` 再 blur，避免对未聚焦的字段做无谓调用。
 
 `TextInput` 与 `Textarea` 都按这个形状实现，两者缺一不可——它们是各自独立的组件，没有共享基类。
+
+## 输入禁用与 Tab 排除
+
+TextInput/Textarea 的显式 disabled builder 同步 state；省略 builder 时使用 state 自己的设置。只在标志变化时写入，避免每帧通知。捕获阶段的 guard 阻止 GPUI 对 track_focus 元素的自动聚焦，不能只跳过自己的 focus 调用。底层 set_disabled 同步持有的 FocusHandle.tab_stop，避免下一帧又用旧句柄克隆注册 Tab 停靠。显式 disabled(false) 可重新启用，恢复 Tab 停靠。
+
+AX role/name 仍在渲染期合并到文本引擎，这是发布单一原生节点的适配；相同投影不重复安装，保留调用方 role/placeholder/id/value_exposed。禁用态向 AccessKit 发布仍受当前平台 API 限制，焦点/编辑回归不等同于屏幕阅读器验证。回归入口为 input::disabled_tests 和 textarea::disabled_tests。
+
+## RadioGroup
+
+组为每项提供持久 FocusHandle，只有选中且可用的项是 Tab stop；没有可用选中项时用首个可用项。方向键随 axis 导航并循环、Home/End 到端点，禁用项跳过，导航同时移动焦点并请求组值改变；受控调用方可以忽略请求，选择不被内部接管。子项 checked builder 由组值覆盖，组外行为不变。
 
 ## 浮层焦点交接
 

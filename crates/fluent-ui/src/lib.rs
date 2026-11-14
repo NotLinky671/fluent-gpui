@@ -20,8 +20,8 @@
 pub use fluent_components::{
     AlertDialog, Avatar, Badge, Button, Checkbox, Dialog, DialogOpenChange, Divider, Field,
     FluentIcon, FluentRoot, Icon, IconStyle, InputAppearance, Label, Link, Menu, MenuDropdown,
-    MenuHeader, MenuItem, MenuSeparator, Popover, ProgressBar, Radio, Sheet, SheetOpenChange,
-    Spinner, Switch, TabItem, TabList, TextInput, Textarea, TextareaAppearance,
+    MenuHeader, MenuItem, MenuSeparator, Popover, ProgressBar, Radio, RadioGroup, Sheet,
+    SheetOpenChange, Spinner, Switch, TabItem, TabList, TextInput, Textarea, TextareaAppearance,
     TextareaTabBehavior, TitleBar, TitleBarLabels, TooltipSurface, TooltipView, ValidationMessage,
     tooltip,
 };

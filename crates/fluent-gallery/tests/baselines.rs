@@ -15,7 +15,8 @@
 #![cfg(feature = "screenshot")]
 
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Child, Command, ExitStatus, Stdio};
+use std::time::{Duration, Instant};
 
 use image::{Rgba, RgbaImage};
 
@@ -39,12 +40,17 @@ fn baseline_dir() -> PathBuf {
 }
 
 fn fixture_names() -> Vec<String> {
-    let output = gallery()
-        .env("FLUENT_GALLERY_LIST_FIXTURES", "1")
-        .output()
-        .expect("failed to run the gallery to list fixtures");
-    assert!(output.status.success(), "listing fixtures failed");
-    String::from_utf8_lossy(&output.stdout)
+    let log = scratch_dir().join("fixtures.stdout.log");
+    let mut command = gallery();
+    command.env("FLUENT_GALLERY_LIST_FIXTURES", "1");
+    let status = run(&mut command, &log, Duration::from_secs(30)).expect("list fixtures");
+    assert!(
+        status.success(),
+        "listing fixtures failed; see {}",
+        log.display()
+    );
+    std::fs::read_to_string(log)
+        .expect("read fixture list")
         .lines()
         .filter_map(|line| line.split('\t').next())
         .filter(|name| !name.is_empty())
@@ -53,14 +59,103 @@ fn fixture_names() -> Vec<String> {
 }
 
 fn render(name: &str, appearance: &str, out: &Path) {
-    let status = gallery()
+    remove_previous(out).expect("remove previous screenshot before launching gallery");
+    let log = out.with_extension("stdout.log");
+    let mut command = gallery();
+    command
         .env("FLUENT_GALLERY_FIXTURE", name)
         .env("FLUENT_GALLERY_APPEARANCE", appearance)
-        .env("FLUENT_GALLERY_SCREENSHOT", out)
-        .status()
-        .expect("failed to run the gallery");
+        .env("FLUENT_GALLERY_SCREENSHOT", out);
+    let status = run(&mut command, &log, Duration::from_secs(30))
+        .unwrap_or_else(|error| panic!("rendering {name}: {error}; see {}", log.display()));
     assert!(status.success(), "rendering {name} failed");
     assert!(out.exists(), "rendering {name} produced no screenshot");
+}
+
+fn scratch_dir() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("target")
+        .join("baselines")
+}
+
+fn remove_previous(out: &Path) -> std::io::Result<()> {
+    match std::fs::remove_file(out) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error),
+    }
+}
+
+/// Reap the child even if waiting panics or times out. File-backed logs avoid
+/// blocking on full stdout/stderr pipes while a child is being waited on.
+struct ChildGuard(Child);
+impl Drop for ChildGuard {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
+}
+
+fn run(command: &mut Command, log: &Path, timeout: Duration) -> std::io::Result<ExitStatus> {
+    command
+        .stdout(Stdio::from(std::fs::File::create(log)?))
+        .stderr(Stdio::from(std::fs::File::create(
+            log.with_extension("stderr.log"),
+        )?));
+    let mut child = ChildGuard(command.spawn()?);
+    let deadline = Instant::now() + timeout;
+    loop {
+        if let Some(status) = child.0.try_wait()? {
+            return Ok(status);
+        }
+        if Instant::now() >= deadline {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                "gallery process exceeded its deadline",
+            ));
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
+// This test doubles as the deliberately hanging child in the lifecycle test.
+#[test]
+fn lifecycle_child() {
+    if std::env::var_os("FLUENT_LIFECYCLE_HANG").is_some() {
+        loop {
+            std::thread::park();
+        }
+    }
+}
+
+#[test]
+fn a_hung_child_times_out_and_a_previous_actual_is_removed() {
+    let scratch = scratch_dir().join("lifecycle");
+    std::fs::create_dir_all(&scratch).unwrap();
+    let actual = scratch.join("previous.actual.png");
+    std::fs::write(&actual, b"old run").unwrap();
+    remove_previous(&actual).unwrap();
+    assert!(
+        !actual.exists(),
+        "an old actual must not count as a fresh capture"
+    );
+    let mut child = Command::new(std::env::current_exe().unwrap());
+    child
+        .arg("--exact")
+        .arg("lifecycle_child")
+        .env("FLUENT_LIFECYCLE_HANG", "1");
+    let start = Instant::now();
+    let error = run(
+        &mut child,
+        &scratch.join("hung.stdout.log"),
+        Duration::from_millis(100),
+    )
+    .expect_err("the child cannot finish on its own");
+    assert_eq!(error.kind(), std::io::ErrorKind::TimedOut);
+    assert!(
+        start.elapsed() < Duration::from_secs(5),
+        "timeout must include bounded child cleanup"
+    );
 }
 
 fn load(path: &Path) -> RgbaImage {
@@ -93,9 +188,7 @@ fn fixtures_match_baselines() {
     let name_appearance = "light";
     let update = std::env::var_os("FLUENT_BASELINE_UPDATE").is_some();
     let dir = baseline_dir();
-    let scratch = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("target")
-        .join("baselines");
+    let scratch = scratch_dir();
     std::fs::create_dir_all(&scratch).expect("cannot create target/baselines");
     if update {
         std::fs::create_dir_all(&dir).expect("cannot create the baseline directory");

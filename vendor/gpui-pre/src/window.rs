@@ -2902,6 +2902,12 @@ impl Window {
         self.rendered_frame.scene.quads.clone()
     }
 
+    /// Returns painted monochrome sprites (including SVG icons) for render assertions.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn painted_monochrome_sprites(&self) -> Vec<crate::MonochromeSprite> {
+        self.rendered_frame.scene.monochrome_sprites.clone()
+    }
+
     /// Returns the underlines in the most recently rendered frame's scene.
     #[cfg(any(test, feature = "test-support"))]
     pub fn painted_underlines(&self) -> Vec<Underline> {

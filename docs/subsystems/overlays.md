@@ -31,7 +31,7 @@
 
 - overlay 依赖宿主渲染 `FluentRoot`，不是 `fluent_ui::init` 单独创建的。`TooltipSurface` 的静态预览不检查显示时机或定位。
 - 通用 [tooltip 助手](../../crates/fluent-components/src/feedback.rs)只生成内容闭包，使用 GPUI 原生定位，不经过上述 service。不能从内容相同推定定位相同。
-- service 查询只取 App global，没有 window 参数；不同窗口的 root 会发布各自 overlay，因此当前不能宣称多窗口或嵌套 root 隔离可靠。
+- service 在 App global 中按 window handle 保存各窗口 overlay；事件查找带当前 window。嵌套 root 的语义仍需要单独验证。
 - 当前显示请求由 hover 驱动；键盘焦点触发、滚动时已显示 Tooltip 是否实时跟随、悬停/翻转位置都需要专门验证。不要把 Popover 的同帧保证套到这条路径。
 
 ## Popover：布局与绘制
@@ -61,7 +61,7 @@ deferred positioner prepaint：读取同一共享值，结合面板尺寸和视�
 
 ### 外观与覆盖
 
-面板背景/前景及阴影来自[tooltip spec](../../crates/fluent-core/src/spec/feedback.rs)，Popover 自己设置最小宽度、圆角、padding 和不换行。
+面板背景/前景及阴影来自[tooltip spec](../../crates/fluent-core/src/spec/feedback.rs)，最小宽度、圆角、padding、锚点间隙与视口边距由 [Popover spec](../../crates/fluent-core/src/spec/popover.rs)给出，组件在 prepaint 应用几何值和不换行。
 当前 `Styled` 的 `refine_style` 应用于外层，而不是直接转发面板表面；不要把外层样式覆盖描述为完整的 panel 样式 API。
 
 ## Popover：开关与事件路径

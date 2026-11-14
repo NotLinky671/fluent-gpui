@@ -7,8 +7,7 @@
 use fluent_core::gpui_compat::StyledExt as _;
 use fluent_core::gpui_compat::{
     AnyElement, App, Entity, InteractiveElement, IntoElement, MouseButton, ParentElement,
-    RenderOnce, Role, SharedString, StatefulInteractiveElement, StyleRefinement, Styled, Window,
-    div, px, relative,
+    RenderOnce, Role, SharedString, StyleRefinement, Styled, Window, div, px, relative,
 };
 use fluent_core::spec::ControlSize;
 use fluent_core::spec::input::{self, InputAppearance, InputProps};
@@ -32,6 +31,8 @@ use gpui_base::input::{InputAccessibility, InputState};
 pub struct TextInput {
     state: Entity<InputState>,
     props: InputProps,
+    /// Explicit `disabled` from the builder; `None` defers to the state.
+    disabled: Option<bool>,
     a11y_label: Option<SharedString>,
     content_before: Option<AnyElement>,
     content_after: Option<AnyElement>,
@@ -44,6 +45,7 @@ impl TextInput {
         Self {
             state: state.clone(),
             props: InputProps::default(),
+            disabled: None,
             a11y_label: None,
             content_before: None,
             content_after: None,
@@ -64,8 +66,13 @@ impl TextInput {
     }
 
     /// Disables the field.
+    ///
+    /// The value is written to the [`InputState`], so a disabled field also
+    /// rejects pointer focus, Tab traversal and edits, not just the styling.
+    /// Without this builder the state's own flag (`InputState::set_disabled`)
+    /// decides, and the component never re-enables a state the caller disabled.
     pub fn disabled(mut self, disabled: bool) -> Self {
-        self.props.disabled = disabled;
+        self.disabled = Some(disabled);
         self
     }
 
@@ -138,11 +145,23 @@ impl RenderOnce for TextInput {
             });
         }
 
+        // An explicit builder value is pushed into the text engine so it really
+        // stops taking focus and edits; otherwise the state's own flag wins.
+        let state_disabled = self.state.read(cx).presentation().is_disabled();
+        if let Some(disabled) = self.disabled
+            && disabled != state_disabled
+        {
+            self.state
+                .update(cx, |state, cx| state.set_disabled(disabled, cx));
+        }
+        let mut props = self.props;
+        props.disabled = self.disabled.unwrap_or(state_disabled);
+
         let theme = FluentTheme::global(cx);
-        let spec = input::resolve(&theme, &self.props);
+        let spec = input::resolve(&theme, &props);
         let m = spec.metrics;
         let focus_handle = self.state.read(cx).presentation().focus_handle().clone();
-        let is_disabled = self.props.disabled;
+        let is_disabled = props.disabled;
 
         let rest = spec.rest;
         let hover = spec.hover;
@@ -162,7 +181,7 @@ impl RenderOnce for TextInput {
 
         let target_border = if is_disabled {
             disabled.border
-        } else if self.props.invalid {
+        } else if props.invalid {
             invalid
         } else if hovered {
             hover.border
@@ -218,9 +237,14 @@ impl RenderOnce for TextInput {
             .line_height(m.line_height)
             .text_color(text_color)
             // Clicking the padding should focus the field, not just the text.
+            // Read the live flag: a disabled field must not take focus.
             .on_mouse_down(MouseButton::Left, move |_, window, cx| {
                 weak_state
-                    .update(cx, |state, cx| state.focus(window, cx))
+                    .update(cx, |state, cx| {
+                        if !state.presentation().is_disabled() {
+                            state.focus(window, cx);
+                        }
+                    })
                     .ok();
             })
             // GPUI does not drop focus when the pointer lands elsewhere, and
@@ -243,18 +267,22 @@ impl RenderOnce for TextInput {
                     }
                 }
             })
+            // Capture runs before the text engine's tracked-focus default.
+            .capture_any_mouse_down({
+                let state = self.state.downgrade();
+                move |_, window, cx| {
+                    if state
+                        .upgrade()
+                        .is_some_and(|state| state.read(cx).presentation().is_disabled())
+                    {
+                        window.prevent_default();
+                    }
+                }
+            })
             .refine_style(&self.style);
 
         if !is_disabled {
-            let hover_listener = hover_state.clone();
-            root = root.on_hover(move |is_hovered, _, cx| {
-                hover_listener.update(cx, |state, cx| {
-                    if *state != *is_hovered {
-                        *state = *is_hovered;
-                        cx.notify();
-                    }
-                });
-            });
+            crate::interaction::hover(root.interactivity(), hover_state);
         }
 
         if let Some(before) = self.content_before {
@@ -271,7 +299,7 @@ impl RenderOnce for TextInput {
         // An invalid field paints every edge red, including this one.
         let bottom_edge = if is_disabled {
             disabled.border_bottom
-        } else if self.props.invalid {
+        } else if props.invalid {
             invalid
         } else {
             rest.border_bottom
@@ -338,6 +366,8 @@ impl RenderOnce for TextInput {
 
 #[cfg(test)]
 mod accessibility_tests;
+#[cfg(test)]
+mod disabled_tests;
 #[cfg(test)]
 mod focus_tests;
 #[cfg(test)]

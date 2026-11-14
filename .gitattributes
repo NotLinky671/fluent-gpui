@@ -3,3 +3,6 @@
 *.jpg binary
 *.ttf binary
 *.otf binary
+
+# Blank unified-diff context lines contain a required single space.
+vendor/patches/*.patch whitespace=-blank-at-eol

@@ -12,7 +12,8 @@ fn panel_keeps_the_trigger_gap_inside_the_viewport() {
             trigger,
             size(px(160.), px(64.)),
             size(px(800.), px(600.)),
-            px(8.)
+            px(8.),
+            px(4.)
         ),
         point(px(20.), px(134.)),
     );
@@ -31,7 +32,7 @@ fn panel_clamps_continuously_at_both_window_edges() {
             point(px(desired), px(desired - 34.)),
             size(px(100.), px(30.)),
         );
-        let actual = panel_origin(trigger, panel, viewport, px(8.));
+        let actual = panel_origin(trigger, panel, viewport, px(8.), px(4.));
         assert_eq!(actual.x, px(desired.clamp(8., 632.)));
         assert_eq!(actual.y, px(desired.clamp(8., 528.)));
     }
@@ -39,7 +40,7 @@ fn panel_clamps_continuously_at_both_window_edges() {
     let positions: Vec<_> = (520..545)
         .map(|y| {
             let trigger = Bounds::new(point(px(20.), px(y as f32 - 34.)), size(px(100.), px(30.)));
-            panel_origin(trigger, panel, viewport, px(8.)).y
+            panel_origin(trigger, panel, viewport, px(8.), px(4.)).y
         })
         .collect();
     for pair in positions.windows(2) {
@@ -53,7 +54,7 @@ fn oversized_panel_aligns_to_the_inset_without_panicking() {
     let trigger = Bounds::new(point(px(100.), px(100.)), size(px(100.), px(30.)));
     for viewport in [size(px(80.), px(40.)), size(px(0.), px(0.))] {
         assert_eq!(
-            panel_origin(trigger, size(px(160.), px(64.)), viewport, px(8.)),
+            panel_origin(trigger, size(px(160.), px(64.)), viewport, px(8.), px(4.)),
             point(px(8.), px(8.)),
         );
     }

@@ -9,7 +9,6 @@ use fluent_core::gpui_compat::{
     App, Hsla, IntoElement, Pixels, RenderOnce, Styled, Window, px, svg,
 };
 use fluent_icons::{FluentIcon, IconStyle};
-use fluent_theme::FluentTheme;
 
 /// A single Fluent icon.
 #[derive(IntoElement)]
@@ -51,13 +50,10 @@ impl Icon {
 }
 
 impl RenderOnce for Icon {
-    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
-        // GPUI's `Svg` only paints when the element carries an explicit text
-        // colour (`svg.rs`: `if let Some(color) = style.text.color`), so an
-        // inherited colour would leave the icon laid out but invisible.
-        let color = self
-            .color
-            .unwrap_or_else(|| FluentTheme::global(cx).tokens().color.neutral_foreground_1);
+    fn render(self, window: &mut Window, _cx: &mut App) -> impl IntoElement {
+        // Svg needs an explicit colour. Resolve the surrounding text style here
+        // so inherited hover/pressed styles and caller overrides also tint icons.
+        let color = self.color.unwrap_or_else(|| window.text_style().color);
         svg()
             .data(self.icon.svg(self.style))
             .w(self.size)

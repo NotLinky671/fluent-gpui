@@ -33,7 +33,7 @@ cargo run -p fluent-gallery
 
 - **阅读顺序**：[token 快照脚本](../../scripts/snapshot-tokens.mjs)、[icon 快照脚本](../../scripts/snapshot-icons.mjs) → [token 输入](../../vendor/tokens.json)、[icon 输入](../../vendor/icons.json) → [xtask 生成器](../../xtask/src/main.rs) → [token API](../../crates/fluent-tokens/src/lib.rs)、[icon API](../../crates/fluent-icons/src/lib.rs) → [主题引擎](../../crates/fluent-theme/src/lib.rs)和[图标渲染](../../crates/fluent-components/src/icon.rs)。
 - **实际路径**：生成器从仓库内的 JSON 产生 Rust 数据；主题保存 token、品牌与字体模式。`FluentTheme::install` 解析可用字体、安装 Fluent global，再单向投影部分颜色到 gpui-base。图标以内嵌 SVG 字节交给 `svg().data(..)`，不注册宿主的 `AssetSource`。
-- **边界与约束**：Fluent 数据是主题来源，不能从 gpui-base 的投影反推完整主题。直接修改 global 的字段不等于重新执行 `install`。`follow_system` 的返回订阅须由调用方保存，目前只映射系统 light/dark，不自动检测高对比度。
+- **边界与约束**：Fluent 数据是主题来源，不能从 gpui-base 的投影反推完整主题。直接修改 global 的字段不等于重新执行 `install`。`follow_system` 的订阅须保存，只映射系统 light/dark，不自动检测高对比度；手动高对比度会被保留，显式切回普通主题后恢复跟随。`custom(brand, HighContrast)` 使用固定高对比度 token，并保留品牌供以后切回。
 - **来源边界**：token 快照脚本读取所提供包的版本；icon 抓取脚本当前使用上游 `main`，不是固定 commit。已提交输入可供本地再生成，但重新抓取可能变化，升级时必须审查来源及差异，不能称其为不可变的上游版本。不要手改[生成 token](../../crates/fluent-tokens/src/generated.rs)或[生成 icon](../../crates/fluent-icons/src/generated.rs)。
 - **验证入口**：在工作区根目录执行两个生成物检查及 token/theme/icon 单测；检查字体和最终颜色还需真实窗口。token 数据包含五套主题，不等于 `FluentTheme` 暴露五个内置构造器，应核对实际 API。
 
@@ -59,7 +59,7 @@ cargo test -p fluent-core --lib --locked
 ## 状态与动效
 
 - **阅读顺序**：[Checkbox / Radio](../../crates/fluent-components/src/selection.rs)、[Switch](../../crates/fluent-components/src/switch.rs)的 builder 和 `render` → [motion spec](../../crates/fluent-core/src/spec/motion.rs) → [动效适配](../../crates/fluent-components/src/motion.rs)。输入问题另看 [TextInput](../../crates/fluent-components/src/input.rs)和[Textarea](../../crates/fluent-components/src/textarea.rs)。
-- **实际路径**：选择控件通过 `checked` 选择受控模式、`default_checked` 选择非受控模式；非受控值保存在 window keyed state 中。事件更新允许内部持有的状态、通知重绘，并向调用方发回调。hover/pressed 状态选出 spec 的目标颜色后，由动效适配调用 gpui-base `transition`。
+- **实际路径**：共享[指针状态接线](../../crates/fluent-components/src/interaction.rs)负责 hover flag 更新和控件内部按下/释放；Button 保留 deferred 场景下的边界校验，不改变释放到外部时的取消行为。选择控件通过 `checked` 选择受控模式、`default_checked` 选择非受控模式；非受控值保存在 window keyed state 中。事件更新允许内部持有的状态、通知重绘，并向调用方发回调。hover/pressed 状态选出 spec 的目标颜色后，由动效适配调用 gpui-base `transition`。
 - **边界与约束**：保持控件身份和动效 channel ID 稳定；不同 channel 不共用同一个 transition key。受控值由调用方更新，非受控默认值只用于 keyed state 初始化；不要把重绘当作重新初始化，也不要混用两种 builder 模式来猜测优先级。
 - **输入边界**：文本、选择、光标等状态来自调用方持有的 `InputState` / `TextareaState`；本库绘制外壳并转发部分交互。需要跨重绘保留 state entity，不能每次 render 创建新文本状态；IME 正确性需真实输入验证。AX 侧，`TextInput`/`Textarea` 无 builder 也分别默认发布 `TextInput`/`MultilineTextInput`，已有 `InputAccessibility` 的 role/label/placeholder/value_exposed 保留，`accessibility_label` 只在显式提供时合并名称。`Textarea` 的 Tab 默认缩进，可显式 `TextareaTabBehavior::Navigate` 移出字段。
 - **动效边界**：transition 路径依赖 gpui-base 的 reduced-motion 策略，不等于所有动画都走该路径。[ProgressBar 不定态与 Spinner](../../crates/fluent-components/src/feedback.rs)直接使用循环 `Animation`，reduced-motion 由组件显式检查 `cx.reduce_motion()` 改为静态帧；该检查只在 `spinner_animation_allowed` / `indeterminate_animation_allowed` 纯函数中做决策。鼠标 pressed 接线存在，不证明键盘 pressed 或按住移出后释放等取消路径完整。
@@ -72,6 +72,10 @@ cargo test -p fluent-core --lib spec::motion --locked
 cargo test -p fluent-components --lib motion --locked
 cargo test -p fluent-components --lib hover_tests --locked
 ```
+
+`RadioGroup` 的互斥选择、受控/非受控值、方向键跳过禁用项及 roving focus 见[实现](../../crates/fluent-components/src/selection/group.rs)与[行为测试](../../crates/fluent-components/src/selection/group_tests.rs)。子项 checked/default_checked 由组值覆盖；组外 Radio 仍各自持有状态。`Radio::size` 默认 medium，large 使用 20px 环和 12px 圆点。
+
+输入组件显式 `disabled(bool)` 只在变化时同步文本引擎；未显式给值则保留 state 设置。包装层在 capture 阶段阻止禁用字段默认聚焦，底层 disabled 标志拒绝编辑并移除 Tab stop。
 
 无障碍与键盘的逐组件状态见 [无障碍清单](../a11y-checklist.md)。
 
@@ -97,10 +101,10 @@ cargo test -p fluent-components --lib sheet::tests --locked
 
 ## Gallery 与视觉验证
 
-- **阅读顺序**：[Gallery 启动与环境开关](../../crates/fluent-gallery/src/main.rs) → [组件夹具](../../crates/fluent-gallery/src/fixtures.rs) → [screenshot feature](../../crates/fluent-gallery/Cargo.toml) → [像素测试](../../crates/fluent-gallery/tests/baselines.rs) → [CI 配置](../../.github/workflows/ci.yml)。
+- **阅读顺序**：[页面模块](../../crates/fluent-gallery/src/sections/mod.rs)、[稳定帧截图](../../crates/fluent-gallery/src/screenshot.rs) → [Gallery 启动与环境开关](../../crates/fluent-gallery/src/main.rs) → [组件夹具](../../crates/fluent-gallery/src/fixtures.rs) → [screenshot feature](../../crates/fluent-gallery/Cargo.toml) → [像素测试](../../crates/fluent-gallery/tests/baselines.rs) → [CI 配置](../../.github/workflows/ci.yml)。
 - **实际路径**：像素测试先用 `FLUENT_GALLERY_LIST_FIXTURES` 获取名称，再为每个夹具启动 Gallery，设置 fixture / appearance / screenshot 输出，读取实际图与基线比较。基线位于[按 OS 分组的目录](../../crates/fluent-gallery/tests/baselines/)，actual/diff 输出位于 gallery crate 自己的 `target/baselines/`，不是工作区根目录的 target。
 - **边界与约束**：普通 workspace 测试不会自动开启 `screenshot`。现有像素测试固定使用 light，不因手工设置 appearance 就变为 dark 全套比对；DPI、字体和渲染器也须匹配，当前目录未按这些维度分组。
-- **覆盖边界**：当前有 Windows / light 静态基线，没有浮层、其他主题和完整交互态覆盖；CI 运行三平台普通检查及 Windows 启动 smoke，不运行像素比较。截图前的固定等待不等于布局已稳定，启动后定时退出不等于交互正确。
+- **覆盖边界**：当前有 20 张 Windows / light 静态基线，包括菜单、Dialog 和 Sheet；其他主题与完整交互态尚未覆盖。CI 配置三平台普通检查和启动 smoke（Linux 用 Xvfb/Mesa），不运行像素比较。截图等待三帧图像一致，最多 120 帧或 20 秒；子进程 30 秒超时回收，启动前清除旧 actual，stdout/stderr 分别留日志。图像一致或限时启动都不证明交互正确。
 - **验证入口**：具备 GPU surface 和对应环境时运行下列命令。只有有意接受视觉变化才开启 `FLUENT_BASELINE_UPDATE=1`，审查差异后取消更新模式重跑；容差通过也可能漏掉小范围变化。
 
 ```text
@@ -109,7 +113,4 @@ cargo test -p fluent-gallery --features screenshot --test baselines --locked
 
 ## 修改与审查时如何维护
 
-- 变更状态归属、实际调用路径、布局/绘制阶段、默认行为、回调、公开 API 或关键验证方法时，同步本页及涉及的专题；纯重命名只需修复受影响链接。
-- PR 描述“之前 → 之后”的可观察行为、调用方影响和兼容性，不只列文件名；设计说明无需改动时给出理由，见 [PR 模板](../../.github/pull_request_template.md)。
-- 文档指向机制和检查入口；本次通过/失败、环境与被测版本写入验证记录。已知限制与公开说明保持一致，不复制任务完成率或最新测试数字。
-- 共享文档不依赖被忽略的本地计划或任务目录；阅读相关源码与测试后再更新，不照搬历史勾选。
+按[工程规范的子系统设计与审查规则](../code-standards.md#子系统设计与审查)维护。导航记录稳定机制与入口，运行证据填写[PR 模板](../../.github/pull_request_template.md)，本页不重复维护交付规则。

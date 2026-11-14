@@ -12,6 +12,8 @@ pub mod input;
 pub mod menu;
 pub mod misc;
 pub mod motion;
+pub mod popover;
+pub mod root;
 pub mod selection;
 pub mod sheet;
 pub mod switch;

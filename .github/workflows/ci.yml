@@ -42,7 +42,8 @@ jobs:
             libx11-xcb-dev libxcb1-dev libxcb-randr0-dev libxcb-render0-dev \
             libxcb-render-util0-dev libxcb-shape0-dev libxcb-xfixes0-dev \
             libxcb-xkb-dev libxcb-sync-dev libfontconfig1-dev libfreetype6-dev \
-            libvulkan-dev libasound2-dev libssl-dev libzstd-dev pkg-config
+            libvulkan-dev libasound2-dev libssl-dev libzstd-dev pkg-config \
+            xvfb xauth mesa-vulkan-drivers
 
       # Compiling gpui from scratch takes most of the run; the cache is keyed on
       # Cargo.lock so it survives source-only changes.
@@ -59,13 +60,13 @@ jobs:
         run: cargo fmt --all --check
 
       - name: Clippy
-        run: cargo clippy --workspace --all-targets -- -D warnings
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
       - name: Tests
-        run: cargo test --workspace
+        run: cargo test --workspace --locked
 
       - name: Docs
-        run: cargo doc --workspace --no-deps
+        run: cargo doc --workspace --no-deps --locked
 
       # License allow list, duplicate bans, RustSec advisories (T-013).
       - name: Dependency policy
@@ -73,26 +74,41 @@ jobs:
 
       # Generated code must match its snapshot.
       - name: Tokens in sync
-        run: cargo xtask gen-tokens --check
+        run: cargo run -p xtask --locked -- gen-tokens --check
 
       - name: Icons in sync
-        run: cargo xtask gen-icons --check
+        run: cargo run -p xtask --locked -- gen-icons --check
 
       # Opens the gallery for 1.5s and quits. Catches the class of bug that unit
       # tests and pixel baselines cannot: a panic while building the tree.
       - name: Boot smoke
-        if: runner.os == 'Windows'
-        run: cargo run -p fluent-gallery
+        if: runner.os != 'Linux'
+        timeout-minutes: 3
+        run: cargo run -p fluent-gallery --locked
         env:
           FLUENT_GALLERY_SMOKE: "1"
 
       # The integration app composes menus, popovers and inputs in one tree; a
       # boot panic here would not be caught by the gallery matrix.
       - name: Notes app boot smoke
-        if: runner.os == 'Windows'
-        run: cargo run -p fluent-notes
+        if: runner.os != 'Linux'
+        timeout-minutes: 3
+        run: cargo run -p fluent-notes --locked
         env:
           FLUENT_NOTES_SMOKE: "1"
+
+      # Xvfb supplies X11; Mesa lavapipe supplies Vulkan without a hardware GPU.
+      # Build outside the smoke deadline so a compiler cold start is not a hang.
+      - name: Build Linux smoke applications
+        if: runner.os == 'Linux'
+        run: cargo build -p fluent-gallery -p fluent-notes --locked
+
+      - name: Linux boot smoke
+        if: runner.os == 'Linux'
+        timeout-minutes: 3
+        run: |
+          timeout 45s xvfb-run -a env -u WAYLAND_DISPLAY FLUENT_GALLERY_SMOKE=1 LIBGL_ALWAYS_SOFTWARE=1 XDG_SESSION_TYPE=x11 target/debug/fluent-gallery
+          timeout 45s xvfb-run -a env -u WAYLAND_DISPLAY FLUENT_NOTES_SMOKE=1 LIBGL_ALWAYS_SOFTWARE=1 XDG_SESSION_TYPE=x11 target/debug/fluent-notes
 
       # Screenshots are scratch: only committed pixel baselines may be tracked.
       - name: No stray images

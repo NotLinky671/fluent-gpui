@@ -8,8 +8,8 @@ use crate::icon::Icon;
 use fluent_core::gpui_compat::StyledExt as _;
 use fluent_core::gpui_compat::{
     AnyElement, App, BoxShadow, ClickEvent, ElementId, InteractiveElement, IntoElement,
-    MouseButton, ParentElement, RenderOnce, SharedString, StatefulInteractiveElement,
-    StyleRefinement, Styled, Window, div, point, px,
+    ParentElement, RenderOnce, SharedString, StatefulInteractiveElement, StyleRefinement, Styled,
+    Window, div, point, px,
 };
 use fluent_core::spec::ControlSize;
 use fluent_core::spec::button::{self, ButtonAppearance, ButtonProps, ButtonShape, IconPosition};
@@ -78,8 +78,7 @@ impl Button {
         self
     }
 
-    /// Marks the button disabled. Disabled buttons stay focusable only when
-    /// `disabled_focusable` lands (T-020).
+    /// Marks the button disabled. Disabled buttons do not take focus.
     pub fn disabled(mut self, disabled: bool) -> Self {
         self.props.disabled = disabled;
         self
@@ -244,22 +243,7 @@ impl RenderOnce for Button {
             .refine_style(&self.style);
 
         if !is_disabled {
-            let press_down = press_state.clone();
-            el.interactivity()
-                .on_mouse_down(MouseButton::Left, move |_, _, cx| {
-                    press_down.update(cx, |state, cx| {
-                        *state = true;
-                        cx.notify();
-                    });
-                });
-            let press_up = press_state.clone();
-            el.interactivity()
-                .on_mouse_up(MouseButton::Left, move |_, _, cx| {
-                    press_up.update(cx, |state, cx| {
-                        *state = false;
-                        cx.notify();
-                    });
-                });
+            crate::interaction::press(el.interactivity(), press_state);
         }
 
         // Fluent's button focus indicator is inset: the border turns focus
@@ -323,12 +307,7 @@ impl RenderOnce for Button {
                     .map(|b| b.contains(&window.mouse_position()))
                     .unwrap_or(false);
                 let genuine = *reported || inside;
-                state_for_edge.update(cx, |state, cx| {
-                    if *state != genuine {
-                        *state = genuine;
-                        cx.notify();
-                    }
-                });
+                crate::interaction::set(&state_for_edge, genuine, cx);
                 let Some(overlay) = crate::tooltip::overlay(window, cx) else {
                     return;
                 };
@@ -373,12 +352,7 @@ impl RenderOnce for Button {
                     .map(|b| b.contains(&window.mouse_position()))
                     .unwrap_or(false);
                 let genuine = *reported || inside;
-                state_for_edge.update(cx, |state, cx| {
-                    if *state != genuine {
-                        *state = genuine;
-                        cx.notify();
-                    }
-                });
+                crate::interaction::set(&state_for_edge, genuine, cx);
             });
         }
         if let Some(handler) = self.on_click {
@@ -386,9 +360,7 @@ impl RenderOnce for Button {
         }
         // Icon placement follows the spec's padding rules; the icon inherits
         // the button's text colour, so hover/pressed tint it automatically.
-        let icon = self
-            .icon
-            .map(|icon| Icon::new(icon).size(m.icon_size).color(rest.foreground));
+        let icon = self.icon.map(|icon| Icon::new(icon).size(m.icon_size));
         if matches!(self.props.icon, Some(IconPosition::Before)) {
             if let Some(icon) = icon {
                 el = el.child(icon);
@@ -425,6 +397,8 @@ impl RenderOnce for Button {
 
 #[cfg(test)]
 mod hover_tests;
+#[cfg(test)]
+mod icon_tests;
 
 #[cfg(test)]
 mod tooltip_tests;

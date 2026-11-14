@@ -13,7 +13,7 @@ This table describes implementation scope, not verification of every platform, i
 | Component | Implementation scope | Notes |
 |---|---|---|
 | `Button` | Foundation | Primary / Secondary / Outline / Subtle / Transparent; size, shape and icon configuration; Toggle / Compound / Menu / Split variants are not implemented |
-| `TextInput` | Foundation | Single line, with leading/trailing content, invalid and disabled states; pressing elsewhere clears focus, and Tab moves between fields; Chinese IME source input was user-verified at `aa1cf6c`, re-verification on a native build after the fixes is still pending |
+| `TextInput` | Foundation | Single line, with leading/trailing content, invalid and disabled states; pressing elsewhere clears focus, and Tab moves between fields |
 | `Textarea` | Foundation | Multi-line, three appearances; pressing elsewhere clears focus; Tab indents by default and `Textarea::tab_behavior(TextareaTabBehavior::Navigate)` makes Tab/Shift+Tab leave the field |
 | `Field` / `Label` | Foundation | Vertical and horizontal layout, hint text, Error/Warning/Success validation messages |
 | `Checkbox` / `Radio` / `Switch` | Foundation | Controlled/uncontrolled modes; mouse hover/pressed wiring and colour transitions are implemented; full interaction verification remains pending |
@@ -69,7 +69,7 @@ fn main() {
 cargo run -p fluent-notes
 ```
 
-Notes live in memory only and are lost when the window closes; there is no networking, account or persistence. Delete and unsaved-switch confirmation use real `AlertDialog` / `Dialog` modals. Usage, the repeatable manual checklist, known limitations and M2 hookup points are in [docs/apps/notes.md](docs/apps/notes.md); this round's actual verification is in [docs/validation/notes-app-2026-11-03.md](docs/validation/notes-app-2026-11-03.md).
+Notes live in memory only and are lost when the window closes; there is no networking, account or persistence. Delete and unsaved-switch confirmation use real `AlertDialog` / `Dialog` modals. Usage, the repeatable manual checklist, known limitations and M2 hookup points are in [docs/apps/notes.md](docs/apps/notes.md).
 
 ## Controlled and uncontrolled
 
@@ -88,6 +88,10 @@ Switch::new("wifi")
 Switch::new("wifi").default_checked(true)
 ```
 
+Use `RadioGroup` for mutually exclusive options.
+
+Add options with `RadioGroup::radio(Radio::new("a").label("Option A"))`. `default_value("a")` initializes uncontrolled selection, `value(Some("a".into()))` controls it, and `value(None)` clears it. Arrow keys wrap over enabled options; Tab visits one enabled item. `Radio::size` and group-level `size` configure geometry.
+
 ## Theming
 
 The token data includes five official palettes. `FluentTheme` currently exposes these three built-in theme constructors, not `teams_light()` / `teams_dark()`:
@@ -98,7 +102,9 @@ FluentTheme::web_dark().install(cx);
 FluentTheme::high_contrast().install(cx);
 ```
 
-To follow the operating system appearance instead: `FluentTheme::follow_system(window)`.
+To follow the operating system appearance instead: `FluentTheme::follow_system(window)`. A manually selected high-contrast palette survives OS light/dark changes; explicitly select a normal palette to resume following. Custom branding uses the fixed accessible palette in high contrast and is retained for later light/dark switches.
+
+An explicit text-control `disabled(bool)` updates its text state; omitting the builder preserves the state's disabled flag. Disabled fields reject pointer focus, Tab stops and edits.
 
 ## Architecture
 
@@ -122,7 +128,7 @@ GPUI is pinned to an exact snapshot (`gpui-pre = 0.3.10`); a caret requirement w
 - `Avatar` renders initials only; no images, no status badge
 - Mouse hover/pressed state wiring and colour transitions are implemented for Checkbox / Radio / Switch; full keyboard and pointer-cancellation behaviour is not yet verified
 - `Popover` dismissal is covered by behaviour tests: an outside press reports `false`, presses on the panel body or its interactive children do not, a press on the trigger reports one change, and a controlled caller that ignores the request stays open. With `track_focus`, opening moves focus into the panel and closing returns it when focus is still inside; Escape only fires while focus is inside. Focus lands on the panel container, not the first control, and viewport edges clamp the panel rather than flipping it above/below. The container does not have to be a Tab stop; if the caller marks it as one it joins the item cycle
-- `Badge` foregrounds are picked by contrast: each appearance uses whichever of the theme's static light/dark label tokens contrasts more with the badge background, so every appearance stays legible in light, dark and high contrast (previously Warning was white-on-yellow in dark and white-on-white in high contrast). The mapping is token-derived and verified by spec tests; native-window visual checks for the affected appearances are still pending. See the [fix record](docs/validation/badge-contrast-2026-11-03.md)
+- `Badge` foregrounds are picked by contrast: each appearance uses whichever of the theme's static light/dark label tokens contrasts more with the badge background, so every appearance stays legible in light, dark and high contrast. The mapping is token-derived and verified by spec tests; native-window visual checks for the affected appearances are still pending. See the [fix record](docs/validation/badge-contrast-2026-11-03.md)
 - `Textarea` does not handle the mouse wheel in this GPUI snapshot; long bodies scroll with the caret/keyboard, and the scrollbar appears once the caret moves past the viewport
 - `MenuDropdown` composes `Menu` into `Popover`, so a menu inherits anchored placement and dismissal. Arrow keys, Home/End, Enter/Space and disabled-row skipping work, and mouse movement writes the same current row as the keyboard; layout changes under a stationary pointer do not change selection. Submenus support any depth: each level has its own current row, only the deepest row is the keyboard target, and the row that opens a deeper level uses a separate path-hint fill. Right or Enter opens only when the row actually carries a submenu; Left/Escape step one level back; Tab closes the whole chain. A 300ms hover opens the submenu and any other row, a header/separator/disabled row, leaving the chain or keyboard takeover cancels it; a panel that would leave the window flips to the row's left on its first frame. A press inside a submenu counts as inside the chain (from the panel bounds actually published, with an occluding hitbox) so it neither dismisses the root menu nor falls through to the control behind it; a press outside the whole chain still requests a close. Typeahead prefixes belong to the full level path and session, so switching branches, leaving and returning, or reopening never inherits one. Activating an item does not close the menu; the caller's action must close it explicitly (the notes app does this in every item). Real-window submenu hit testing, DPI and long content are still unverified, and this GPUI version exposes no accesskit disabled state
 - The gallery and the notes app both use `TitleBar::window_options` for custom window chrome. Caption buttons sit above ordinary modals and below Popover/menus; the component never quits the application. Applications guard native Windows/macOS closes with `on_window_should_close`, and Linux custom closes with `TitleBar::on_close`. Closing the notes window still discards the in-memory notes, as before the change; no close confirmation was added. See the [fix record](docs/validation/titlebar-2026-11-10.md) for native-platform and DPI coverage; macOS/Linux hardware, Snap, cross-display scaling and screen readers still need verification. Mica is not enabled
@@ -137,7 +143,7 @@ GPUI is pinned to an exact snapshot (`gpui-pre = 0.3.10`); a caret requirement w
 - `Dialog`/`AlertDialog`/`Sheet` take their modal host name from `title` text automatically; `accessibility_label` overrides it, and a custom `title_element` supplies no name. While a modal is open the accessibility tree keeps only its topmost subtree (background nodes are absent and return after close); deferred popovers/menus that belong to the modal are retained, while background popovers and menus disappear. This is covered by AX-tree tests, but VoiceOver/screen-reader behaviour in a native window is not yet verified
 - `Dialog::title` now takes `SharedString`; use `title_element` for custom markup and `accessibility_label` when the announced name differs. `TextInput`/`Textarea` publish `TextInput`/`MultilineTextInput` roles by default, and `accessibility_label` only overrides the name. `Textarea` tab behavior defaults to indentation; opt into `TextareaTabBehavior::Navigate` to leave the field with Tab
 - High contrast has to be selected manually; there is no system-level auto-detection
-- Chinese IME source input was user-verified at `aa1cf6c`; re-verification on a native build after these fixes is still pending. Do not treat this as a current-build pass
+- Historical native IME, screen-reader and platform evidence is recorded in the [validation log](docs/validation/macos-app-workflows-2026-11-13.md); it does not establish a current-build pass
 
 ## Development
 
@@ -149,8 +155,8 @@ cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo test --workspace --locked
 cargo doc --workspace --no-deps --locked
 cargo deny check
-cargo xtask gen-tokens --check
-cargo xtask gen-icons --check
+cargo run -p xtask --locked -- gen-tokens --check
+cargo run -p xtask --locked -- gen-icons --check
 ```
 
 The compiler is pinned in `rust-toolchain.toml` (Rust 1.98.0) and CI installs the same version. The macOS-only `gpui-pre-macos` dependency calls `Option::map_or_default`, which became stable in 1.98.0, so older stable toolchains fail with E0658 before the workspace is compiled. Rustup installs the pinned toolchain and the `rustfmt`/`clippy` components automatically.
@@ -163,7 +169,7 @@ cargo run -p fluent-notes
 cargo test -p fluent-gallery --features screenshot --test baselines --locked
 ```
 
-Pixel comparisons need the `screenshot` feature and a usable GPU surface; they currently run locally, not in CI. The 15 committed baselines cover Windows / light only, not dark/high-contrast or hover/focus/pressed/disabled. Directories currently distinguish OS only; DPI, fonts and rendering environment must also match. Set `FLUENT_BASELINE_UPDATE=1` only to accept an intentional visual change, review the image diff, then rerun with update mode unset. Do not re-record baselines instead of investigating a regression.
+Pixel comparisons need the `screenshot` feature and a usable GPU surface; they currently run locally, not in CI. The 20 committed baselines cover Windows / light only, not dark/high-contrast or hover/focus/pressed/disabled. Directories currently distinguish OS only; DPI, fonts and rendering environment must also match. Set `FLUENT_BASELINE_UPDATE=1` only to accept an intentional visual change, review the image diff, then rerun with update mode unset. Do not re-record baselines instead of investigating a regression.
 
 ## License
 
