@@ -3,7 +3,7 @@ use crate::FluentRoot;
 use gpui::{
     AppContext, Context, Entity, FocusHandle, InputEvent as _, KeyBinding, KeyDownEvent, Keystroke,
     Modifiers, MouseDownEvent, MouseMoveEvent, MouseUpEvent, PlatformInput, Render, TestAppContext,
-    WindowHandle, point, size,
+    WindowHandle, point, px, size,
 };
 use std::{cell::RefCell, rc::Rc};
 

@@ -24,7 +24,7 @@ pub struct SwitchSpec {
     pub thumb_size: Pixels,
     /// Left offset of the thumb when checked.
     pub thumb_offset: Pixels,
-    /// Left padding when unchecked (inside the track border).
+    /// Left offset when unchecked, measured from the track border box.
     pub thumb_rest_offset: Pixels,
     pub radius: Pixels,
     pub label_gap: Pixels,
@@ -50,11 +50,9 @@ pub fn resolve(theme: &FluentTheme, props: &SwitchProps) -> SwitchSpec {
         ControlSize::Small => (px(32.), px(16.)),
         _ => (px(40.), px(20.)),
     };
-    // The origin component centres the thumb with flex inside the 1px track
-    // border, so the leftover height above and below must be a whole number of
-    // pixels: an 11px thumb in the small 16px track leaves 1.5px, which the
-    // renderer snaps and paints one pixel low. A 6px total inset keeps 2px of
-    // air inside the border and divides evenly for both sizes.
+    // A 6px total inset leaves 2px of air inside the nominal 1px border.
+    // Components centre the thumb during paint so fractional display scales
+    // preserve symmetric gaps too.
     let thumb_size = track_height - px(6.);
     let thumb_inset = (track_height - thumb_size) / 2.0;
     let thumb_offset = track_width - thumb_size - thumb_inset;

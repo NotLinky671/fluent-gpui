@@ -16,7 +16,7 @@ This table describes implementation scope, not verification of every platform, i
 | `TextInput` | Foundation | Single line, with leading/trailing content, invalid and disabled states; pressing elsewhere clears focus, and Tab moves between fields |
 | `Textarea` | Foundation | Multi-line, three appearances; pressing elsewhere clears focus; Tab indents by default and `Textarea::tab_behavior(TextareaTabBehavior::Navigate)` makes Tab/Shift+Tab leave the field |
 | `Field` / `Label` | Foundation | Vertical and horizontal layout, hint text, Error/Warning/Success validation messages |
-| `Checkbox` / `Radio` / `Switch` | Foundation | Controlled/uncontrolled modes; mouse hover/pressed wiring and colour transitions are implemented; full interaction verification remains pending |
+| `Checkbox` / `Radio` / `Switch` | Foundation | Controlled/uncontrolled modes; mouse hover/pressed wiring and colour transitions; Radio dots and Switch thumbs are centred during paint at fractional display scales; full interaction verification remains pending |
 | `Link` / `Divider` | Foundation | Three link palettes, four divider appearances |
 | `Badge` / `Avatar` | Foundation | Seven badge appearances, four avatar sizes; Avatar renders initials only |
 | `ProgressBar` | Partial | Determinate progress and an indeterminate sweep; both honour reduced motion; pixel baselines for the indeterminate mode are pending |
@@ -169,7 +169,7 @@ cargo run -p fluent-notes
 cargo test -p fluent-gallery --features screenshot --test baselines --locked
 ```
 
-Pixel comparisons need the `screenshot` feature and a usable GPU surface; they currently run locally, not in CI. The 20 committed baselines cover Windows / light only, not dark/high-contrast or hover/focus/pressed/disabled. Directories currently distinguish OS only; DPI, fonts and rendering environment must also match. Set `FLUENT_BASELINE_UPDATE=1` only to accept an intentional visual change, review the image diff, then rerun with update mode unset. Do not re-record baselines instead of investigating a regression.
+Pixel comparisons need the `screenshot` feature and a usable GPU surface; they currently run locally, not in CI. The 21 baselines cover Windows / light only, including a selection geometry fixture with large Radio and small Switch controls and selected disabled examples. Dark/high-contrast and full hover/focus/pressed/disabled coverage remain pending. Directories currently distinguish OS only; DPI, fonts and rendering environment must also match. Set `FLUENT_BASELINE_UPDATE=1` only to accept an intentional visual change, review the image diff, then rerun with update mode unset. Do not re-record baselines instead of investigating a regression.
 
 ## License
 

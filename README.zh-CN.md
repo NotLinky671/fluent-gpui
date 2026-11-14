@@ -16,7 +16,7 @@
 | `TextInput` | 基础实现 | 单行，含前置/后置内容、错误态、禁用态；点击别处会清除焦点，Tab 可在字段间切换 |
 | `Textarea` | 基础实现 | 多行，三种外观；点击别处会清除焦点；Tab 默认缩进，`Textarea::tab_behavior(TextareaTabBehavior::Navigate)` 让 Tab/Shift+Tab 移出字段 |
 | `Field` / `Label` | 基础实现 | 垂直/水平布局、hint、Error/Warning/Success 验证消息 |
-| `Checkbox` / `Radio` / `Switch` | 基础实现 | 受控与非受控模式；鼠标 hover / pressed 接线及颜色过渡已实现，完整交互验证待补 |
+| `Checkbox` / `Radio` / `Switch` | 基础实现 | 受控与非受控模式；鼠标 hover / pressed 接线及颜色过渡；Radio 圆点与 Switch 滑块在绘制阶段按实际边界居中，适配非整数缩放；完整交互验证待补 |
 | `Link` / `Divider` | 基础实现 | 三种 Link 配色、四种 Divider 外观 |
 | `Badge` / `Avatar` | 基础实现 | 7 种 Badge 外观、4 档 Avatar；Avatar 仅首字母 |
 | `ProgressBar` | 部分实现 | 确定进度与不定态滑动动画，两者均遵循 reduced motion；不定态像素基线待补 |
@@ -169,7 +169,7 @@ cargo run -p fluent-notes
 cargo test -p fluent-gallery --features screenshot --test baselines --locked
 ```
 
-像素比对需要 `screenshot` feature 和可用 GPU surface，目前仅在本地运行，未接入 CI。已有 20 张 Windows / light 基线，尚未覆盖 dark/high-contrast 或 hover/focus/pressed/disabled。当前目录只按 OS 区分，DPI、字体及渲染环境也需一致。只有有意接受视觉变化时才设置 `FLUENT_BASELINE_UPDATE=1`，审查图片差异后取消更新模式重跑；不要以重录基线代替排查回归。
+像素比对需要 `screenshot` feature 和可用 GPU surface，目前仅在本地运行，未接入 CI。已有 21 张 Windows / light 基线，包含大号 Radio、小号 Switch 与部分禁用选中态的选择控件几何夹具；dark/high-contrast 和完整 hover/focus/pressed/disabled 覆盖仍待补。当前目录只按 OS 区分，DPI、字体及渲染环境也需一致。只有有意接受视觉变化时才设置 `FLUENT_BASELINE_UPDATE=1`，审查图片差异后取消更新模式重跑；不要以重录基线代替排查回归。
 
 ## 许可
 

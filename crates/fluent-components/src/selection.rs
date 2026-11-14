@@ -3,13 +3,15 @@
 mod group;
 pub use group::RadioGroup;
 #[cfg(test)]
+mod geometry_tests;
+#[cfg(test)]
 mod group_tests;
 
 use crate::icon::Icon;
 use fluent_core::gpui_compat::StyledExt as _;
 use fluent_core::gpui_compat::{
     App, ElementId, InteractiveElement, IntoElement, ParentElement, RenderOnce, SharedString,
-    StyleRefinement, Styled, Window, div, px,
+    StyleRefinement, Styled, Window, div,
 };
 use fluent_core::spec::ControlSize;
 use fluent_core::spec::selection::{self, CheckboxProps, RadioProps};
@@ -340,35 +342,21 @@ impl RenderOnce for Radio {
             window,
             cx,
         );
-        // Ring painted as an inset overlay: keeping the border out of layout
-        // means flex centring puts the dot exactly in the middle.
-        let indicator = div()
-            .relative()
-            .flex_shrink_0()
-            .size(spec.circle)
-            .rounded(spec.radius)
-            .flex()
-            .items_center()
-            .justify_center()
-            .when(checked, |el| {
-                el.child(
-                    div()
-                        .flex_shrink_0()
-                        .size(spec.dot)
-                        .rounded(spec.radius)
-                        .bg(dot_color),
-                )
-            })
-            .child(
-                div()
-                    .absolute()
-                    .top(px(0.))
-                    .left(px(0.))
-                    .size(spec.circle)
-                    .rounded(spec.radius)
-                    .border(spec.border_width)
-                    .border_color(border),
-            );
+        // Use the final snapped ring bounds as the dot's reference. A flex child
+        // would independently round its edges at fractional display scales.
+        let indicator = gpui::canvas(
+            |_, _, _| (),
+            move |bounds, (), window, _| {
+                if checked {
+                    crate::circle::paint_circle(bounds.center(), spec.dot, dot_color, window);
+                }
+            },
+        )
+        .flex_shrink_0()
+        .size(spec.circle)
+        .rounded(spec.radius)
+        .border(spec.border_width)
+        .border_color(border);
 
         let content = div()
             .flex()

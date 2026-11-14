@@ -62,6 +62,7 @@ pub const TEXT_INPUT_NAVIGATE_KEY_CONTEXT: &str = "FluentTextInputNavigate";
 pub const TEXT_INPUT_NAVIGATE_BINDING_CONTEXT: &str = "FluentTextInputNavigate > Input";
 
 pub mod button;
+mod circle;
 pub mod dialog;
 pub mod feedback;
 pub mod field;

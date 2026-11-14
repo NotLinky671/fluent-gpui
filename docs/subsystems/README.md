@@ -50,7 +50,8 @@ cargo test -p fluent-tokens -p fluent-theme -p fluent-icons --locked
 - **阅读顺序**：[spec 模块](../../crates/fluent-core/src/spec/mod.rs) → 对应样式函数，例如[Button spec](../../crates/fluent-core/src/spec/button.rs) → [Button 渲染](../../crates/fluent-components/src/button.rs) → [公开导出](../../crates/fluent-ui/src/lib.rs)。其他组件按同一路径检查。
 - **实际路径**：主题与 props 输入纯函数，产生尺寸、颜色及各状态的样式决策；组件将其映射成 GPUI 元素，并按实时交互/焦点状态选取目标样式。更改 spec 时也要检查渲染是否真的使用了该值。
 - **边界与约束**：spec 不负责发送事件、保存用户状态或证明最终像素正确。显式样式覆盖、状态优先级和组件内部绘制仍可能影响结果；不要用一个数值断言替代行为或截图。上游 CSS 数值与核实的 Fluent 2 渲染冲突时，记录视觉证据与偏离理由，而不是静默更改真值来源。
-- **验证入口**：对应 spec 单测、受影响组件的 GPUI 行为测试及原生/像素检查。当前行为测试入口之一是 [Popover 测试](../../crates/fluent-components/src/popover/tests.rs)，不能据此声称所有组件已有完整行为测试。
+- **圆形指示器**：[Radio](../../crates/fluent-components/src/selection.rs)与[Switch](../../crates/fluent-components/src/switch.rs)在 canvas 的 paint 阶段，使用最终轨道/外环边界计算圆心；[圆形路径](../../crates/fluent-components/src/circle.rs)保留半个物理像素的对称边缘，避免内圆和外框各自取整。Switch 动画仍使用原 channel 的 offset，按端帽圆心之间的进度映射，不再向 border 内部添加同一份 padding。spec 继续决定尺寸、颜色与名义 offset；Checkbox 方形勾选框及 Spinner 弧线不走此内圆布局路径。
+- **验证入口**：对应 spec 单测、受影响组件的 GPUI 行为测试及原生/像素检查；[圆形几何测试](../../crates/fluent-components/src/selection/geometry_tests.rs)检查 100%/125%/150%/200% 的实际绘制坐标、三种主题、各尺寸和禁用态，`selection-geometry` 原生夹具核对默认/大号 Radio 和默认/小号 Switch。当前行为测试入口之一是 [Popover 测试](../../crates/fluent-components/src/popover/tests.rs)，不能据此声称所有组件已有完整行为测试。
 
 ```text
 cargo test -p fluent-core --lib --locked
@@ -104,7 +105,7 @@ cargo test -p fluent-components --lib sheet::tests --locked
 - **阅读顺序**：[页面模块](../../crates/fluent-gallery/src/sections/mod.rs)、[稳定帧截图](../../crates/fluent-gallery/src/screenshot.rs) → [Gallery 启动与环境开关](../../crates/fluent-gallery/src/main.rs) → [组件夹具](../../crates/fluent-gallery/src/fixtures.rs) → [screenshot feature](../../crates/fluent-gallery/Cargo.toml) → [像素测试](../../crates/fluent-gallery/tests/baselines.rs) → [CI 配置](../../.github/workflows/ci.yml)。
 - **实际路径**：像素测试先用 `FLUENT_GALLERY_LIST_FIXTURES` 获取名称，再为每个夹具启动 Gallery，设置 fixture / appearance / screenshot 输出，读取实际图与基线比较。基线位于[按 OS 分组的目录](../../crates/fluent-gallery/tests/baselines/)，actual/diff 输出位于 gallery crate 自己的 `target/baselines/`，不是工作区根目录的 target。
 - **边界与约束**：普通 workspace 测试不会自动开启 `screenshot`。现有像素测试固定使用 light，不因手工设置 appearance 就变为 dark 全套比对；DPI、字体和渲染器也须匹配，当前目录未按这些维度分组。
-- **覆盖边界**：当前有 20 张 Windows / light 静态基线，包括菜单、Dialog 和 Sheet；其他主题与完整交互态尚未覆盖。CI 配置三平台普通检查和启动 smoke（Linux 用 Xvfb/Mesa），不运行像素比较。截图等待三帧图像一致，最多 120 帧或 20 秒；子进程 30 秒超时回收，启动前清除旧 actual，stdout/stderr 分别留日志。图像一致或限时启动都不证明交互正确。
+- **覆盖边界**：当前有 21 张 Windows / light 静态基线，包括选择控件多尺寸几何及部分禁用选中态、菜单、Dialog 和 Sheet；其他主题与完整交互态尚未覆盖。CI 配置三平台普通检查和启动 smoke（Linux 用 Xvfb/Mesa），不运行像素比较。截图等待三帧图像一致，最多 120 帧或 20 秒；子进程 30 秒超时回收，启动前清除旧 actual，stdout/stderr 分别留日志。图像一致或限时启动都不证明交互正确。
 - **验证入口**：具备 GPU surface 和对应环境时运行下列命令。只有有意接受视觉变化才开启 `FLUENT_BASELINE_UPDATE=1`，审查差异后取消更新模式重跑；容差通过也可能漏掉小范围变化。
 
 ```text

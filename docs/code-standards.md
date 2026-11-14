@@ -87,8 +87,8 @@ cargo run -p xtask --locked -- gen-icons --check
 
 - [CI](../.github/workflows/ci.yml)运行三平台普通测试和启动 smoke（Linux 使用 Xvfb/Mesa）；**没有运行像素比对**。
 - [像素测试](../crates/fluent-gallery/tests/baselines.rs)需要 `screenshot` feature 和可用 GPU surface，目前只在本地运行。
-- 已提交 20 张 Windows / light 基线；当前基线目录仅按 OS 区分，没有按 DPI/字体/渲染器隔离，其他环境不能直接套用。
-- 当前夹具没有覆盖 dark/high-contrast、hover/focus/pressed/disabled。spec 单测不能替代这些状态的原生视觉验证。
+- 已有 21 张 Windows / light 基线；当前基线目录仅按 OS 区分，没有按 DPI/字体/渲染器隔离，其他环境不能直接套用。
+- 选择控件几何夹具覆盖默认/大号 Radio、默认/小号 Switch 和部分禁用选中态；dark/high-contrast 与完整 hover/focus/pressed/disabled 仍未覆盖。spec 单测不能替代这些状态的原生视觉验证。
 
 在具备相应环境时运行：
 

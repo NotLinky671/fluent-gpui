@@ -10,9 +10,9 @@ use fluent_ui::gpui::{
 };
 use fluent_ui::gpui_base::input::InputState;
 use fluent_ui::{
-    Avatar, AvatarSize, Badge, BadgeAppearance, Button, ButtonAppearance, Checkbox, Dialog,
-    Divider, Field, Link, Menu, MenuHeader, MenuItem, ProgressBar, Radio, Sheet, SheetSide, Switch,
-    TabItem, TabList, TextInput,
+    Avatar, AvatarSize, Badge, BadgeAppearance, Button, ButtonAppearance, Checkbox, ControlSize,
+    Dialog, Divider, Field, Link, Menu, MenuHeader, MenuItem, ProgressBar, Radio, Sheet, SheetSide,
+    Switch, TabItem, TabList, TextInput,
 };
 
 /// One baseline fixture.
@@ -58,6 +58,11 @@ pub const FIXTURES: &[Fixture] = &[
         name: "radio-checked",
         width: W,
         height: 50.0,
+    },
+    Fixture {
+        name: "selection-geometry",
+        width: 320.0,
+        height: 160.0,
     },
     Fixture {
         name: "switch-on",
@@ -177,6 +182,60 @@ pub fn render(name: &str, window: &mut Window, cx: &mut App) -> Option<AnyElemen
         "radio-checked" => Radio::new("fx-radio-checked")
             .checked(true)
             .label("Option B")
+            .into_any_element(),
+        "selection-geometry" => div()
+            .flex()
+            .flex_col()
+            .gap(px(9.))
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(9.))
+                    .child(
+                        Radio::new("fx-radio-default")
+                            .checked(true)
+                            .label("Default"),
+                    )
+                    .child(
+                        Radio::new("fx-radio-large")
+                            .size(ControlSize::Large)
+                            .checked(true)
+                            .label("Large"),
+                    )
+                    .child(Radio::new("fx-radio-disabled").checked(true).disabled(true)),
+            )
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(9.))
+                    .child(Switch::new("fx-medium-off").checked(false))
+                    .child(Switch::new("fx-medium-on").checked(true).label("Default")),
+            )
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(9.))
+                    .child(
+                        Switch::new("fx-small-off")
+                            .size(ControlSize::Small)
+                            .checked(false),
+                    )
+                    .child(
+                        Switch::new("fx-small-on")
+                            .size(ControlSize::Small)
+                            .checked(true)
+                            .label("Small"),
+                    )
+                    .child(
+                        Switch::new("fx-small-disabled")
+                            .size(ControlSize::Small)
+                            .checked(true)
+                            .disabled(true),
+                    ),
+            )
             .into_any_element(),
         "switch-on" => Switch::new("fx-switch-on")
             .checked(true)

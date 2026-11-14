@@ -175,24 +175,29 @@ impl RenderOnce for Switch {
             cx,
         );
 
-        let track = div()
-            .flex_shrink_0()
-            .w(spec.track_width)
-            .h(spec.track_height)
-            .rounded(spec.radius)
-            .border(spec.border_width)
-            .border_color(track_border)
-            .bg(track_bg)
-            .flex()
-            .items_center()
-            .pl(thumb_left)
-            .child(
-                div()
-                    .flex_shrink_0()
-                    .size(spec.thumb_size)
-                    .rounded(spec.radius)
-                    .bg(thumb_color),
-            );
+        let track = gpui::canvas(
+            |_, _, _| (),
+            move |bounds, (), window, _| {
+                // The offsets refer to the full track, not its border's content
+                // box. Map animated progress onto the actual rounded end caps.
+                let progress = (thumb_left - spec.thumb_rest_offset)
+                    / (spec.thumb_offset - spec.thumb_rest_offset);
+                let center = fluent_core::gpui_compat::point(
+                    bounds.left()
+                        + bounds.size.height / 2.
+                        + (bounds.size.width - bounds.size.height) * progress,
+                    bounds.center().y,
+                );
+                crate::circle::paint_circle(center, spec.thumb_size, thumb_color, window);
+            },
+        )
+        .flex_shrink_0()
+        .w(spec.track_width)
+        .h(spec.track_height)
+        .rounded(spec.radius)
+        .border(spec.border_width)
+        .border_color(track_border)
+        .bg(track_bg);
 
         let content = div()
             .flex()
