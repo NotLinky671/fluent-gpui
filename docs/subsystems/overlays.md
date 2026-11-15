@@ -177,6 +177,7 @@ cargo run -p fluent-gallery
 | `controlled_caller_that_ignores_the_request_stays_open` | 受控调用方收到关闭请求但未更新值时，面板保持打开 |
 | `a_press_inside_a_published_content_region_keeps_the_panel_open` / `a_region_not_published_again_is_treated_as_outside` / `a_press_outside_panel_and_regions_still_requests_a_close` | 内容在面板外发布的区域算内部（子菜单点击不关根菜单）；停止发布后同一位置恢复为外部；面板与区域之外仍上报关闭 |
 | `escape_requests_a_close_while_focus_is_inside` | 焦点在浮层内时 Esc 上报关闭；测试自行绑定 `Dismiss` 并聚焦 |
+| 夹具 `popover-open`（非行为测试） | 打开态的表面与 4px 间隙被绘制成基线；只覆盖静态外观 |
 | `a_right_click_opens_the_menu_at_the_pointer` | 面板原点就是按下位置（±2 px），并只上报一次打开 |
 | `a_right_click_near_the_window_edge_keeps_the_menu_on_screen` | 右下角按下时面板右/下边贴住指针并留在窗口内，不越界 |
 | `escape_closes_the_menu` / `escape_returns_the_keyboard_to_the_control_that_had_it` | Esc 关闭并上报一次；焦点回到打开前的控件 |
@@ -205,7 +206,7 @@ cargo run -p fluent-gallery
 - Tooltip 的 hover/隐藏、翻转、滚动跟随、键盘触发及多窗口 service 归属。
 - 真实窗口中的边缘、缩放、长内容和滚动；现有测试直接 draw，并不验证 GPU 字体或所有原生事件。
 
-[现有像素夹具](../../crates/fluent-gallery/src/fixtures.rs)已包含 `dialog-open`、`menu-panel` 与 `sheet-right-open` 等静态帧；动画中间帧、真实指针/键盘路径与系统主题仍不在其中。
+[现有像素夹具](../../crates/fluent-gallery/src/fixtures.rs)已包含 `dialog-open`、`menu-panel`、`sheet-right-open` 与 `popover-open` 等静态帧。`popover-open`（320×220）画的是触发按钮、默认 4px 间隙与面板表面（圆角、内边距、阴影），它证明的是**外观**，不是锚定行为——位置由 `panel_keeps_the_trigger_gap_inside_the_viewport` 一类行为测试断言。动画中间帧、真实指针/键盘路径与系统主题仍不在其中。
 发现风险时保留复现、被测版本和归属，按[工程规范](../code-standards.md#结果与交付)追踪；本轮文档整理不宣称补齐上述行为。
 
 ## 修改后要同步什么

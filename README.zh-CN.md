@@ -171,8 +171,9 @@ cargo run -p fluent-notes
 cargo test -p fluent-gallery --features screenshot --test baselines --locked
 ```
 
-像素比对需要 `screenshot` feature 和可用 GPU surface，目前仅在本地运行，未接入 CI。已有 21 张 Windows / light 基线，包含大号 Radio、小号 Switch 与部分禁用选中态的选择控件几何夹具；dark/high-contrast 和完整 hover/focus/pressed/disabled 覆盖仍待补。当前目录只按 OS 区分，DPI、字体及渲染环境也需一致。只有有意接受视觉变化时才设置 `FLUENT_BASELINE_UPDATE=1`，审查图片差异后取消更新模式重跑；不要以重录基线代替排查回归。
+像素比对需要 `screenshot` feature 和可用 GPU surface，目前仅在本地运行，未接入 CI。已有 24 张 Windows / light 基线，包含大号 Radio、小号 Switch 与部分禁用选中态的选择控件几何夹具，以及一张记录触发器间隙与面板表面的打开态 Popover；dark/high-contrast 和完整 hover/focus/pressed/disabled 覆盖仍待补。当前目录只按 OS 区分，DPI、字体及渲染环境也需一致。只有有意接受视觉变化时才设置 `FLUENT_BASELINE_UPDATE=1`，审查图片差异后取消更新模式重跑；不要以重录基线代替排查回归。
 
 ## 许可
 
 Apache-2.0
+

@@ -106,7 +106,7 @@ cargo test -p fluent-components --lib sheet::tests --locked
 - **阅读顺序**：[页面模块](../../crates/fluent-gallery/src/sections/mod.rs)、[稳定帧截图](../../crates/fluent-gallery/src/screenshot.rs) → [Gallery 启动与环境开关](../../crates/fluent-gallery/src/main.rs) → [组件夹具](../../crates/fluent-gallery/src/fixtures.rs) → [screenshot feature](../../crates/fluent-gallery/Cargo.toml) → [像素测试](../../crates/fluent-gallery/tests/baselines.rs) → [CI 配置](../../.github/workflows/ci.yml)。
 - **实际路径**：像素测试先用 `FLUENT_GALLERY_LIST_FIXTURES` 获取名称，再为每个夹具启动 Gallery，设置 fixture / appearance / screenshot 输出，读取实际图与基线比较。基线位于[按 OS 分组的目录](../../crates/fluent-gallery/tests/baselines/)，actual/diff 输出位于 gallery crate 自己的 `target/baselines/`，不是工作区根目录的 target。
 - **边界与约束**：普通 workspace 测试不会自动开启 `screenshot`。现有像素测试固定使用 light，不因手工设置 appearance 就变为 dark 全套比对；DPI、字体和渲染器也须匹配，当前目录未按这些维度分组。
-- **覆盖边界**：当前有 23 张 Windows / light 静态基线，包括选择控件多尺寸几何及部分禁用选中态、菜单、Dialog、Sheet，以及 Spinner 与不定态 ProgressBar 的 reduced-motion 静态帧；其他主题与完整交互态尚未覆盖。动画夹具必须先静态化：基线渲染统一带 `FLUENT_GALLERY_REDUCE_MOTION=1`，否则截图等待的三帧一致永远不会到来。CI 配置三平台普通检查和启动 smoke（Linux 用 Xvfb/Mesa），不运行像素比较。截图等待三帧图像一致，最多 120 帧或 20 秒；子进程 30 秒超时回收，启动前清除旧 actual，stdout/stderr 分别留日志。图像一致或限时启动都不证明交互正确。
+- **覆盖边界**：当前有 24 张 Windows / light 静态基线，包括选择控件多尺寸几何及部分禁用选中态、菜单、Dialog、Sheet、打开状态的 Popover，以及 Spinner 与不定态 ProgressBar 的 reduced-motion 静态帧；其他主题与完整交互态尚未覆盖。动画夹具必须先静态化：基线渲染统一带 `FLUENT_GALLERY_REDUCE_MOTION=1`，否则截图等待的三帧一致永远不会到来。CI 配置三平台普通检查和启动 smoke（Linux 用 Xvfb/Mesa），不运行像素比较。截图等待三帧图像一致，最多 120 帧或 20 秒；子进程 30 秒超时回收，启动前清除旧 actual，stdout/stderr 分别留日志。图像一致或限时启动都不证明交互正确。
 - **验证入口**：具备 GPU surface 和对应环境时运行下列命令。只有有意接受视觉变化才开启 `FLUENT_BASELINE_UPDATE=1`，审查差异后取消更新模式重跑；容差通过也可能漏掉小范围变化。
 
 ```text
@@ -116,3 +116,4 @@ cargo test -p fluent-gallery --features screenshot --test baselines --locked
 ## 修改与审查时如何维护
 
 按[工程规范的子系统设计与审查规则](../code-standards.md#子系统设计与审查)维护。导航记录稳定机制与入口，运行证据填写[PR 模板](../../.github/pull_request_template.md)，本页不重复维护交付规则。
+

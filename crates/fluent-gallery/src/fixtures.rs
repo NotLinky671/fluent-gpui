@@ -11,8 +11,8 @@ use fluent_ui::gpui::{
 use fluent_ui::gpui_base::input::InputState;
 use fluent_ui::{
     Avatar, AvatarSize, Badge, BadgeAppearance, Button, ButtonAppearance, Checkbox, ControlSize,
-    Dialog, Divider, Field, Link, Menu, MenuHeader, MenuItem, ProgressBar, Radio, Sheet, SheetSide,
-    Spinner, SpinnerSize, Switch, TabItem, TabList, TextInput,
+    Dialog, Divider, Field, Link, Menu, MenuHeader, MenuItem, Popover, ProgressBar, Radio, Sheet,
+    SheetSide, Spinner, SpinnerSize, Switch, TabItem, TabList, TextInput,
 };
 
 /// One baseline fixture.
@@ -143,6 +143,11 @@ pub const FIXTURES: &[Fixture] = &[
         name: "progress-indeterminate",
         width: 240.0,
         height: 40.0,
+    },
+    Fixture {
+        name: "popover-open",
+        width: 320.0,
+        height: 220.0,
     },
 ];
 
@@ -298,6 +303,39 @@ pub fn render(name: &str, window: &mut Window, cx: &mut App) -> Option<AnyElemen
         "progress-indeterminate" => div()
             .w(px(200.))
             .child(ProgressBar::new(0.).indeterminate())
+            .into_any_element(),
+        // The panel is deferred, so the fixture must open it explicitly; the
+        // trigger itself is what the flex parent lays out.
+        "popover-open" => div()
+            .w(px(288.))
+            .h(px(180.))
+            .p(px(16.))
+            .flex()
+            .flex_col()
+            .items_start()
+            .child(
+                Popover::new("fx-popover")
+                    .trigger(
+                        Button::new("fx-popover-trigger")
+                            .appearance(ButtonAppearance::Secondary)
+                            .accessibility_label("Open")
+                            .child("Open"),
+                    )
+                    .content(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap(px(8.))
+                            .child("Rename the file")
+                            .child(
+                                Button::new("fx-popover-action")
+                                    .appearance(ButtonAppearance::Primary)
+                                    .accessibility_label("Apply")
+                                    .child("Apply"),
+                            ),
+                    )
+                    .default_open(true),
+            )
             .into_any_element(),
         "avatar-medium" => Avatar::new("Ada Lovelace")
             .size(AvatarSize::Medium)
