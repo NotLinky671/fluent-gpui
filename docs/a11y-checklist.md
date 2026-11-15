@@ -17,7 +17,9 @@
 
 - **AX 树**：行为测试通过 `window.debug_a11y_tree_json()` 读取发布树，不查 getter 回显。入口：
   `input::accessibility_tests`、`textarea::ax_tests`、`menu::ax_tests`、`menu::cjk_consumer_tests`、`dialog::tests`、`sheet::tests`。
-- **键盘**：`cargo test -p fluent-components --lib menu --locked`、`--lib tabs`、`--lib sheet`、`--lib popover`、`--lib dialog`。
+- **键盘**：`cargo test -p fluent-components --lib menu --locked
+cargo test -p fluent-components --lib menu::family_tests --locked
+cargo test -p fluent-components --lib menu::scroll_tests --locked`、`--lib tabs`、`--lib sheet`、`--lib popover`、`--lib dialog`。
 - **焦点归还**：`popover/focus_probe_tests.rs`、`popover/focus_trap_tests.rs`、`dialog/tests.rs`。
 
 ## 逐组件
@@ -61,6 +63,7 @@
 6. **`aria_hidden` 当前 API 限制**。抑制子树依赖带 role/id 的容器产生发布节点；没有 role/id 的包裹层不会抑制后代。使用方应把 `aria_hidden` 放在带 `role` 与 `id` 的容器上；本轮不扩大 API 去修这个限制。
 7. **`title_element` 不提供名称**。自定义标题必须另给 `accessibility_label`，否则宿主无名。
 8. **`Dialog::title` 已改为 `SharedString`**。需要自定义元素时用 `title_element`；旧 `IntoElement` 调用方必须 clean cutover。
+9. **触发按钮没有“弹出菜单”语义**。本版 `accesskit 0.24.1` 的 `Role` 没有 `MenuButton`，`div` 也没有 `aria_haspopup`／`aria_expanded` 的调用点，因此 `MenuTrigger` 只能发布普通按钮角色与标签：屏幕阅读器不会知道它开菜单，也不知道菜单是否展开。可用 `accessibility_label` 让名称至少说明用途。
 
 ## 键盘与焦点归还（已回归入口）
 
@@ -72,6 +75,8 @@
 | 菜单 typeahead、Tab 关闭 | `menu::typeahead_tests` |
 | 子菜单逐层导航、点击归属、首帧定位、typeahead 路径 | `menu::submenu_tests`、`menu::submenu_regression_tests`、`popover::dismissal_tests` |
 | Tabs 方向键/Home/End/跳过禁用 | `tabs::tests` |
+| 菜单触发器开合、键盘归属与关闭归还 | `menu::family_tests`（其中“没有调用方焦点句柄”的用例在移除 `MenuDropdown::track_focus` 后失败） |
+| 菜单高度上限与当前行滚动可见 | `menu::scroll_tests`（移除 `max_h` 或 `scroll_to_item` 后失败） |
 | 中文输入 committed text 只进 typeahead、不激活行 | `menu::cjk_consumer_tests`（真实平台输入句柄） |
 
 ## 复跑

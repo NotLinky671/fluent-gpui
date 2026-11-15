@@ -40,6 +40,7 @@ pub struct Button {
     tooltip: Option<SharedString>,
     on_click: Option<ClickHandler>,
     a11y_label: Option<SharedString>,
+    focus_handle: Option<gpui::FocusHandle>,
     theme: Option<FluentTheme>,
 }
 
@@ -56,6 +57,7 @@ impl Button {
             tooltip: None,
             on_click: None,
             a11y_label: None,
+            focus_handle: None,
             theme: None,
         }
     }
@@ -123,6 +125,13 @@ impl Button {
     }
 
     /// Click handler, in the same shape as `gpui_base::Button::on_click`.
+    /// Focus handle for the underlying button, when a caller needs to move focus
+    /// to it (a menu trigger takes focus back after its menu closes).
+    pub fn track_focus(mut self, focus: &gpui::FocusHandle) -> Self {
+        self.focus_handle = Some(focus.clone());
+        self
+    }
+
     pub fn on_click(
         mut self,
         handler: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
@@ -224,6 +233,7 @@ impl RenderOnce for Button {
         // The element id is consumed by the base button; keyed state below the
         // tooltip wiring still needs it.
         let element_id = self.id.clone();
+        let focus_handle = self.focus_handle.clone();
         let mut el = gpui_base::Button::new(self.id)
             .disabled(is_disabled)
             .bg(background)
@@ -241,6 +251,12 @@ impl RenderOnce for Button {
             .cursor_pointer()
             // Caller overrides apply last (ADR-0002, layer 3).
             .refine_style(&self.style);
+
+        // A caller that owns a focus handle for this button (a menu trigger,
+        // which takes focus back after its menu closes) passes it through.
+        if let Some(handle) = focus_handle.as_ref() {
+            el = el.track_focus(handle);
+        }
 
         if !is_disabled {
             crate::interaction::press(el.interactivity(), press_state);

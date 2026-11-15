@@ -215,6 +215,57 @@ impl Gallery {
                     )
                     .default_open(true),
                 ),
+            )
+            .child(
+                // A trigger that owns its own open state, a group whose heading
+                // must not become a keyboard stop, a two-line row, and the
+                // checkable wrappers.
+                div()
+                    .p(px(16.))
+                    .flex()
+                    .flex_wrap()
+                    .gap(px(12.))
+                    .child(MenuTrigger::new(
+                        "gallery-menu-trigger",
+                        "Menu trigger",
+                        Menu::new("gallery-menu-trigger-panel")
+                            .group(
+                                MenuGroup::new("Editing")
+                                    .item(MenuItem::new("gallery-trigger-undo", "Undo"))
+                                    .item(
+                                        MenuItem::new("gallery-trigger-redo", "Redo")
+                                            .secondary("Ctrl+Y"),
+                                    ),
+                            )
+                            .separator()
+                            .item(
+                                MenuItemCheckbox::new("gallery-trigger-wrap", "Word wrap")
+                                    .checked(true),
+                            )
+                            .item(
+                                MenuItemRadio::new("gallery-trigger-name", "Sort by name")
+                                    .selected(true),
+                            )
+                            .item(MenuItemRadio::new("gallery-trigger-date", "Sort by date")),
+                    )),
+            )
+            .child(
+                // Taller than the window on purpose: the panel caps itself and
+                // the rows scroll, the window does not grow.
+                div().p(px(16.)).child(MenuTrigger::new(
+                    "gallery-menu-trigger-tall",
+                    "Tall menu",
+                    {
+                        let mut tall = Menu::new("gallery-menu-tall-panel");
+                        for index in 0..24 {
+                            tall = tall.item(MenuItem::new(
+                                format!("gallery-menu-tall-{}", index),
+                                format!("Item {}", index + 1),
+                            ));
+                        }
+                        tall
+                    },
+                )),
             );
 
         misc_section.into_any_element()

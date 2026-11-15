@@ -26,6 +26,12 @@ pub struct MenuItemSpec {
     pub indicator_slot: Pixels,
     pub font_size: Pixels,
     pub line_height: Pixels,
+    /// Height of a row that carries a secondary line under its label.
+    pub two_line_height: Pixels,
+    pub secondary_font_size: Pixels,
+    pub secondary_line_height: Pixels,
+    /// Muted colour of the secondary line.
+    pub secondary_foreground: Hsla,
     pub background: Hsla,
     pub foreground: Hsla,
     pub hover_background: Hsla,
@@ -74,12 +80,31 @@ pub fn item(theme: &FluentTheme, props: &MenuItemProps) -> MenuItemSpec {
         indicator_slot: px(20.),
         font_size: px(14.),
         line_height: px(20.),
+        // 20px label + 16px secondary + 6px above and below. The single-line
+        // row keeps 32px so a menu of plain items stays as tight as Fluent's.
+        two_line_height: px(48.),
+        secondary_font_size: px(12.),
+        secondary_line_height: px(16.),
+        secondary_foreground: c.neutral_foreground_2,
         background: c.transparent_background,
         foreground,
         hover_background,
         hover_foreground,
         path_hint_background: c.neutral_background_1_selected,
         disabled_foreground: c.neutral_foreground_disabled,
+    }
+}
+
+/// Height of one row.
+///
+/// A row with a secondary line grows to fit it; everything else keeps the
+/// single-line height. The menu's own padding and the 2px row gap are outside
+/// this, so a panel's height is the sum of its rows plus that chrome.
+pub fn row_height(spec: &MenuItemSpec, has_secondary: bool) -> Pixels {
+    if has_secondary {
+        spec.two_line_height
+    } else {
+        spec.height
     }
 }
 
@@ -117,6 +142,17 @@ pub fn surface(theme: &FluentTheme) -> MenuSurfaceSpec {
         background: t.color.neutral_background_1,
         foreground: t.color.neutral_foreground_1,
     }
+}
+
+/// The tallest a menu panel may be before its rows scroll.
+///
+/// A menu never outgrows the window: the same margin that keeps a popover off
+/// the window edge is subtracted at the top and the bottom, and whatever is
+/// left is the panel's ceiling. Sizing against the window rather than a fixed
+/// cap means a long menu on a short screen still opens at its first row
+/// instead of overflowing the display.
+pub fn max_height(viewport_height: Pixels, viewport_margin: Pixels) -> Pixels {
+    (viewport_height - viewport_margin - viewport_margin).max(px(0.))
 }
 
 #[cfg(test)]
@@ -178,5 +214,40 @@ mod tests {
             "the expanded parent must not use the current-row fill"
         );
         assert_ne!(spec.path_hint_background, spec.background);
+    }
+
+    #[test]
+    fn a_two_line_row_is_taller_and_its_extra_height_holds_the_second_line() {
+        let spec = item(&theme(), &MenuItemProps::default());
+        let two = row_height(&spec, true);
+        assert_eq!(two, spec.two_line_height);
+        assert_eq!(row_height(&spec, false), spec.height);
+        assert!(two > spec.height);
+        assert_eq!(
+            two,
+            spec.line_height + spec.secondary_line_height + px(12.),
+            "the extra height must be the secondary line plus even padding"
+        );
+    }
+
+    #[test]
+    fn the_secondary_line_is_muted_but_still_readable() {
+        let t = theme();
+        let spec = item(&t, &MenuItemProps::default());
+        assert_eq!(
+            spec.secondary_foreground,
+            t.tokens().color.neutral_foreground_2
+        );
+        assert_ne!(spec.secondary_foreground, spec.foreground);
+    }
+
+    #[test]
+    fn a_menu_is_capped_to_the_window_less_both_margins() {
+        assert_eq!(max_height(px(600.), px(8.)), px(584.));
+    }
+
+    #[test]
+    fn a_window_shorter_than_the_margins_never_yields_a_negative_cap() {
+        assert_eq!(max_height(px(10.), px(8.)), px(0.));
     }
 }

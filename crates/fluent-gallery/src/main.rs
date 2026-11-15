@@ -20,10 +20,11 @@ use fluent_ui::prelude::*;
 use fluent_ui::{
     AlertDialog, Appearance, Avatar, AvatarSize, Badge, BadgeAppearance, BadgeSize, Button,
     ButtonAppearance, ButtonShape, Checkbox, ControlSize, Dialog, Divider, Field, FluentIcon,
-    FluentRoot, FluentTheme, FontMode, InputAppearance, Link, Menu, MenuDropdown, MenuHeader,
-    MenuItem, Popover, ProgressAppearance, ProgressBar, Radio, Sheet, SheetSide, Spinner,
-    SpinnerSize, Switch, TabItem, TabList, TextInput, Textarea, TextareaAppearance, TitleBar,
-    TooltipSurface, ValidationMessage,
+    FluentRoot, FluentTheme, FontMode, InputAppearance, Link, Menu, MenuDropdown, MenuGroup,
+    MenuHeader, MenuItem, MenuItemCheckbox, MenuItemRadio, MenuTrigger, Popover,
+    ProgressAppearance, ProgressBar, Radio, Sheet, SheetSide, Spinner, SpinnerSize, Switch,
+    TabItem, TabList, TextInput, Textarea, TextareaAppearance, TitleBar, TooltipSurface,
+    ValidationMessage,
 };
 
 const APPEARANCES: [ButtonAppearance; 5] = [

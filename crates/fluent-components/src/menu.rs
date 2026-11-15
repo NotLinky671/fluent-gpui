@@ -29,13 +29,14 @@ use fluent_core::gpui_compat::{
 };
 use fluent_core::spec::feedback;
 use fluent_core::spec::menu::{self, MenuItemProps};
+use fluent_core::spec::popover as popover_spec;
 use fluent_icons::FluentIcon;
 use fluent_theme::FluentTheme;
 use gpui::AppContext as _;
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
     Bounds, Display, Element, GlobalElementId, InspectorElementId, LayoutId, Pixels, Point,
-    Position, Role, Size, Style,
+    Position, Role, ScrollHandle, Size, Style,
 };
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -725,11 +726,39 @@ struct PanelContext {
     root_name: SharedString,
     theme: FluentTheme,
     shadow: Vec<gpui::BoxShadow>,
+    /// Tallest this panel may get before its rows scroll.
+    max_height: Pixels,
     regions: InteriorRegions,
     hover: LevelHover,
     clear: LevelClear,
     leave: PanelLeave,
     moved: PanelMove,
+}
+
+/// Where a panel is scrolled to, and the row it last brought into view.
+///
+/// A panel clamps to the window and scrolls its rows. Scrolling follows the
+/// current row only when that row changes: reasserting it every frame would
+/// fight a user who scrolled the menu with the wheel while the keyboard kept
+/// its row.
+#[derive(Default)]
+struct PanelScroll {
+    handle: ScrollHandle,
+    shown: Option<ElementId>,
+}
+
+impl PanelScroll {
+    /// Brings `row` into view the first time it becomes current.
+    fn follow(&mut self, row: Option<&ElementId>, entry_index: Option<usize>) {
+        let (Some(row), Some(index)) = (row, entry_index) else {
+            return;
+        };
+        if self.shown.as_ref() == Some(row) {
+            return;
+        }
+        self.handle.scroll_to_item(index);
+        self.shown = Some(row.clone());
+    }
 }
 
 fn level_active_id(state: &MenuState, depth: usize) -> Option<ElementId> {
@@ -751,11 +780,14 @@ fn build_rows(
     path: &[ElementId],
     state: &MenuState,
     ctx: &PanelContext,
-) -> (Vec<AnyElement>, Option<Box<Menu>>, RowBounds) {
+) -> (Vec<AnyElement>, Option<Box<Menu>>, RowBounds, Option<usize>) {
     let active_id = level_active_id(state, depth);
     let expanded_id = state.open.get(depth).map(|level| level.parent.clone());
     let row_bounds: RowBounds = Rc::default();
     let mut child: Option<Box<Menu>> = None;
+    // Where the current row sits among this level's children, so the panel can
+    // scroll it into view without searching the painted tree afterwards.
+    let mut active_index = None;
     let mut rows = Vec::with_capacity(entries.len());
 
     for (index, entry) in entries.into_iter().enumerate() {
@@ -765,6 +797,9 @@ fn build_rows(
                 let id = item.id.clone();
                 let is_active = active_id.as_ref() == Some(&id);
                 let is_expanded = expanded_id.as_ref() == Some(&id);
+                if is_active {
+                    active_index = Some(index);
+                }
                 if is_expanded {
                     child = item.submenu.take();
                     item = item.submenu_marker(true);
@@ -833,7 +868,7 @@ fn build_rows(
         }
     }
 
-    (rows, child, row_bounds)
+    (rows, child, row_bounds, active_index)
 }
 
 /// One row of a menu.
@@ -899,8 +934,26 @@ impl Menu {
     }
 
     /// Adds a selectable row.
-    pub fn item(mut self, item: MenuItem) -> Self {
-        self.entries.push(Entry::Item(Box::new(item)));
+    ///
+    /// Accepts [`MenuItem`] and its checkable wrappers, which exist so a row
+    /// reads as an option rather than a plain action.
+    pub fn item(mut self, item: impl Into<MenuItem>) -> Self {
+        self.entries.push(Entry::Item(Box::new(item.into())));
+        self
+    }
+
+    /// Adds a labelled run of rows.
+    ///
+    /// The group is expanded here rather than kept as a wrapper: rows stay
+    /// siblings of everything else in the panel, so the keyboard walks one flat
+    /// list and a scroll position keeps addressing rows by index.
+    pub fn group(mut self, group: MenuGroup) -> Self {
+        if let Some(label) = group.label {
+            self.entries.push(Entry::Header(MenuHeader::new(label)));
+        }
+        for item in group.items {
+            self.entries.push(Entry::Item(Box::new(item)));
+        }
         self
     }
 
@@ -1058,10 +1111,18 @@ impl RenderOnce for Menu {
             })
         };
 
+        // A menu taller than the window scrolls its rows instead of running off
+        // the display. The cap follows the window, so a short screen shows fewer
+        // rows rather than a panel that cannot be reached.
+        let max_height = menu::max_height(
+            window.viewport_size().height,
+            popover_spec::resolve(&theme).viewport_margin,
+        );
         let ctx = PanelContext {
             root_name: menu_id.clone(),
             theme,
             shadow: shadow.clone(),
+            max_height,
             regions: regions.clone(),
             hover: hover.clone(),
             clear: clear.clone(),
@@ -1069,16 +1130,48 @@ impl RenderOnce for Menu {
             moved: moved.clone(),
         };
 
-        let (children, root_child, root_row_bounds) = build_rows(entries, 0, &[], &state, &ctx);
+        let (children, root_child, root_row_bounds, root_active_index) =
+            build_rows(entries, 0, &[], &state, &ctx);
+
+        // The scroll position belongs to the panel, not to a frame: it has to
+        // survive the repaints that follow every key press.
+        let scroll = window.use_keyed_state(
+            SharedString::from(format!("menu-scroll-{}", menu_id)),
+            cx,
+            |_, _| PanelScroll::default(),
+        );
+        let scroll_handle = {
+            let active = level_active_id(&state, 0);
+            scroll.update(cx, |scroll, _| {
+                scroll.follow(active.as_ref(), root_active_index)
+            });
+            scroll.read(cx).handle.clone()
+        };
+
+        // Only the rows scroll. The panel keeps its padding, its corners and the
+        // submenu panels it hosts outside that scroll region: a scroll container
+        // clips everything inside it, and a submenu is drawn beyond the rows.
+        let rows = div()
+            .id(ElementId::from(SharedString::from(format!(
+                "menu-rows-{}",
+                menu_id
+            ))))
+            .flex()
+            .flex_col()
+            .gap(px(2.))
+            .max_h((max_height - surface.padding - surface.padding).max(px(0.)))
+            .overflow_y_scroll()
+            .track_scroll(&scroll_handle)
+            .children(children);
 
         let mut container = div()
             .id(id.clone())
             .relative()
             .flex()
             .flex_col()
-            .gap(px(2.))
             .p(surface.padding)
             .min_w(surface.min_width)
+            .max_h(max_height)
             .rounded(surface.radius)
             .bg(surface.background)
             .text_color(surface.foreground)
@@ -1105,7 +1198,7 @@ impl RenderOnce for Menu {
                 }
             })
             .refine_style(&style)
-            .children(children);
+            .child(rows);
 
         container = render::input_handlers(container, &tree, &levels, &typeahead, &ime_sink);
 
@@ -1117,7 +1210,7 @@ impl RenderOnce for Menu {
         {
             let anchor = state.open[0].parent.clone();
             let child_path = vec![anchor.clone()];
-            let panel = build_submenu_panel(*child, 1, child_path, &state, &ctx);
+            let panel = build_submenu_panel(*child, 1, child_path, &state, &ctx, window, cx);
             container = container.child(SubmenuPositioner {
                 panel,
                 row_bounds: root_row_bounds.clone(),
@@ -1347,6 +1440,8 @@ fn build_submenu_panel(
     path: Vec<ElementId>,
     state: &MenuState,
     ctx: &PanelContext,
+    window: &mut Window,
+    cx: &mut App,
 ) -> AnyElement {
     let Menu {
         id: menu_id,
@@ -1354,17 +1449,45 @@ fn build_submenu_panel(
         style,
         ..
     } = menu;
-    let (rows, child, row_bounds) = build_rows(entries, depth, &path, state, ctx);
+    let (rows, child, row_bounds, active_index) = build_rows(entries, depth, &path, state, ctx);
     let surface = menu::surface(&ctx.theme);
     // Identity follows the full path, so switching to a sibling branch gets a
     // fresh panel even if both submenus use the same `Menu` id and row ids.
-    let panel_id = ElementId::from(SharedString::from(format!(
+    let panel_key = format!(
         "{}-submenu-{}-{:?}-{:?}",
         ctx.root_name, depth, path, menu_id
-    )));
+    );
+    let panel_id = ElementId::from(SharedString::from(panel_key.clone()));
+    let rows_id = ElementId::from(SharedString::from(format!("{panel_key}-rows")));
+
+    // Each level scrolls on its own, keyed by the full path so a sibling branch
+    // opens at its own top rather than inheriting the previous branch's offset.
+    let scroll = window.use_keyed_state(
+        SharedString::from(format!(
+            "menu-scroll-{}-{}-{:?}",
+            ctx.root_name, depth, path
+        )),
+        cx,
+        |_, _| PanelScroll::default(),
+    );
+    let scroll_handle = {
+        let active = level_active_id(state, depth);
+        scroll.update(cx, |scroll, _| scroll.follow(active.as_ref(), active_index));
+        scroll.read(cx).handle.clone()
+    };
 
     // Each panel owns its rows and its own `role=menu`, but only the root panel
     // is a focus scope: the keyboard model stays on the root container.
+    let scrollable_rows = div()
+        .id(rows_id)
+        .flex()
+        .flex_col()
+        .gap(px(2.))
+        .max_h((ctx.max_height - surface.padding - surface.padding).max(px(0.)))
+        .overflow_y_scroll()
+        .track_scroll(&scroll_handle)
+        .children(rows);
+
     let mut container = div()
         .id(panel_id)
         // Painting above the page is not enough to stop a press from reaching
@@ -1372,9 +1495,9 @@ fn build_submenu_panel(
         .occlude()
         .flex()
         .flex_col()
-        .gap(px(2.))
         .p(surface.padding)
         .min_w(surface.min_width)
+        .max_h(ctx.max_height)
         .rounded(surface.radius)
         .bg(surface.background)
         .text_color(surface.foreground)
@@ -1400,7 +1523,7 @@ fn build_submenu_panel(
             }
         })
         .refine_style(&style)
-        .children(rows);
+        .child(scrollable_rows);
 
     if let Some(child) = child
         && depth < state.open.len()
@@ -1408,7 +1531,7 @@ fn build_submenu_panel(
         let anchor = state.open[depth].parent.clone();
         let mut child_path = path.clone();
         child_path.push(anchor.clone());
-        let panel = build_submenu_panel(*child, depth + 1, child_path, state, ctx);
+        let panel = build_submenu_panel(*child, depth + 1, child_path, state, ctx, window, cx);
         container = container.child(SubmenuPositioner {
             panel,
             row_bounds,
@@ -1622,6 +1745,9 @@ impl RenderOnce for MenuDropdown {
 pub struct MenuItem {
     id: ElementId,
     label: SharedString,
+    /// Second line under the label. Fluent uses it for a short explanation or
+    /// the shortcut-equivalent description; the row grows to fit it.
+    secondary: Option<SharedString>,
     icon: Option<FluentIcon>,
     /// `Some(checked)` renders a check mark in the leading slot.
     check: Option<bool>,
@@ -1652,6 +1778,7 @@ impl MenuItem {
         Self {
             id: id.into(),
             label: label.into(),
+            secondary: None,
             icon: None,
             check: None,
             radio: None,
@@ -1665,6 +1792,12 @@ impl MenuItem {
             on_select: None,
             style: StyleRefinement::default(),
         }
+    }
+
+    /// A muted second line under the label.
+    pub fn secondary(mut self, text: impl Into<SharedString>) -> Self {
+        self.secondary = Some(text.into());
+        self
     }
 
     pub fn disabled(mut self, disabled: bool) -> Self {
@@ -1819,6 +1952,7 @@ impl RenderOnce for MenuItem {
         };
 
         let label = self.label.clone();
+        let secondary = self.secondary.clone();
         let leading = self.leading_slot(&spec, foreground);
         // One row can look current, and this is the only input to that decision.
         // An expanded parent row uses a separate path-hint fill, so the deepest
@@ -1832,7 +1966,7 @@ impl RenderOnce for MenuItem {
             .id(self.id)
             .flex()
             .items_center()
-            .h(spec.height)
+            .h(menu::row_height(&spec, secondary.is_some()))
             .px(spec.padding_x)
             .gap(spec.gap)
             .rounded(spec.radius)
@@ -1849,7 +1983,30 @@ impl RenderOnce for MenuItem {
                 el.aria_active_descendant()
             })
             .child(leading)
-            .child(label)
+            .child(match secondary {
+                // Two lines need a column: the label keeps the row's own text
+                // metrics and the secondary line takes the muted 12px style.
+                Some(secondary) => div()
+                    .flex()
+                    .flex_col()
+                    .flex_1()
+                    .min_w(px(0.))
+                    .child(
+                        div()
+                            .text_size(spec.font_size)
+                            .line_height(spec.line_height)
+                            .child(label),
+                    )
+                    .child(
+                        div()
+                            .text_size(spec.secondary_font_size)
+                            .line_height(spec.secondary_line_height)
+                            .text_color(spec.secondary_foreground)
+                            .child(secondary),
+                    )
+                    .into_any_element(),
+                None => div().flex_1().child(label).into_any_element(),
+            })
             .refine_style(&self.style);
 
         // A row that opens a submenu ends with a chevron, pushed to the trailing
@@ -1939,11 +2096,292 @@ impl RenderOnce for MenuHeader {
             .flex()
             .items_center()
             .h(spec.height)
-            .px(spec.padding_x)
+            // The heading starts where the labels start, not at the row's own
+            // inset: a heading that hangs left of every label reads as a
+            // different column.
+            .pl(spec.padding_x + spec.indicator_slot + spec.gap)
+            .pr(spec.padding_x)
             .text_size(px(12.))
             .font_weight(fluent_core::gpui_compat::FontWeight::SEMIBOLD)
             .text_color(theme.tokens().color.neutral_foreground_3)
             .child(self.text)
+    }
+}
+
+/// A labelled run of rows.
+///
+/// Fluent puts a small heading above related rows and keeps them in one panel.
+/// [`Menu::group`] flattens the group into that heading plus its rows, so the
+/// panel has a single list: arrow keys, typeahead and scrolling all address the
+/// same items with or without a heading above them.
+#[derive(Default)]
+pub struct MenuGroup {
+    label: Option<SharedString>,
+    items: Vec<MenuItem>,
+}
+
+impl MenuGroup {
+    /// A group introduced by `label`.
+    pub fn new(label: impl Into<SharedString>) -> Self {
+        Self {
+            label: Some(label.into()),
+            items: Vec::new(),
+        }
+    }
+
+    /// A group with no heading, for rows that need grouping but no title.
+    pub fn unlabelled() -> Self {
+        Self::default()
+    }
+
+    pub fn item(mut self, item: impl Into<MenuItem>) -> Self {
+        self.items.push(item.into());
+        self
+    }
+}
+
+/// A menu row that toggles an option: a check mark while it is on.
+///
+/// Fluent separates this from a plain action because the row keeps the menu
+/// open and reports state. [`MenuItem::checked`] paints the same row; this type
+/// exists so the call site says what the row is.
+pub struct MenuItemCheckbox {
+    item: MenuItem,
+    checked: bool,
+}
+
+impl MenuItemCheckbox {
+    pub fn new(id: impl Into<ElementId>, label: impl Into<SharedString>) -> Self {
+        Self {
+            item: MenuItem::new(id, label),
+            checked: false,
+        }
+    }
+
+    pub fn checked(mut self, checked: bool) -> Self {
+        self.checked = checked;
+        self
+    }
+
+    pub fn disabled(mut self, disabled: bool) -> Self {
+        self.item = self.item.disabled(disabled);
+        self
+    }
+
+    pub fn on_click(mut self, handler: impl Fn(&mut Window, &mut App) + 'static) -> Self {
+        self.item = self.item.on_click(handler);
+        self
+    }
+}
+
+impl From<MenuItemCheckbox> for MenuItem {
+    fn from(value: MenuItemCheckbox) -> Self {
+        value.item.checked(value.checked)
+    }
+}
+
+/// A menu row that picks one of a set: a dot while it is the chosen one.
+pub struct MenuItemRadio {
+    item: MenuItem,
+    selected: bool,
+}
+
+impl MenuItemRadio {
+    pub fn new(id: impl Into<ElementId>, label: impl Into<SharedString>) -> Self {
+        Self {
+            item: MenuItem::new(id, label),
+            selected: false,
+        }
+    }
+
+    pub fn selected(mut self, selected: bool) -> Self {
+        self.selected = selected;
+        self
+    }
+
+    pub fn disabled(mut self, disabled: bool) -> Self {
+        self.item = self.item.disabled(disabled);
+        self
+    }
+
+    pub fn on_click(mut self, handler: impl Fn(&mut Window, &mut App) + 'static) -> Self {
+        self.item = self.item.on_click(handler);
+        self
+    }
+}
+
+impl From<MenuItemRadio> for MenuItem {
+    fn from(value: MenuItemRadio) -> Self {
+        value.item.selected(value.selected)
+    }
+}
+
+/// A button that opens a menu: Fluent's `MenuTrigger`.
+///
+/// The trigger is a regular [`crate::Button`] so pointer, Enter and Space all
+/// arrive as the button activation this library already handles. The menu is
+/// then a controlled overlay: this element owns the open state, so a click, a
+/// key press and the menu's own Escape request write to one place instead of
+/// two owners racing on the same frame.
+///
+/// Fluent also reports `aria-haspopup` and `aria-expanded` on the trigger. This
+/// GPUI version has neither: a base button exposes only its role and label. The
+/// role is set to `MenuButton`, which is what tells assistive technology that
+/// activating it opens a menu; the expanded state stays unreported and is
+/// recorded in `docs/a11y-checklist.md`.
+#[derive(IntoElement)]
+pub struct MenuTrigger {
+    id: ElementId,
+    label: SharedString,
+    icon: Option<FluentIcon>,
+    menu: Menu,
+    open: Option<bool>,
+    default_open: bool,
+    focus: Option<gpui::FocusHandle>,
+    on_open_change: Option<OpenChangeHandler>,
+    a11y_label: Option<SharedString>,
+}
+
+impl MenuTrigger {
+    pub fn new(id: impl Into<ElementId>, label: impl Into<SharedString>, menu: Menu) -> Self {
+        Self {
+            id: id.into(),
+            label: label.into(),
+            icon: None,
+            menu,
+            open: None,
+            default_open: false,
+            focus: None,
+            on_open_change: None,
+            a11y_label: None,
+        }
+    }
+
+    pub fn icon(mut self, icon: FluentIcon) -> Self {
+        self.icon = Some(icon);
+        self
+    }
+
+    /// Controlled open state.
+    pub fn open(mut self, open: bool) -> Self {
+        self.open = Some(open);
+        self
+    }
+
+    pub fn default_open(mut self, open: bool) -> Self {
+        self.default_open = open;
+        self
+    }
+
+    /// Accessible name for the trigger, when the visible label is not enough.
+    pub fn accessibility_label(mut self, label: impl Into<SharedString>) -> Self {
+        self.a11y_label = Some(label.into());
+        self
+    }
+
+    /// Focus handle for the menu's keyboard navigation.
+    pub fn track_focus(mut self, focus: &gpui::FocusHandle) -> Self {
+        self.focus = Some(focus.clone());
+        self
+    }
+
+    pub fn on_open_change(
+        mut self,
+        handler: impl Fn(bool, &mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.on_open_change = Some(std::rc::Rc::new(handler));
+        self
+    }
+}
+
+impl RenderOnce for MenuTrigger {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+        let store = window.use_keyed_state(
+            SharedString::from(format!("menu-trigger-open-{}", self.id)),
+            cx,
+            |_, _| self.default_open,
+        );
+        let open = self.open.unwrap_or_else(|| *store.read(cx));
+        let controlled = self.open.is_some();
+        // The menu needs a focus handle of its own: the arrows, Enter and Escape
+        // are bound to the panel, and a caller that just drops a trigger on the
+        // page has not handed it one. A supplied handle still wins, so an
+        // application can keep the keyboard in its own focus scope.
+        let menu_focus = self.focus.clone().unwrap_or_else(|| {
+            window
+                .use_keyed_state(
+                    SharedString::from(format!("menu-trigger-menu-focus-{}", self.id)),
+                    cx,
+                    |_, cx| cx.focus_handle().tab_stop(true),
+                )
+                .read(cx)
+                .clone()
+        });
+        // The button's own handle, so closing the menu can put the keyboard back
+        // on the control that opened it.
+        let button_focus = window
+            .use_keyed_state(
+                SharedString::from(format!("menu-trigger-focus-{}", self.id)),
+                cx,
+                |_, cx| cx.focus_handle(),
+            )
+            .read(cx)
+            .clone();
+
+        let mut button = crate::Button::new(ElementId::from(SharedString::from(format!(
+            "{}-button",
+            self.id
+        ))))
+        .appearance(crate::ButtonAppearance::Subtle)
+        .track_focus(&button_focus)
+        .child(self.label.clone())
+        .on_click({
+            let store = store.clone();
+            let on_change = self.on_open_change.clone();
+            move |_, window, cx| {
+                let next = !*store.read(cx);
+                store.update(cx, |slot, _| *slot = next);
+                if let Some(handler) = on_change.as_ref() {
+                    handler(next, window, cx);
+                }
+                window.refresh();
+            }
+        });
+
+        if let Some(icon) = self.icon {
+            button = button.icon(icon);
+        }
+        if let Some(label) = self.a11y_label {
+            button = button.accessibility_label(label);
+        }
+
+        // Close requests the menu makes (Escape, an outside press) arrive through
+        // the popover, which reports them even when controlled. They land in the
+        // same store, so the button's next activation opens rather than toggling a
+        // value that had already changed underneath it.
+        let mut dropdown = MenuDropdown::new(self.id, button, self.menu)
+            .open(open)
+            .on_open_change({
+                let store = store.clone();
+                let on_change = self.on_open_change.clone();
+                let button_focus = button_focus.clone();
+                move |next, window, cx| {
+                    store.update(cx, |slot, _| *slot = next);
+                    if let Some(handler) = on_change.as_ref() {
+                        handler(next, window, cx);
+                    }
+                    // Whatever closed the menu — Escape, an outside press, a row
+                    // being chosen — the keyboard belongs on the button again,
+                    // not on a panel that no longer exists.
+                    if !next && !controlled {
+                        button_focus.focus(window, cx);
+                    }
+                }
+            });
+
+        dropdown = dropdown.track_focus(&menu_focus);
+
+        dropdown
     }
 }
 
@@ -1961,6 +2399,12 @@ mod cjk_consumer_tests;
 
 #[cfg(test)]
 mod keyboard_tests;
+
+#[cfg(test)]
+mod family_tests;
+
+#[cfg(test)]
+mod scroll_tests;
 
 #[cfg(test)]
 mod input_mode_tests;

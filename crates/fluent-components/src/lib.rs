@@ -93,7 +93,10 @@ pub use fluent_core::spec::textarea::TextareaAppearance;
 pub use fluent_icons::{FluentIcon, IconStyle};
 pub use icon::Icon;
 pub use input::TextInput;
-pub use menu::{Menu, MenuDropdown, MenuHeader, MenuItem, MenuSeparator};
+pub use menu::{
+    Menu, MenuDropdown, MenuGroup, MenuHeader, MenuItem, MenuItemCheckbox, MenuItemRadio,
+    MenuSeparator, MenuTrigger,
+};
 pub use misc::{Divider, Link};
 pub use popover::Popover;
 pub use root::FluentRoot;

@@ -4,8 +4,8 @@
 [crates/fluent-components/src/menu.rs](../../crates/fluent-components/src/menu.rs)；
 浮层定位与外部点击的共享部分见 [overlays.md](overlays.md)，焦点模型见 [focus.md](focus.md)。
 
-> 状态：**子菜单的逐层导航、点击归属与定位已实现**。下列行为有 GPUI 行为测试与绘制断言；
-> 真实窗口中的命中、缩放与长内容仍未人工验证（见文末“边界”）。
+> 状态：**子菜单的逐层导航、点击归属与定位，以及菜单族（触发器、分组、两行行高、高度上限与滚动）已实现**。
+> 下列行为有 GPUI 行为测试与绘制断言；真实窗口中的命中、缩放与长内容仍未人工验证（见文末“边界”）。
 
 根菜单的 render 只组合各阶段；[render 辅助模块](../../crates/fluent-components/src/menu/render.rs)分别处理会话归一化与到期悬停、键盘/IME 接线、显现动画。拆分不改变状态归属、回调或 prepaint 时序。
 
@@ -201,11 +201,58 @@ cargo test -p fluent-components --lib popover:: --locked
 cargo test -p fluent-core --lib spec::menu --locked
 ```
 
+菜单族的定向破坏矩阵、命令结果与未验证范围见
+[菜单族验证记录](../validation/menu-family-2026-11-15.md)。
 第一轮六项缺陷与第二轮三个边界问题的复现、定向破坏、命令结果与未验证范围见
 [第一轮验证记录](../validation/menu-submenu-six-fixes-2026-11-05.md)与
 [第二轮验证记录](../validation/menu-submenu-second-pass-2026-11-05.md)。
 
-## 7. 边界与未验证项
+## 7. 菜单族：触发器、分组、行样式与高度
+
+### 触发按钮
+
+`MenuTrigger::new(id, label, menu)` 是 Fluent 的 `MenuButton`：
+
+- 非受控时它用 window keyed state（`menu-trigger-open-{id}`）自己拥有开合状态，`default_open` 只作为初值；
+  传了 `open` 就是受控，显示完全由调用方决定，`on_open_change` 只上报请求。
+- 它内部是一个 `ButtonAppearance::Subtle` 的 `Button`，键盘 Enter/Space 由 gpui-base 的按钮激活路径处理
+  （按键抬起时上报），因此鼠标与键盘走同一条打开路径。
+- **菜单必须有自己的焦点句柄**：方向键、Enter、Esc 绑在面板上。调用方传 `track_focus` 就用调用方的；
+  没传则按触发器 id 建一个 `tab_stop(true)` 的句柄（`menu-trigger-menu-focus-{id}`），交给 `MenuDropdown` 跟踪。
+  “只把触发器丢到页面上”的用法也必须能用键盘操作，这一条由行为测试覆盖。
+- 关闭（Esc、外部按下、选中行）把键盘送回触发按钮，因此随后按 Enter 能重新打开；
+  受控宿主不接受关闭请求时不移动焦点。
+
+### 分组
+
+`Menu::group(MenuGroup)` 在构建期就把组展开成 `Entry::Header` + 若干 `Entry::Item`：
+
+- 组标题不是键盘停点，也不是滚动索引里的一个“行”，Down 直接落到组的第一个 item；
+- 扁平化的理由是元素索引就是滚动索引（见下文），并且键盘只走一条列表。
+
+### 行样式
+
+- `MenuItem::secondary(...)` 给一行加第二行说明文字：行高从 32 变 48（20 标签行 + 16 说明行 + 12 垂直留白），
+  由 `spec::menu::row_height(spec, has_secondary)` 决定，组件层不写魔数；说明行 12px/16px、`neutral_foreground_2`。
+- `MenuItemCheckbox` / `MenuItemRadio` 是**类型包装**，渲染与 `MenuItem::checked` / `MenuItem::selected` 相同：
+  它们存在是为了让调用点说明这一行是勾选项还是单选项，而不改变行本身的行为。
+- 没有图标也没有勾选的行保留 20px 导引槽，`MenuHeader` 用 `padding_x + indicator_slot + gap` 左对齐，
+  因此标题与行标签左边缘同一条线，有没有图标都一样。
+
+### 高度上限与滚动
+
+- `spec::menu::max_height(viewport_height, viewport_margin)` = `(视口高 - 2×边距).max(0)`；
+  面板把高度上限落在视口内，窗口变矮时先少显示行，而不是把面板顶出屏幕。
+- **只有行区域滚动，面板本身不滚动**。面板高度上限先减去上下内边距，得到的值是行容器的
+  `max_h`，行容器才带 `overflow_y_scroll()` 与 `track_scroll(&ScrollHandle)`。
+- 这条边界是测出来的：把滚动放在整块面板上时，作为面板子元素、定位到面板之外的子菜单面板
+  会被滚动容器裁掉，绘制与命中一起消失（`submenu_regression_tests` 11 条立即失败）。
+- 滚动跟随当前行，但**只在当前行变化时**调用 `scroll_to_item(index)`（`PanelScroll::follow`）：
+  每帧重申会让用户自己用滚轮滚到的位置被拽回去。
+- 每一层各自持有滚动句柄：根层用 `menu-scroll-{menu_id}`，第 N 层用 `menu-scroll-{root}-{depth}-{path:?}`，
+  所以换分支不会继承上一个分支的偏移。
+
+## 8. 边界与未验证项
 
 - **真实原生窗口**中的子面板命中、跨面板移动、窗口边缘翻转与逐层关闭尚未人工截图验证；
   自动测试直接派发平台事件并检查场景 quad，不覆盖 GPU 字体、DPI 与原生事件顺序。
@@ -215,4 +262,8 @@ cargo test -p fluent-core --lib spec::menu --locked
   当前按小规模菜单设计。
 - `Popover` 的 `InteriorRegions` 是 crate 内部接线，不是公开 API；外部自定义内容若也要在面板外
   绘制可点击区域，需要另行设计公开能力。
-- 长内容、滚动容器内的子菜单与多窗口隔离不在本轮验证范围。
+- 菜单自身滚动有行为测试与绘制断言，但**放在页面滚动容器里**的菜单、滚轮惯性、
+  触控板手势与滚动条外观尚未验证；`overflow_y_scroll` 只给了纵向，横向长行不截断也不换行。
+- 本版 accesskit 没有 `MenuButton` 角色，`div` 也没有 `aria_haspopup`：触发按钮只能发布普通按钮角色与标签，
+  “弹出菜单、是否展开”这两个状态对屏幕阅读器不可见（已记入 [无障碍清单](../a11y-checklist.md)）。
+- 触发器在工具栏/标题栏里与拖拽区域的命中关系、按住 Space 的重复激活、以及触摸板上的打开行为未验证。
