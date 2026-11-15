@@ -33,6 +33,14 @@ type TriggerBounds = Rc<Cell<Option<Bounds<Pixels>>>>;
 /// that depth has been painted and are rebuilt each render.
 pub(crate) type InteriorRegions = Rc<RefCell<Vec<Option<Bounds<Pixels>>>>>;
 
+/// Decides whether an outside press should be ignored instead of dismissing.
+///
+/// A surface that re-anchors on its own right press must not be closed by the
+/// dismissal that same press would otherwise trigger. Callers that install
+/// nothing keep the plain "any press outside dismisses" behaviour. The window
+/// lets a filter query the actual hitbox instead of guessing from a rectangle.
+pub type OutsidePressFilter = Rc<dyn Fn(&gpui::MouseDownEvent, &Window) -> bool>;
+
 /// Direction requested by a Tab close. `Dismiss` carries no direction, so the
 /// menu emits a dedicated action and the popover consumes it once, after the
 /// panel has left the frame.
@@ -197,6 +205,7 @@ pub struct Popover {
     /// Extra window-space regions owned by the content but part of this floating
     /// surface. Used only for the outside-press test, never for placement.
     interior: Option<InteriorRegions>,
+    outside_press: Option<OutsidePressFilter>,
     style: StyleRefinement,
 }
 
@@ -214,6 +223,7 @@ impl Popover {
             restore_focus: None,
             anchor_point: None,
             interior: None,
+            outside_press: None,
             style: StyleRefinement::default(),
         }
     }
@@ -237,6 +247,18 @@ impl Popover {
 
     pub fn content(mut self, content: impl IntoElement) -> Self {
         self.content = Some(content.into_any_element());
+        self
+    }
+
+    /// Ignore an outside press that this returns true for.
+    /// The filter receives the event and window to query the actual hitbox.
+    ///
+    /// A surface that re-anchors on the press it received inside its own
+    /// attached area needs this: the dismissal runs before the press reaches
+    /// the area, so without it the panel would close and reopen, reporting
+    /// `false` then `true` for what the user sees as one move.
+    pub fn ignore_outside_press(mut self, filter: OutsidePressFilter) -> Self {
+        self.outside_press = Some(filter);
         self
     }
 
@@ -515,6 +537,7 @@ impl RenderOnce for Popover {
                     let close_bounds = close_bounds.clone();
                     let close_trigger = trigger_bounds.clone();
                     let interior = interior.clone();
+                    let ignore = self.outside_press.clone();
                     panel = panel.on_mouse_down_out(move |event, window, cx| {
                         // Content can extend beyond the panel's own hitbox (a
                         // menu submenu does). If the press landed on one of the
@@ -528,6 +551,11 @@ impl RenderOnce for Popover {
                                 .any(|bounds| bounds.contains(&event.position))
                         });
                         if inside_content {
+                            return;
+                        }
+                        // A surface that re-anchors on its own right press asks
+                        // for that press to read as a move, not a dismissal.
+                        if ignore.as_ref().is_some_and(|filter| filter(event, window)) {
                             return;
                         }
                         // A press that lands on the trigger belongs to the trigger's

@@ -85,3 +85,129 @@ cargo check -p fluent-gallery --locked                      -> exit 0
 
 冒烟只证明图库能构建并启动到首帧，不证明右键在真实窗口里的命中与定位；这一项仍列在"未验证"。
 
+## 审核修复（第二次）：受控状态与重定位回调
+
+被测版本：`5633a2e` + 本次未提交改动。基线：`cargo test -p fluent-components --lib --locked` 为 250 项通过。
+
+| 问题 | 根因 | 修改 |
+|---|---|---|
+| 页面拒绝首次打开后，再次右键不再上报 | 区域层用 `*open_store.read(cx)` 判断"是否已打开"；受控时 store 只是上一次请求的镜像，拒绝后它仍为 `true` | 改成 `self.open.unwrap_or_else(|| *open_store.read(cx))`：受控读属性，未受控读内部状态 |
+| 页面主动关闭后无法重新打开 | 同上，store 停在 `true` | 同上 |
+| 区域内再次右键的回调是 `[true, false, true]` | `Popover` 的外部按下判据在**捕获阶段**先关闭，区域层的右键在**冒泡阶段**后打开 | `Popover` 新增公开 builder `ignore_outside_press(filter)`；`ContextMenu` 用"右键 + 落在附着区域边界内"作为过滤器，同一次按下不再产生关闭回调，只更新锚点 |
+
+区域边界由挂载层在 `on_children_prepainted` 里取第 0 个子元素（区域层）的窗口边界，每帧刷新。过滤器只影响关闭判据：区域内、面板外的**左键**仍关闭，区域外的按下仍关闭，面板与子菜单内的交互不受影响；不安装过滤器时其他调用方的行为不变。
+
+`on_children_prepainted` 是 `Div` 的固有方法，必须在 `.id()` 之前调用——`.id()` 会把类型转成 `Stateful`，之后调用会报 `E0599`。
+
+### 新增测试（5 条）
+
+| 测试 | 断言 |
+|---|---|
+| `a_rejected_request_is_asked_again_on_the_next_press` | 拒绝后再右键得到 `[true, true]`，菜单始终关闭 |
+| `a_menu_the_page_closed_can_be_asked_for_again` | 页面关闭后右键重新请求并真正打开，回调 `[true, true]` |
+| `a_second_press_moves_the_menu_without_reporting_a_close` | 区域内重定位只上报 `[true]`，面板原点移到第二个按下点 |
+| `a_controlled_move_reports_only_the_opening` | 受控重定位同样不产生多余的 `false`/`true` |
+| `a_left_press_outside_the_attached_area_still_closes` | 区域外左键仍关闭并只上报一次 `false` |
+
+### 定向破坏
+
+| 破坏 | 失败测试 | 失败信息（摘录） |
+|---|---|---|
+| 区域层改回读内部状态 | `a_rejected_request_is_asked_again_on_the_next_press` / `a_menu_the_page_closed_can_be_asked_for_again` | `left: [true]`，缺第二次请求 |
+| 过滤器恒为假 | `a_second_press_moves_the_menu_without_reporting_a_close` / `a_controlled_move_reports_only_the_opening` | `left: [true, false, true]` |
+
+### 本轮命令结果
+
+```text
+cargo test -p fluent-components --lib context_menu --locked -> 13 passed
+cargo test -p fluent-components --lib --locked              -> 255 passed
+cargo test --workspace --locked                             -> exit 0，414 passed / 1 ignored
+cargo doc --workspace --no-deps --locked                    -> exit 0
+FLUENT_GALLERY_SMOKE=1 cargo run -p fluent-gallery --locked -> exit 0
+cargo fmt --all --check                                     -> exit 0
+cargo clippy --workspace --all-targets --locked -- -D warnings -> exit 0
+```
+
+未验证项与上一节相同；新增的"重定位"路径同样只在测试窗口里验证，没有在原生窗口里用真实鼠标右键确认。
+
+## 审核修复（第三次）：附着区域的可见范围
+
+被测版本：`5633a2e` + 前两轮未提交改动 + 本轮改动。基线：`cargo test -p fluent-components --lib context_menu --locked` 为 13 项通过。
+
+| 问题 | 根因 | 修改 |
+|---|---|---|
+| 被祖先裁剪掉的附着区域仍算“可重定位区域”，区域外右键关不掉菜单 | 过滤器用 `on_children_prepainted` 记下的**布局矩形**判断“是否在附着区域内”。祖先 `overflow_hidden` 或滚动容器裁掉的那一段，区域层收不到按下，过滤器却跳过关闭，于是既没关闭也没重定位 | 记录时与 `window.content_mask().bounds` 相交；命中判断用的正是这层裁剪，油漆子元素时它已在栈上，因此每帧拿到的就是可见范围。交集为空则整个区域不忽略任何按下 |
+
+过滤器只在“右键 + 落在**可见**附着区域内”时为真；被裁掉的部分和区域外一样按外部按下处理。
+
+### 新增测试（4 条，`crates/fluent-components/src/context_menu/tests.rs`）
+
+夹具新增 `Clip::{None, Hidden, Scrolled}`：宿主 300×160 放进一个 300×80 的容器，`Hidden` 用 `overflow_hidden`，`Scrolled` 用 `overflow_y_scroll` + `ScrollHandle`（滚动用真实的 `PlatformInput::Scroll` 派发）。可见范围是 y 56..136，宿主布局矩形到 y 216。
+
+| 测试 | 断言 |
+|---|---|
+| `a_press_in_the_clipped_away_part_of_the_region_closes_the_menu` | 在 (260,180)（布局矩形内、裁剪外）右键关闭菜单，回调 `[true, false]` |
+| `a_press_in_the_visible_part_of_a_clipped_region_moves_the_menu` | 受控模式下在 (250,120) 右键只移动面板，回调 `[true]` |
+| `a_scrolled_clip_drops_the_part_of_the_region_that_scrolled_away` | 打开后滚动 120px，(260,130) 右键关闭，回调 `[true, false]` |
+| `a_visible_press_after_a_scroll_still_moves_the_menu` | 滚动后 (250,70) 仍在区域上，右键只移动，回调 `[true]` |
+
+### 定向破坏
+
+| 破坏 | 结果 |
+|---|---|
+| 记录时不做裁剪（回到布局矩形） | `a_press_in_the_clipped_away_part_of_the_region_closes_the_menu` 失败 |
+| 边界只在第一次写入、之后不刷新 | `a_scrolled_clip_drops_the_part_of_the_region_that_scrolled_away` 失败 |
+
+另外两条（可见部分移动、滚动后可见部分移动）在两种破坏下都通过，它们是防回归的守卫，不承担判别职责。
+
+### 本轮命令结果
+
+```text
+cargo test -p fluent-components --lib context_menu --locked -> 17 passed
+cargo test -p fluent-components --lib --locked              -> 259 passed（审核前 255）
+cargo fmt --all --check                                     -> exit 0
+cargo clippy --workspace --all-targets --locked -- -D warnings -> exit 0
+```
+
+未验证：原生窗口中真实鼠标与真实滚动条的裁剪命中；高 DPI 下 `content_mask` 与布局矩形的取整差异；嵌套滚动容器（测试只覆盖一层裁剪）。
+
+## 审核修复（第四次）：兄弟遮挡与真实命中
+
+### 问题与结果
+
+- 被测版本：`5633a2e848bc7da914fd04705b2bc3f1cc901c34` + 前三轮未提交修复 + 本轮改动；未提交。环境：Windows / AMD64，`rustc 1.98.0 (88d9e12ae 2026-08-18)`、`cargo 1.98.0 (797e8a9bc 2026-08-05)`。
+- 原始路径：在未遮挡位置打开菜单，再在面板外、附着区域内但被上层 `occlude` 兄弟挡住的位置右键。旧过滤器只看布局矩形与裁剪交集，跳过关闭；区域处理器却收不到事件，菜单既不关闭也不移动。
+- 修改后：仅在右键实际命中附着区域时跳过关闭。被兄弟挡住的位置右键会关闭菜单并上报一次 `false`；移除遮挡后，同一点恢复重定位，且不多报关闭/打开回调。
+- `ContextRegion` 委托区域 `Stateful<Div>` 的元素 ID、布局、预绘制及绘制，在预绘制时发布该区域原有的 `Hitbox`。关闭过滤器和区域鼠标处理器使用同一个 `hitbox.is_hovered(window)` 判据，直接遵循 GPUI 对裁剪、滚动及兄弟遮挡的命中结果；每次渲染重新发布，不保留旧帧几何。
+- `Popover::ignore_outside_press` 的过滤器现在接收事件和 `&Window`；仓库内唯一调用方为 `ContextMenu`，已同步。专题、接口注释和本地 T-044 验证入口已更新。README 的 ContextMenu 用法不变，无需修改；未改 GPUI vendor、定位 spec 或基线。
+
+### 行为回归
+
+`crates/fluent-components/src/context_menu/tests.rs` 新增两条真实 `PlatformInput` 回归，分别覆盖未受控与受控模式：
+
+| 测试 | 断言 |
+|---|---|
+| `a_right_press_on_an_occluding_sibling_closes_the_menu` | 在 (60,100) 打开后，(280,180) 被兄弟遮挡且位于面板外；右键关闭，回调 `[true, false]`。重开并移除遮挡后，同一点只移动，累计回调 `[true, false, true]` |
+| `a_right_press_on_an_occluding_sibling_closes_a_controlled_menu` | 页面接受开合请求的受控模式下执行同一路径，断言相同 |
+
+红灯证据：先在旧几何过滤器上加入这两种遮挡场景，两条均在“被遮挡位置的右键应关闭”断言失败（`a blocked region cannot receive a move, so the press must close`）。修复后全部 19 条 ContextMenu 测试通过，其中包含此前的受控拒绝/外部关闭、重定位回调、祖先裁剪和滚动回归。
+
+### 本轮命令结果
+
+| 命令 | 结果与证据 |
+|---|---|
+| `cargo test -p fluent-components --lib context_menu --locked` | 通过，19 passed / 0 failed |
+| `cargo fmt --all --check` | 通过，exit 0 |
+| `cargo clippy --workspace --all-targets --locked -- -D warnings` | 通过，exit 0 |
+| `cargo test --workspace --locked` | 通过，exit 0；包含全部组件回归；tooltip 的既有 doctest 为 ignored |
+| `cargo doc --workspace --no-deps --locked` | 通过，exit 0 |
+| `cargo deny check` | 通过，exit 0；有锁文件既存的 `warning[duplicate]`，本轮未改依赖。首次因沙箱内公告库锁文件只读而失败（`attempted to take an exclusive lock on a read-only path`），获准后以所需权限重跑原命令通过 |
+| `cargo run -p xtask --locked -- gen-tokens --check` | 通过，生成物 up to date |
+| `cargo run -p xtask --locked -- gen-icons --check` | 通过，生成物 up to date |
+| `FLUENT_GALLERY_SMOKE=1 cargo run -p fluent-gallery --locked` | 通过，exit 0；仅验证原生窗口启动和自动退出，不证明右键交互 |
+| `git diff --check` | 通过，exit 0 |
+
+### 证据边界
+
+以上交互来自 GPUI 测试窗口与模拟平台事件，未进行原生窗口真实鼠标/滚动条操作，也未新增截图或像素比对。高 DPI、多显示器、嵌套滚动及其他操作系统的交互仍未验证；Shift+F10 / Apps 键入口仍未接线。本轮结论不扩展到这些场景。
+

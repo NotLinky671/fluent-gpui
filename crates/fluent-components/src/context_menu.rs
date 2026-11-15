@@ -11,9 +11,81 @@ use fluent_core::gpui_compat::{
     SharedString, Styled, Window, div,
 };
 use gpui::prelude::FluentBuilder as _;
-use gpui::{MouseButton, MouseDownEvent};
-use std::cell::Cell;
+use gpui::{
+    Bounds, Div, Element, GlobalElementId, Hitbox, InspectorElementId, LayoutId, MouseButton,
+    MouseDownEvent, Pixels, Stateful,
+};
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
+
+/// Publishes the very hitbox used by the region's mouse listener. Delegating
+/// layout and paint to the div preserves its element identity and event order;
+/// the filter can then account for clipping, scrolling and occluding siblings.
+struct ContextRegion {
+    element: Stateful<Div>,
+    hitbox: Rc<RefCell<Option<Hitbox>>>,
+}
+
+impl IntoElement for ContextRegion {
+    type Element = Self;
+
+    fn into_element(self) -> Self {
+        self
+    }
+}
+
+impl Element for ContextRegion {
+    type RequestLayoutState = <Stateful<Div> as Element>::RequestLayoutState;
+    type PrepaintState = Option<Hitbox>;
+
+    fn id(&self) -> Option<ElementId> {
+        Element::id(&self.element)
+    }
+
+    fn source_location(&self) -> Option<&'static core::panic::Location<'static>> {
+        self.element.source_location()
+    }
+
+    fn request_layout(
+        &mut self,
+        id: Option<&GlobalElementId>,
+        inspector_id: Option<&InspectorElementId>,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> (LayoutId, Self::RequestLayoutState) {
+        self.element.request_layout(id, inspector_id, window, cx)
+    }
+
+    fn prepaint(
+        &mut self,
+        id: Option<&GlobalElementId>,
+        inspector_id: Option<&InspectorElementId>,
+        bounds: Bounds<Pixels>,
+        state: &mut Self::RequestLayoutState,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> Self::PrepaintState {
+        let hitbox = self
+            .element
+            .prepaint(id, inspector_id, bounds, state, window, cx);
+        *self.hitbox.borrow_mut() = hitbox.clone();
+        hitbox
+    }
+
+    fn paint(
+        &mut self,
+        id: Option<&GlobalElementId>,
+        inspector_id: Option<&InspectorElementId>,
+        bounds: Bounds<Pixels>,
+        state: &mut Self::RequestLayoutState,
+        hitbox: &mut Self::PrepaintState,
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        self.element
+            .paint(id, inspector_id, bounds, state, hitbox, window, cx);
+    }
+}
 
 /// A menu that opens at the pointer, over the region it was attached to.
 #[derive(IntoElement)]
@@ -107,6 +179,9 @@ impl RenderOnce for ContextMenu {
         // regions keeps a press there from counting as an outside press, which
         // is exactly what `MenuDropdown` does for the same reason.
         let interior = InteriorRegions::default();
+        // Shared by this frame's region and dismissal filter. No old geometry
+        // survives a repaint: prepaint publishes the current region hitbox.
+        let region_hitbox = Rc::new(RefCell::new(None::<Hitbox>));
         let menu = self
             .menu
             .track_focus(&panel_focus)
@@ -116,6 +191,10 @@ impl RenderOnce for ContextMenu {
             let pointer = pointer.clone();
             let open_store = open_store.clone();
             let handler = self.on_open_change.clone();
+            // In controlled mode the store only mirrors the last request: the
+            // value on screen comes from the `open` property, and a rejection
+            // would otherwise leave the region believing it is already open.
+            let controlled_open = self.open;
             div()
                 .id(ElementId::from(SharedString::from(format!(
                     "context-menu-region-{}",
@@ -137,7 +216,8 @@ impl RenderOnce for ContextMenu {
                         // the one above it.
                         cx.stop_propagation();
                         pointer.set(Some(event.position));
-                        if !*open_store.read(cx) {
+                        let current = controlled_open.unwrap_or_else(|| *open_store.read(cx));
+                        if !current {
                             open_store.update(cx, |slot, cx| {
                                 *slot = true;
                                 cx.notify();
@@ -163,6 +243,16 @@ impl RenderOnce for ContextMenu {
             .draw_panel_surface(false)
             .interior_regions(interior)
             .content(menu)
+            .ignore_outside_press({
+                let region_hitbox = region_hitbox.clone();
+                Rc::new(move |event: &MouseDownEvent, window: &Window| {
+                    event.button == MouseButton::Right
+                        && region_hitbox
+                            .borrow()
+                            .as_ref()
+                            .is_some_and(|hitbox| hitbox.is_hovered(window))
+                })
+            })
             .open(open)
             .track_focus(&panel_focus)
             .on_open_change(move |next, window, cx| {
@@ -179,12 +269,19 @@ impl RenderOnce for ContextMenu {
         // did nothing. The host must be a positioned container for the overlay
         // to stay scoped to it.
         div()
+            .id(ElementId::from(SharedString::from(format!(
+                "context-menu-mount-{}",
+                id
+            ))))
             .absolute()
             .top_0()
             .left_0()
             .right_0()
             .bottom_0()
-            .child(region)
+            .child(ContextRegion {
+                element: region,
+                hitbox: region_hitbox,
+            })
             .child(popover.render(window, cx))
     }
 }

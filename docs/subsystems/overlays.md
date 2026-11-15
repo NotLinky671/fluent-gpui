@@ -76,6 +76,7 @@ deferred positioner prepaint：读取同一共享值，结合面板尺寸和视�
 - 打开时构建全视口 `anchored` + `deferred` 背板，先加入背板，再加入 deferred 面板。背板只负责“面板外”的关闭请求。
 - **绘制在上方不等于鼠标命中遮挡。** 面板容器调用 `InteractiveElement::occlude`（`HitboxBehavior::BlockMouse`）阻断其下命中，因此面板上的点击不会落到下方控件。行为测试用一块垫底元素验证了这一点：移除 `occlude` 后“面板内点击不穿透”的两条测试会失败。
 - **面板外仍有属于同一表面的内容时，外部按下判据要扩展。** 外部按下原本只比较面板自身的 hitbox；`Menu` 的子面板会超出该矩形，所以 `Menu` 每帧发布子面板的窗口边界（`InteriorRegions`），`Popover` 在关闭前检查这些区域。落在任一已发布区域内视为内部，不请求关闭；未重新发布的旧区域不会保留。该机制只影响关闭判据，不改变定位或焦点。回归测试：`a_press_inside_a_published_content_region_keeps_the_panel_open`、`a_region_not_published_again_is_treated_as_outside`、`a_press_outside_panel_and_regions_still_requests_a_close`。这是 crate 内部接线（`interior_regions` 为 `pub(crate)`），不是通用公开 API。
+- **有些外部按下应该被读成“移动”而不是“关闭”。** `ignore_outside_press(filter)` 是公开 builder：过滤器接收 `MouseDownEvent` 和当前 `Window`，返回真时面板既不上报关闭也不改变状态；窗口参数供调用方查询真实命中结果。目前只有 `ContextMenu` 使用它——区域内的右键要在原地重锚，如果先关闭再收到冒泡阶段的打开请求，回调会变成 `[true, false, true]`。默认不安装过滤器，其他调用方的关闭语义保持不变；过滤器只影响关闭判据，不影响定位、焦点或内部区域判据（内部区域先判，仍在面板内的按下根本走不到过滤器）。
 - `Escape` 通过 `fluent_components::Dismiss` 关闭：`fluent_ui::init` 把它绑定到 `escape` 并限定在 `OVERLAY_KEY_CONTEXT`，Popover 在触发器包装层与面板上都设置该 context 并挂 `on_action`。**只有焦点位于浮层内时才会触发**，所以调用方必须通过 `track_focus` 提供面板焦点句柄；该句柄用于打开时的焦点移入、关闭归还与 Tab 陷阱，但**不**再挂到触发器包装层上（两者共用会让已关闭的陷阱继续匹配焦点）。菜单的 Tab/Shift+Tab 还通过 `DismissAndFocusNext` / `DismissAndFocusPrev` 携带方向，Popover 在关闭帧之后调用 `focus_next` / `focus_prev`，见[焦点专题](focus.md#浮层焦点交接)。
 - 关闭行为已有测试覆盖：外部按下上报 `false`；面板本体、面板内交互子元素上的按下不上报且不穿透；按下触发器只上报一次变化（触发器自身的切换与“点击外部”不会重复上报）；受控调用方忽略请求时保持打开。
 - **表面归属**：`Popover` 默认给面板画卡片（内边距 12、圆角、背景、阴影）。内容自带表面时必须用 `draw_panel_surface(false)` 关掉，否则会叠出第二张卡片并把内容内缩一层——`Menu` 就是自带表面的例子，`MenuDropdown` 已经这样接线。打开动画由 `Menu` 自己做：下拉打开时把「代号」加一，菜单按 `now - opened_at` 在 350ms 内把**不透明度**从 0 抬到 1（四分 ease-out），同时整体向下归位约 4px（帧间互相关测得，30fps 录屏，精度 ±1–2px），所以观感是从按钮底部往下落定；独立摆在页面里的菜单不播这个动画。
@@ -138,7 +139,13 @@ cargo test -p fluent-components --lib context_menu --locked`。
 
 区域层**不**作为 `Popover` 的触发器。`Popover` 的关闭逻辑里，落在触发器内的按下会跳过关闭以免和触发器的 toggle 重复；区域层就是整片可点击区域，交给它当触发器会让每次外部按下都被当成“按在触发器上”，菜单永远关不掉。
 
+**按键协议**。每次右键都要按屏幕上的状态判断要不要请求打开：受控时读 `open` 属性，未受控时读内部状态。只读内部状态会把"上一次请求"当成"当前是否打开"，于是页面拒绝首次请求后再右键不再上报，页面主动关闭后也无法重新打开（`a_rejected_request_is_asked_again_on_the_next_press`、`a_menu_the_page_closed_can_be_asked_for_again`；改回只读内部状态两条都失败，第一条的请求序列变成 `[true]`）。
+
+在附着区域内、面板外再次右键是**移动**，不是关闭再打开。`Popover` 的外部按下判据在捕获阶段先跑，区域处理在冒泡阶段后跑，所以只靠区域层会得到 `[true, false, true]`。`Popover::ignore_outside_press(filter)` 只在“右键且实际命中附着区域”时跳过关闭，随后由区域处理器更新锚点。`ContextRegion` 委托原区域 `Div` 的布局、预绘制和绘制，在 `prepaint` 发布该 `Div` 自己的 `Hitbox`；过滤器和区域鼠标处理器都用 `hitbox.is_hovered(window)` 判断，不额外创建命中区域。这样祖先裁剪、滚动和上层 `occlude` 兄弟元素都由 GPUI 同一套命中结果处理。仅用布局矩形与 `content_mask` 的交集仍会把被兄弟元素挡住的位置误当成可接收右键，导致既不关闭也不移动。每次渲染使用新的 hitbox 槽，因此移除遮挡或滚动后不会沿用旧帧范围。区域内、面板外的左键仍然关闭；右键落在被裁剪或遮挡的区域时也按外部按下关闭。
+
 焦点沿用 Popover 的交接：打开时面板拿走键盘，Escape 关闭且焦点仍在面板内时还给打开前的控件，点击别的控件关闭则不夺走它的焦点。
+
+`ContextRegion` 保留区域层的元素 ID 和鼠标事件顺序，只暴露其现有命中框；它不增加布局层、绘制层或独立的遮挡矩形。
 
 未验证：原生窗口里的右键事件到 `MouseDown` 的映射、系统级菜单键（Shift+F10 / Apps）唤起（尚未接线）、以及高 DPI 多显示器下的翻转观感。
 
@@ -176,6 +183,16 @@ cargo run -p fluent-gallery
 | `a_press_outside_the_panel_closes_the_menu` | 区域内、面板外的左键按下关闭菜单；把区域层当触发器后该测试失败 |
 | `a_controlled_right_click_still_opens_the_menu` / `a_right_click_inside_a_fixed_card_still_opens_the_menu` | 受控（页面决定开合）也能打开；挂在固定卡片上时整张卡片都能右键，改回 `relative().size_full()` 后压在上半部的那条失败 |
 | `a_second_right_click_moves_the_menu` | 第二次右键把面板移到新指针处，而不是再叠一层 |
+| `a_rejected_request_is_asked_again_on_the_next_press` | 页面拒绝打开后，第二次右键仍上报 `[true, true]` 且菜单保持关闭；改回读内部状态后只剩 `[true]` |
+| `a_menu_the_page_closed_can_be_asked_for_again` | 页面把受控 `open` 改回 `false` 后，右键能重新请求并真正打开，回调为 `[true, true]` |
+| `a_second_press_moves_the_menu_without_reporting_a_close` | 区域内、面板外再次右键只上报 `[true]`，面板原点跟着移动；去掉 `ignore_outside_press` 后变成 `[true, false, true]` |
+| `a_controlled_move_reports_only_the_opening` | 受控模式下的重定位同样不产生多余的 `false`/`true`，面板跟着第二个按下点走 |
+| `a_left_press_outside_the_attached_area_still_closes` | 附着区域之外的左键仍然关闭并只上报一次 `false` |
+| `a_press_in_the_clipped_away_part_of_the_region_closes_the_menu` | 宿主被 80px 高的 `overflow_hidden` 祖先裁到只剩上半部时，落在布局矩形内、可见范围外的右键关闭菜单并上报 `[true, false]`；第三轮修复曾验证仅用完整布局矩形时此测试失败 |
+| `a_press_in_the_visible_part_of_a_clipped_region_moves_the_menu` | 同一裁剪容器内、可见部分里的右键仍然只移动面板，受控模式回调保持 `[true]` |
+| `a_scrolled_clip_drops_the_part_of_the_region_that_scrolled_away` | 滚动 120px 后，落到滚动后区域之外的右键关闭菜单；第三轮修复曾验证几何边界只记录一次时此测试失败 |
+| `a_visible_press_after_a_scroll_still_moves_the_menu` | 滚动后仍落在区域上的右键只移动面板，不产生关闭回调 |
+| `a_right_press_on_an_occluding_sibling_closes_the_menu` / `a_right_press_on_an_occluding_sibling_closes_a_controlled_menu` | 未受控和受控模式下，上层 `occlude` 兄弟挡住区域时，右键关闭并仅上报 `[true, false]`；重开并移除遮挡后，同一点恢复重定位，累计回调为 `[true, false, true]`。旧几何过滤器在关闭断言失败 |
 
 [Tooltip 测试](../../crates/fluent-components/src/tooltip/tests.rs)只覆盖 service 归属：无 `FluentRoot` 时调用方拿到 `None`、根渲染后 service 可用、实体身份跨重绘稳定。定位、翻转、悬停时机与多窗口隔离不在其中。
 

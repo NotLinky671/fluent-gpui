@@ -13,10 +13,11 @@
 use super::*;
 use crate::menu::{Menu, MenuItem};
 use crate::root::FluentRoot;
+use gpui::StatefulInteractiveElement as _;
 use gpui::{
     AppContext, Bounds, Context, FocusHandle, InputEvent as _, KeyBinding, Keystroke, Modifiers,
-    MouseMoveEvent, Pixels, PlatformInput, Point, Render, TestAppContext, Window, WindowHandle,
-    point, px, size,
+    MouseMoveEvent, Pixels, PlatformInput, Point, Render, ScrollDelta, ScrollEvent, ScrollHandle,
+    TestAppContext, Window, WindowHandle, point, px, size,
 };
 use std::cell::RefCell;
 use std::time::Duration;
@@ -36,6 +37,23 @@ struct CtxView {
     /// The gallery attaches the menu to a fixed-size card inside a column,
     /// rather than to the column itself.
     boxed: bool,
+    /// A page that records the request and deliberately does not accept it, to
+    /// prove the next press asks again instead of trusting its own mirror.
+    refuse: bool,
+    /// How the host is clipped, if at all, by an ancestor.
+    clip: Clip,
+    scroll: ScrollHandle,
+    /// A sibling that blocks presses over part of the attached region.
+    occluded: bool,
+}
+
+/// The host is 160 px tall. `Hidden` shows the top 80 px of it; `Scrolled` puts
+/// the same host inside an 80 px scrolling list so the visible part can move.
+#[derive(Clone, Copy, PartialEq)]
+enum Clip {
+    None,
+    Hidden,
+    Scrolled,
 }
 
 impl Render for CtxView {
@@ -53,7 +71,9 @@ impl Render for CtxView {
         let on_change = move |next: bool, _: &mut Window, cx: &mut App| {
             log.borrow_mut().push(next);
             entity.update(cx, |view, cx| {
-                view.open = next;
+                if !(view.refuse && next) {
+                    view.open = next;
+                }
                 cx.notify();
             });
         };
@@ -73,13 +93,46 @@ impl Render for CtxView {
                 .child(div().size_full().child("Right click"))
                 .child(context)
                 .into_any_element()
-        } else {
+        } else if self.clip == Clip::None {
             div()
                 .relative()
                 .flex_1()
                 .w_full()
                 .child(context)
                 .into_any_element()
+        } else {
+            // Inside the clipping frame the column's flex height is gone, so
+            // the host states its own size instead of filling the column.
+            div()
+                .relative()
+                .w(px(300.))
+                .h(px(160.))
+                .child(context)
+                .into_any_element()
+        };
+
+        // The host sits at 20..320 by 56..216; when clipped, only the top
+        // 80 px of that (down to y = 136) can receive a press.
+        let frame = match self.clip {
+            Clip::None => host,
+            Clip::Hidden => div()
+                .id("context-clip")
+                .w(px(300.))
+                .h(px(80.))
+                .overflow_hidden()
+                .child(div().w(px(300.)).h(px(300.)).child(host))
+                .into_any_element(),
+            // Scrolling lives on `Stateful`, so `.id()` comes first here —
+            // the opposite of `on_children_prepainted`, which only exists on
+            // a plain `Div`.
+            Clip::Scrolled => div()
+                .w(px(300.))
+                .h(px(80.))
+                .id("context-clip")
+                .overflow_y_scroll()
+                .track_scroll(&self.scroll)
+                .child(div().w(px(300.)).h(px(300.)).child(host))
+                .into_any_element(),
         };
 
         FluentRoot::new().child(
@@ -97,7 +150,18 @@ impl Render for CtxView {
                         .h(px(28.))
                         .child("before"),
                 )
-                .child(host),
+                .child(frame)
+                .when(self.occluded, |el| {
+                    el.child(
+                        div()
+                            .absolute()
+                            .left(px(250.))
+                            .top(px(170.))
+                            .w(px(100.))
+                            .h(px(100.))
+                            .occlude(),
+                    )
+                }),
         )
     }
 }
@@ -142,6 +206,38 @@ fn open_with_flags(
     controlled: bool,
     boxed: bool,
 ) -> (WindowHandle<CtxView>, FocusHandle, Rc<RefCell<Vec<bool>>>) {
+    open_with_all(cx, controlled, boxed, false, Clip::None)
+}
+
+/// A menu attached to a host that an ancestor clips, and — with `scrolled` — a
+/// list whose visible window moves while the menu is open.
+fn open_clipped(
+    cx: &mut TestAppContext,
+    controlled: bool,
+    scrolled: bool,
+) -> (WindowHandle<CtxView>, FocusHandle, Rc<RefCell<Vec<bool>>>) {
+    let clip = if scrolled {
+        Clip::Scrolled
+    } else {
+        Clip::Hidden
+    };
+    open_with_all(cx, controlled, false, false, clip)
+}
+
+/// A controlled page that refuses every open request it receives.
+fn open_refusing(
+    cx: &mut TestAppContext,
+) -> (WindowHandle<CtxView>, FocusHandle, Rc<RefCell<Vec<bool>>>) {
+    open_with_all(cx, true, false, true, Clip::None)
+}
+
+fn open_with_all(
+    cx: &mut TestAppContext,
+    controlled: bool,
+    boxed: bool,
+    refuse: bool,
+    clip: Clip,
+) -> (WindowHandle<CtxView>, FocusHandle, Rc<RefCell<Vec<bool>>>) {
     bind_keys(cx);
     let log: Rc<RefCell<Vec<bool>>> = Rc::new(RefCell::new(Vec::new()));
     let window_log = log.clone();
@@ -151,6 +247,10 @@ fn open_with_flags(
         controlled,
         open: false,
         boxed,
+        refuse,
+        clip,
+        scroll: ScrollHandle::new(),
+        occluded: false,
     });
     cx.run_until_parked();
     settle(cx, handle);
@@ -253,6 +353,22 @@ fn press_escape(cx: &mut TestAppContext, handle: WindowHandle<CtxView>) {
             cx,
         );
         window.dispatch_event(PlatformInput::KeyUp(gpui::KeyUpEvent { keystroke }), cx);
+    })
+    .unwrap();
+    cx.run_until_parked();
+    settle(cx, handle);
+}
+
+/// Let the page change the state it renders, the way a form would after an
+/// accepted request turns into a rejection.
+fn set_open(cx: &mut TestAppContext, handle: WindowHandle<CtxView>, open: bool) {
+    cx.update_window(handle.into(), move |view, window, cx| {
+        view.downcast::<CtxView>().unwrap().update(cx, |view, cx| {
+            view.open = open;
+            cx.notify();
+        });
+        window.refresh();
+        window.draw(cx).clear(cx);
     })
     .unwrap();
     cx.run_until_parked();
@@ -429,4 +545,298 @@ fn a_second_right_click_moves_the_menu(cx: &mut TestAppContext) {
             && (second.origin.y - px(160.)).abs() <= px(2.),
         "the panel must move to the new press, got {second:?} after {first:?}"
     );
+}
+
+#[gpui::test]
+fn a_rejected_request_is_asked_again_on_the_next_press(cx: &mut TestAppContext) {
+    let (handle, _, log) = open_refusing(cx);
+
+    press(cx, handle, point(px(220.), px(140.)), MouseButton::Right);
+    assert!(
+        panel(cx, handle).is_none(),
+        "a page that refuses the request must keep the menu closed"
+    );
+    press(cx, handle, point(px(220.), px(140.)), MouseButton::Right);
+
+    assert!(
+        panel(cx, handle).is_none(),
+        "the second press must not open a menu the page still refuses"
+    );
+    assert_eq!(
+        *log.borrow(),
+        vec![true, true],
+        "every press must ask again, not trust the mirror of a rejected request"
+    );
+}
+
+#[gpui::test]
+fn a_menu_the_page_closed_can_be_asked_for_again(cx: &mut TestAppContext) {
+    let (handle, _, log) = open_with(cx, true);
+    press(cx, handle, point(px(220.), px(140.)), MouseButton::Right);
+    assert!(
+        panel(cx, handle).is_some(),
+        "the accepted request must open the menu"
+    );
+
+    set_open(cx, handle, false);
+    assert!(
+        panel(cx, handle).is_none(),
+        "the page must be able to close the menu it opened"
+    );
+
+    press(cx, handle, point(px(220.), px(140.)), MouseButton::Right);
+
+    assert!(
+        panel(cx, handle).is_some(),
+        "a press after the page closed the menu must open it again"
+    );
+    assert_eq!(
+        *log.borrow(),
+        vec![true, true],
+        "the reopened menu must ask once, without reporting a close the user did not make"
+    );
+}
+
+#[gpui::test]
+fn a_second_press_moves_the_menu_without_reporting_a_close(cx: &mut TestAppContext) {
+    let (handle, _, log) = open(cx);
+    press(cx, handle, point(px(120.), px(100.)), MouseButton::Right);
+    let first = panel(cx, handle).expect("the first press must open the menu");
+
+    // Inside the attached area, clear of the first panel so the press is a move.
+    let target = point(px(420.), px(160.));
+    assert!(
+        !first.contains(&target),
+        "the probe press must land outside the first panel, which sits at {first:?}"
+    );
+    press(cx, handle, target, MouseButton::Right);
+
+    let second = panel(cx, handle).expect("the move must keep the menu on screen");
+    assert!(
+        (second.origin.x - px(420.)).abs() <= px(2.)
+            && (second.origin.y - px(160.)).abs() <= px(2.),
+        "the panel must move to the press, got {second:?}"
+    );
+    assert_eq!(
+        *log.borrow(),
+        vec![true],
+        "a move inside the attached area must not report a close and a reopen"
+    );
+}
+
+#[gpui::test]
+fn a_controlled_move_reports_only_the_opening(cx: &mut TestAppContext) {
+    let (handle, _, log) = open_with(cx, true);
+    press(cx, handle, point(px(120.), px(100.)), MouseButton::Right);
+    assert!(panel(cx, handle).is_some(), "the page accepted the opening");
+
+    press(cx, handle, point(px(420.), px(160.)), MouseButton::Right);
+
+    let moved = panel(cx, handle).expect("a controlled menu must move too");
+    assert!(
+        (moved.origin.x - px(420.)).abs() <= px(2.),
+        "the controlled panel must follow the second press, got {moved:?}"
+    );
+    assert_eq!(
+        *log.borrow(),
+        vec![true],
+        "the controlled page must not be told the menu closed in between"
+    );
+}
+
+#[gpui::test]
+fn a_left_press_outside_the_attached_area_still_closes(cx: &mut TestAppContext) {
+    let (handle, _, log) = open(cx);
+    press(cx, handle, point(px(220.), px(140.)), MouseButton::Right);
+    let bounds = panel(cx, handle).expect("the press must open the menu");
+
+    // Above the attached area, which starts below the first control.
+    let target = point(px(300.), px(30.));
+    assert!(
+        !bounds.contains(&target),
+        "the probe press must land outside the panel, which sits at {bounds:?}"
+    );
+    press(cx, handle, target, MouseButton::Left);
+
+    assert!(
+        panel(cx, handle).is_none(),
+        "a press outside the attached area must dismiss the menu"
+    );
+    assert_eq!(
+        *log.borrow(),
+        vec![true, false],
+        "the close is reported once"
+    );
+}
+
+fn set_occluded(cx: &mut TestAppContext, handle: WindowHandle<CtxView>, occluded: bool) {
+    handle
+        .update(cx, |view, _, cx| {
+            view.occluded = occluded;
+            cx.notify();
+        })
+        .unwrap();
+    settle(cx, handle);
+}
+
+fn assert_occluded_press_closes(cx: &mut TestAppContext, controlled: bool) {
+    let (handle, _, log) = open_with(cx, controlled);
+    set_occluded(cx, handle, true);
+    press(cx, handle, point(px(60.), px(100.)), MouseButton::Right);
+    let first = panel(cx, handle).expect("the uncovered part must open the menu");
+    let covered = point(px(280.), px(180.));
+    assert!(
+        !first.contains(&covered),
+        "the sibling must be outside the panel"
+    );
+
+    press(cx, handle, covered, MouseButton::Right);
+    assert!(
+        panel(cx, handle).is_none(),
+        "a blocked region cannot receive a move, so the press must close"
+    );
+    assert_eq!(
+        *log.borrow(),
+        vec![true, false],
+        "the dismissal must be reported once"
+    );
+
+    // Reopen, then remove the sibling while the menu is up. The current frame's
+    // hitbox must replace the blocked one, without a stale dismissal filter.
+    press(cx, handle, point(px(60.), px(100.)), MouseButton::Right);
+    set_occluded(cx, handle, false);
+    press(cx, handle, covered, MouseButton::Right);
+    let moved = panel(cx, handle).expect("the uncovered region must receive a move again");
+    assert!(
+        (moved.origin.x - covered.x).abs() <= px(2.)
+            && (moved.origin.y - covered.y).abs() <= px(2.),
+        "the menu must move to the uncovered point, got {moved:?}"
+    );
+    assert_eq!(
+        *log.borrow(),
+        vec![true, false, true],
+        "removing the sibling must allow a move without close/reopen callbacks"
+    );
+}
+
+#[gpui::test]
+fn a_right_press_on_an_occluding_sibling_closes_the_menu(cx: &mut TestAppContext) {
+    assert_occluded_press_closes(cx, false);
+}
+
+#[gpui::test]
+fn a_right_press_on_an_occluding_sibling_closes_a_controlled_menu(cx: &mut TestAppContext) {
+    assert_occluded_press_closes(cx, true);
+}
+
+/// Scroll the list under the pointer, the way a wheel would.
+fn wheel(
+    cx: &mut TestAppContext,
+    handle: WindowHandle<CtxView>,
+    position: Point<Pixels>,
+    delta_y: f32,
+) {
+    cx.update_window(handle.into(), move |_, window, cx| {
+        window.dispatch_event(
+            PlatformInput::Scroll(ScrollEvent {
+                position,
+                delta: ScrollDelta::Pixels(point(px(0.), px(delta_y))),
+                ..Default::default()
+            }),
+            cx,
+        );
+        window.refresh();
+        window.draw(cx).clear(cx);
+    })
+    .unwrap();
+    cx.run_until_parked();
+    settle(cx, handle);
+}
+
+#[gpui::test]
+fn a_press_in_the_clipped_away_part_of_the_region_closes_the_menu(cx: &mut TestAppContext) {
+    let (handle, _, log) = open_clipped(cx, false, false);
+    press(cx, handle, point(px(60.), px(100.)), MouseButton::Right);
+    assert!(
+        panel(cx, handle).is_some(),
+        "the visible part of a clipped host must open the menu"
+    );
+
+    // Below the clipping window (which ends at y = 136) but still inside the
+    // host's layout rectangle, which reaches y = 216.
+    let target = point(px(260.), px(180.));
+    press(cx, handle, target, MouseButton::Right);
+
+    assert!(
+        panel(cx, handle).is_none(),
+        "a press the region cannot receive must close the menu, not count as a move"
+    );
+    assert_eq!(
+        *log.borrow(),
+        vec![true, false],
+        "the clipped-away press must be reported as a close"
+    );
+}
+
+#[gpui::test]
+fn a_press_in_the_visible_part_of_a_clipped_region_moves_the_menu(cx: &mut TestAppContext) {
+    let (handle, _, log) = open_clipped(cx, true, false);
+    press(cx, handle, point(px(60.), px(100.)), MouseButton::Right);
+    assert!(
+        panel(cx, handle).is_some(),
+        "the visible part opens the menu"
+    );
+
+    press(cx, handle, point(px(250.), px(120.)), MouseButton::Right);
+
+    let moved = panel(cx, handle).expect("the menu must still be open after a move");
+    assert!(
+        (moved.origin.x - px(250.)).abs() <= px(2.) && (moved.origin.y - px(120.)).abs() <= px(2.),
+        "the panel must move to the press inside the visible part, got {moved:?}"
+    );
+    assert_eq!(
+        *log.borrow(),
+        vec![true],
+        "a move inside the visible part must not be reported as a close"
+    );
+}
+
+#[gpui::test]
+fn a_scrolled_clip_drops_the_part_of_the_region_that_scrolled_away(cx: &mut TestAppContext) {
+    let (handle, _, log) = open_clipped(cx, false, true);
+    press(cx, handle, point(px(60.), px(100.)), MouseButton::Right);
+    assert!(panel(cx, handle).is_some(), "the list opens the menu");
+
+    // Scrolling down by 120 px lifts the host by the same amount: it now ends
+    // at y = 96, so y = 130 is on screen but no longer on the host.
+    wheel(cx, handle, point(px(280.), px(100.)), -120.);
+
+    press(cx, handle, point(px(260.), px(130.)), MouseButton::Right);
+
+    assert!(
+        panel(cx, handle).is_none(),
+        "the filter must follow the scrolled mask instead of a stale rectangle"
+    );
+    assert_eq!(
+        *log.borrow(),
+        vec![true, false],
+        "the press closes the menu"
+    );
+}
+
+#[gpui::test]
+fn a_visible_press_after_a_scroll_still_moves_the_menu(cx: &mut TestAppContext) {
+    let (handle, _, log) = open_clipped(cx, false, true);
+    press(cx, handle, point(px(60.), px(100.)), MouseButton::Right);
+    assert!(panel(cx, handle).is_some(), "the list opens the menu");
+
+    wheel(cx, handle, point(px(280.), px(100.)), -120.);
+    press(cx, handle, point(px(250.), px(70.)), MouseButton::Right);
+
+    let moved = panel(cx, handle).expect("the menu must still be open after a move");
+    assert!(
+        (moved.origin.y - px(70.)).abs() <= px(2.),
+        "the panel must move to a press that is still on the host, got {moved:?}"
+    );
+    assert_eq!(*log.borrow(), vec![true], "a move must not report a close");
 }
