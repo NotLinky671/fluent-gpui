@@ -191,6 +191,13 @@ struct PendingOpen { path: Vec<ElementId>, row: ElementId, deadline: Instant }
   18. 静止停在触发行仍按延时打开；padding 上的指针移动不清除键盘当前项。
 - **Popover 共享逻辑**（`popover/dismissal_tests.rs`）：内容发布的区域算内部、
   未重新发布的旧区域失效、区域外点击仍关闭。
+- **菜单族**（`menu/family_tests.rs`）：触发器开合与回焦、两行行高、分组跳过标题、勾选行回调。
+- **触发器的状态与焦点**（`menu/trigger_tests.rs`）：受控请求被拒后再次请求同一状态、
+  外部改变状态后点击取反屏幕值、受控 `open` 与 `default_open` 不一致时仍按屏幕值取反、
+  非受控开关、Tab/Shift+Tab 交接方向、没有“打开前焦点”时 Esc 回到触发器、
+  点击外部控件不夺其焦点、关闭回调主动移焦不被撤销。
+- **滚动**（`menu/scroll_tests.rs`）：面板被视口夹住；End/Home 把当前行带入视野；
+  滚轮把当前行滚出后同一个 End/Home 能把它找回来，且普通重绘不会把面板拽回当前行。
 - **spec**（`crates/fluent-core/src/spec/menu.rs`）：当前项填充与 path hint 填充不同。
 
 命令：
@@ -203,6 +210,8 @@ cargo test -p fluent-core --lib spec::menu --locked
 
 菜单族的定向破坏矩阵、命令结果与未验证范围见
 [菜单族验证记录](../validation/menu-family-2026-11-15.md)。
+触发器开合请求、关闭焦点交接与滚轮后的键盘定位见
+[审核修复记录](../validation/menu-trigger-state-2026-11-15.md)。
 第一轮六项缺陷与第二轮三个边界问题的复现、定向破坏、命令结果与未验证范围见
 [第一轮验证记录](../validation/menu-submenu-six-fixes-2026-11-05.md)与
 [第二轮验证记录](../validation/menu-submenu-second-pass-2026-11-05.md)。
@@ -215,6 +224,9 @@ cargo test -p fluent-core --lib spec::menu --locked
 
 - 非受控时它用 window keyed state（`menu-trigger-open-{id}`）自己拥有开合状态，`default_open` 只作为初值；
   传了 `open` 就是受控，显示完全由调用方决定，`on_open_change` 只上报请求。
+- **点击取反的是“屏幕上的那个值”**：受控时读 `open` 属性，非受控时读自己的 store。
+  受控状态下 store 只是上一次请求的镜像，调用方拒绝请求后它和画面会分叉；
+  用 store 取反会让第二次点击请求一个已经显示过的状态（拒绝两次时请求序列会是 `true, false` 而不是 `true, true`）。
 - 它内部是一个 `ButtonAppearance::Subtle` 的 `Button`，键盘 Enter/Space 由 gpui-base 的按钮激活路径处理
   （按键抬起时上报），因此鼠标与键盘走同一条打开路径。
 - **菜单必须有自己的焦点句柄**：方向键、Enter、Esc 绑在面板上。调用方传 `track_focus` 就用调用方的；
@@ -222,6 +234,11 @@ cargo test -p fluent-core --lib spec::menu --locked
   “只把触发器丢到页面上”的用法也必须能用键盘操作，这一条由行为测试覆盖。
 - 关闭（Esc、外部按下、选中行）把键盘送回触发按钮，因此随后按 Enter 能重新打开；
   受控宿主不接受关闭请求时不移动焦点。
+- **关闭时不在回调里抢焦点**：`MenuTrigger` 只把按钮句柄交给 `Popover::restore_focus`，
+  由 Popover 在关闭那一帧判断“焦点是否还在面板内”，再决定恢复、Tab 交接还是什么都不做。
+  在 `on_open_change` 里直接 `focus()` 会让那个判据变假：Tab 交接不执行、焦点停在触发按钮上；
+  焦点在外部控件上时又会把它抢走。没有“打开前已聚焦控件”的场景（程序化打开）由
+  `restore_focus` 兜底，否则关闭会把键盘送往下个控件。
 
 ### 分组
 
@@ -247,8 +264,10 @@ cargo test -p fluent-core --lib spec::menu --locked
   `max_h`，行容器才带 `overflow_y_scroll()` 与 `track_scroll(&ScrollHandle)`。
 - 这条边界是测出来的：把滚动放在整块面板上时，作为面板子元素、定位到面板之外的子菜单面板
   会被滚动容器裁掉，绘制与命中一起消失（`submenu_regression_tests` 11 条立即失败）。
-- 滚动跟随当前行，但**只在当前行变化时**调用 `scroll_to_item(index)`（`PanelScroll::follow`）：
-  每帧重申会让用户自己用滚轮滚到的位置被拽回去。
+- 滚动跟随当前行：当前行变化时、以及键盘发出**明确请求**时调用 `scroll_to_item(index)`
+  （`PanelScroll::follow` 的 `request` 参数，来自 `MenuState::nav` 的 epoch）。
+  只按行 id 去重不够：滚轮可以把当前行滚出视野，再按同一个 End/Home 行 id 没变，
+  面板就不会把它找回来。普通重绘不带请求，因此不会把用户滚到的位置拽回去。
 - 每一层各自持有滚动句柄：根层用 `menu-scroll-{menu_id}`，第 N 层用 `menu-scroll-{root}-{depth}-{path:?}`，
   所以换分支不会继承上一个分支的偏移。
 

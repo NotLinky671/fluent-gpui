@@ -10,7 +10,7 @@ use crate::root::FluentRoot;
 use fluent_core::spec::menu as menu_spec;
 use gpui::{
     AppContext, Context, FocusHandle, KeyBinding, KeyDownEvent, Keystroke, PlatformInput, Render,
-    TestAppContext, Window, WindowHandle, size,
+    TestAppContext, Window, WindowHandle, point, size,
 };
 
 /// Rows in the long menu. Tall enough that the content cannot fit the test
@@ -200,5 +200,107 @@ fn the_keyboard_scrolls_the_current_row_into_view(cx: &mut TestAppContext) {
     assert!(
         row.top() - panel.top() <= px(12.),
         "the first row must be scrolled back to the top, got {row:?} in a panel at {panel:?}"
+    );
+}
+
+/// One wheel step over the middle of the panel.
+///
+/// A positive delta scrolls towards the top of the rows, which is also the
+/// direction the native listener applies.
+fn wheel(cx: &mut TestAppContext, handle: WindowHandle<ScrollView>, delta_y: f32) {
+    let (panel, _) = painted(cx, handle);
+    let position = panel.center();
+    cx.update_window(handle.into(), move |_, window, cx| {
+        window.dispatch_event(
+            PlatformInput::Scroll(gpui::ScrollEvent {
+                position,
+                delta: gpui::ScrollDelta::Pixels(point(px(0.), px(delta_y))),
+                ..Default::default()
+            }),
+            cx,
+        );
+        window.refresh();
+        window.draw(cx).clear(cx);
+    })
+    .unwrap();
+    cx.run_until_parked();
+    draw(cx, handle);
+}
+
+/// Whether the painted current row sits inside the painted panel.
+fn inside(panel: Bounds<Pixels>, row: Option<Bounds<Pixels>>) -> bool {
+    row.is_some_and(|row| {
+        row.top() >= panel.top() - px(1.) && row.bottom() <= panel.bottom() + px(1.)
+    })
+}
+
+#[gpui::test]
+fn the_keyboard_brings_the_current_row_back_after_the_wheel(cx: &mut TestAppContext) {
+    let handle = open(cx);
+    cx.executor()
+        .advance_clock(std::time::Duration::from_millis(400));
+    draw(cx, handle);
+
+    press(cx, handle, &["end"]);
+    let (panel, row) = painted(cx, handle);
+    assert!(
+        inside(panel, row),
+        "precondition: End must scroll the last row into view"
+    );
+
+    // The wheel scrolls the row it just revealed out of sight. A panel that
+    // ignored the wheel would fail here, which is why this is measured.
+    wheel(cx, handle, 2000.);
+    let (panel, row) = painted(cx, handle);
+    assert!(
+        !inside(panel, row),
+        "the wheel must be able to hide the current row, got {row:?} in a panel at {panel:?}"
+    );
+
+    // A plain repaint must leave the panel where the user scrolled it.
+    draw(cx, handle);
+    let (panel, row) = painted(cx, handle);
+    assert!(
+        !inside(panel, row),
+        "a repaint must not fight the wheel, got {row:?} in a panel at {panel:?}"
+    );
+
+    // The same End has to bring the row back even though the current row did not
+    // change: the explicit keyboard request is the only signal left.
+    press(cx, handle, &["end"]);
+    let (panel, row) = painted(cx, handle);
+    assert!(
+        inside(panel, row),
+        "End must restore the current row, got {row:?} in a panel at {panel:?}"
+    );
+}
+
+#[gpui::test]
+fn home_brings_the_first_row_back_after_the_wheel(cx: &mut TestAppContext) {
+    let handle = open(cx);
+    cx.executor()
+        .advance_clock(std::time::Duration::from_millis(400));
+    draw(cx, handle);
+
+    press(cx, handle, &["home"]);
+    let (panel, row) = painted(cx, handle);
+    assert!(
+        inside(panel, row),
+        "precondition: Home must leave the first row at the top"
+    );
+
+    // Negative delta scrolls towards the end of the rows.
+    wheel(cx, handle, -2000.);
+    let (panel, row) = painted(cx, handle);
+    assert!(
+        !inside(panel, row),
+        "the wheel must be able to hide the first row, got {row:?} in a panel at {panel:?}"
+    );
+
+    press(cx, handle, &["home"]);
+    let (panel, row) = painted(cx, handle);
+    assert!(
+        inside(panel, row),
+        "Home must restore the first row, got {row:?} in a panel at {panel:?}"
     );
 }

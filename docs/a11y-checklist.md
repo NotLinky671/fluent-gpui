@@ -19,6 +19,7 @@
   `input::accessibility_tests`、`textarea::ax_tests`、`menu::ax_tests`、`menu::cjk_consumer_tests`、`dialog::tests`、`sheet::tests`。
 - **键盘**：`cargo test -p fluent-components --lib menu --locked
 cargo test -p fluent-components --lib menu::family_tests --locked
+cargo test -p fluent-components --lib menu::trigger_tests --locked
 cargo test -p fluent-components --lib menu::scroll_tests --locked`、`--lib tabs`、`--lib sheet`、`--lib popover`、`--lib dialog`。
 - **焦点归还**：`popover/focus_probe_tests.rs`、`popover/focus_trap_tests.rs`、`dialog/tests.rs`。
 
@@ -77,6 +78,7 @@ cargo test -p fluent-components --lib menu::scroll_tests --locked`、`--lib tabs
 | Tabs 方向键/Home/End/跳过禁用 | `tabs::tests` |
 | 菜单触发器开合、键盘归属与关闭归还 | `menu::family_tests`（其中“没有调用方焦点句柄”的用例在移除 `MenuDropdown::track_focus` 后失败） |
 | 菜单高度上限与当前行滚动可见 | `menu::scroll_tests`（移除 `max_h` 或 `scroll_to_item` 后失败） |
+| 受控触发器的开合请求与关闭后焦点去向 | `menu::trigger_tests`（点击改回取反内部状态、或在关闭回调里抢先聚焦触发器、或去掉 `restore_focus` 时失败） |
 | 中文输入 committed text 只进 typeahead、不激活行 | `menu::cjk_consumer_tests`（真实平台输入句柄） |
 
 ## 复跑

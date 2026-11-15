@@ -171,6 +171,9 @@ pub struct Popover {
     default_open: bool,
     on_open_change: Option<OpenChangeHandler>,
     focus: Option<gpui::FocusHandle>,
+    /// Focus to fall back to when the panel closes and nothing owned focus when
+    /// it opened, so the keyboard never strands on an unmounted panel.
+    restore_focus: Option<gpui::FocusHandle>,
     /// Extra window-space regions owned by the content but part of this floating
     /// surface. Used only for the outside-press test, never for placement.
     interior: Option<InteriorRegions>,
@@ -188,6 +191,7 @@ impl Popover {
             default_open: false,
             on_open_change: None,
             focus: None,
+            restore_focus: None,
             interior: None,
             style: StyleRefinement::default(),
         }
@@ -233,6 +237,17 @@ impl Popover {
     /// must own a focus handle to be dismissable from the keyboard.
     pub fn track_focus(mut self, focus: &gpui::FocusHandle) -> Self {
         self.focus = Some(focus.clone());
+        self
+    }
+
+    /// Focus to return to when the panel closes and nothing else had focus.
+    ///
+    /// The panel remembers what owned focus when it opened and gives it back on
+    /// close. A trigger that can be opened by a click before anything is focused
+    /// has no such owner; without this fallback the keyboard would be left on a
+    /// panel that is about to be unmounted.
+    pub fn restore_focus(mut self, focus: &gpui::FocusHandle) -> Self {
+        self.restore_focus = Some(focus.clone());
         self
     }
 
@@ -286,6 +301,7 @@ impl RenderOnce for Popover {
         let style = self.style;
         let on_change = self.on_open_change;
         let focus = self.focus.clone();
+        let self_restore = self.restore_focus.clone();
 
         // Focus handover. Opening moves focus into the panel and remembers what
         // had it; closing gives it back only if it is still inside, so a click
@@ -315,7 +331,11 @@ impl RenderOnce for Popover {
                 // therefore restores focus without advancing.
                 tab_handoff.update(cx, |slot, _| *slot = None);
                 if !previously_open {
-                    let current = window.focused(cx);
+                    // A trigger that was not focused when it opened the panel
+                    // still has somewhere to give the keyboard back to.
+                    let current = window
+                        .focused(cx)
+                        .or_else(|| self_restore.as_ref().cloned());
                     previous.update(cx, |slot, _| *slot = current);
                     panel_focus.focus(window, cx);
                     was_open.update(cx, |open, _| *open = true);

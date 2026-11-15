@@ -134,6 +134,19 @@ struct MenuState {
     /// Incremented whenever the open path changes, so typeahead can tell "still
     /// on the same visit" from "left and came back to the same path".
     level_epoch: u64,
+    /// The last explicit keyboard navigation, if any.
+    nav: Option<NavRequest>,
+    nav_epoch: u64,
+}
+
+/// An explicit keyboard request to show a level's current row.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+struct NavRequest {
+    /// The level the request landed on.
+    depth: usize,
+    /// A monotonic id, so a request for the row that is already current still
+    /// counts as a new request.
+    epoch: u64,
 }
 
 fn bump_level_epoch(state: &mut MenuState) {
@@ -544,7 +557,16 @@ fn navigate(tree: &MenuTree, levels: &[LevelSnapshot], cx: &mut App, step: NavSt
                 NavStep::First => 0,
                 NavStep::Last => ids.len() - 1,
             };
-            changed |= set_level_active(&mut state, levels, &path, Some(ids[next].clone()), false);
+            set_level_active(&mut state, levels, &path, Some(ids[next].clone()), false);
+            // The row the keyboard landed on has to be visible even when it is
+            // the row that was already current: the wheel or the pointer may
+            // have scrolled it away, and only a request says so.
+            state.nav_epoch = state.nav_epoch.wrapping_add(1);
+            state.nav = Some(NavRequest {
+                depth: path.len(),
+                epoch: state.nav_epoch,
+            });
+            changed = true;
         }
     }
     commit(tree, cx, &state, changed);
@@ -738,26 +760,43 @@ struct PanelContext {
 /// Where a panel is scrolled to, and the row it last brought into view.
 ///
 /// A panel clamps to the window and scrolls its rows. Scrolling follows the
-/// current row only when that row changes: reasserting it every frame would
-/// fight a user who scrolled the menu with the wheel while the keyboard kept
-/// its row.
+/// current row when that row changes, and when the keyboard explicitly asks for
+/// a row this panel has not served yet: reasserting the row on every frame would
+/// fight a user who scrolled with the wheel.
 #[derive(Default)]
 struct PanelScroll {
     handle: ScrollHandle,
     shown: Option<ElementId>,
+    /// The keyboard request this panel has already served.
+    served: Option<u64>,
 }
 
 impl PanelScroll {
-    /// Brings `row` into view the first time it becomes current.
-    fn follow(&mut self, row: Option<&ElementId>, entry_index: Option<usize>) {
+    /// Brings `row` into view.
+    ///
+    /// `request` marks an explicit keyboard move. It is honoured even for the
+    /// row that is already current, because the wheel can scroll that row out of
+    /// sight and nothing else would bring it back; plain repaints carry no
+    /// request and leave the scroll position where the user put it.
+    fn follow(
+        &mut self,
+        row: Option<&ElementId>,
+        entry_index: Option<usize>,
+        request: Option<u64>,
+    ) {
         let (Some(row), Some(index)) = (row, entry_index) else {
             return;
         };
-        if self.shown.as_ref() == Some(row) {
+        let wanted = self.shown.as_ref() != Some(row)
+            || request.is_some_and(|epoch| self.served != Some(epoch));
+        if !wanted {
             return;
         }
         self.handle.scroll_to_item(index);
         self.shown = Some(row.clone());
+        if request.is_some() {
+            self.served = request;
+        }
     }
 }
 
@@ -1142,8 +1181,9 @@ impl RenderOnce for Menu {
         );
         let scroll_handle = {
             let active = level_active_id(&state, 0);
+            let request = state.nav.filter(|nav| nav.depth == 0).map(|nav| nav.epoch);
             scroll.update(cx, |scroll, _| {
-                scroll.follow(active.as_ref(), root_active_index)
+                scroll.follow(active.as_ref(), root_active_index, request)
             });
             scroll.read(cx).handle.clone()
         };
@@ -1472,7 +1512,13 @@ fn build_submenu_panel(
     );
     let scroll_handle = {
         let active = level_active_id(state, depth);
-        scroll.update(cx, |scroll, _| scroll.follow(active.as_ref(), active_index));
+        let request = state
+            .nav
+            .filter(|nav| nav.depth == depth)
+            .map(|nav| nav.epoch);
+        scroll.update(cx, |scroll, _| {
+            scroll.follow(active.as_ref(), active_index, request)
+        });
         scroll.read(cx).handle.clone()
     };
 
@@ -1607,6 +1653,7 @@ pub struct MenuDropdown {
     open: Option<bool>,
     default_open: bool,
     focus: Option<gpui::FocusHandle>,
+    restore_focus: Option<gpui::FocusHandle>,
     on_open_change: Option<OpenChangeHandler>,
     a11y_label: Option<SharedString>,
 }
@@ -1620,6 +1667,7 @@ impl MenuDropdown {
             open: None,
             default_open: false,
             focus: None,
+            restore_focus: None,
             on_open_change: None,
             a11y_label: None,
         }
@@ -1650,6 +1698,16 @@ impl MenuDropdown {
     /// keys to reach its handlers.
     pub fn track_focus(mut self, focus: &gpui::FocusHandle) -> Self {
         self.focus = Some(focus.clone());
+        self
+    }
+
+    /// Focus to return to when the menu closes and nothing else had focus.
+    ///
+    /// A trigger opened by a click has no previously focused control, so the
+    /// popover's usual restore has nothing to return to and the keyboard would
+    /// be left on a panel that no longer exists.
+    pub fn restore_focus(mut self, focus: &gpui::FocusHandle) -> Self {
+        self.restore_focus = Some(focus.clone());
         self
     }
 
@@ -1719,6 +1777,9 @@ impl RenderOnce for MenuDropdown {
         }
         if let Some(focus) = self.focus.as_ref() {
             popover = popover.track_focus(focus);
+        }
+        if let Some(restore) = self.restore_focus.as_ref() {
+            popover = popover.restore_focus(restore);
         }
         match self.on_open_change {
             Some(handler) => {
@@ -2302,7 +2363,6 @@ impl RenderOnce for MenuTrigger {
             |_, _| self.default_open,
         );
         let open = self.open.unwrap_or_else(|| *store.read(cx));
-        let controlled = self.open.is_some();
         // The menu needs a focus handle of its own: the arrows, Enter and Escape
         // are bound to the panel, and a caller that just drops a trigger on the
         // page has not handed it one. A supplied handle still wins, so an
@@ -2338,8 +2398,14 @@ impl RenderOnce for MenuTrigger {
         .on_click({
             let store = store.clone();
             let on_change = self.on_open_change.clone();
+            let controlled_open = self.open;
             move |_, window, cx| {
-                let next = !*store.read(cx);
+                // Toggling from the value the button is rendering, not from the
+                // internal store: under control the store only mirrors the last
+                // request, so a caller that rejected it would otherwise see the
+                // next click ask for the opposite of the state on screen.
+                let current = controlled_open.unwrap_or_else(|| *store.read(cx));
+                let next = !current;
                 store.update(cx, |slot, _| *slot = next);
                 if let Some(handler) = on_change.as_ref() {
                     handler(next, window, cx);
@@ -2359,22 +2425,21 @@ impl RenderOnce for MenuTrigger {
         // the popover, which reports them even when controlled. They land in the
         // same store, so the button's next activation opens rather than toggling a
         // value that had already changed underneath it.
+        //
+        // Focus is not moved here: the popover restores it while it still owns
+        // the panel, which is also what lets its Tab hand-off run. Taking the
+        // keyboard first would make the popover see focus outside the panel and
+        // skip both, stranding the keyboard on the button.
         let mut dropdown = MenuDropdown::new(self.id, button, self.menu)
             .open(open)
+            .restore_focus(&button_focus)
             .on_open_change({
                 let store = store.clone();
                 let on_change = self.on_open_change.clone();
-                let button_focus = button_focus.clone();
                 move |next, window, cx| {
                     store.update(cx, |slot, _| *slot = next);
                     if let Some(handler) = on_change.as_ref() {
                         handler(next, window, cx);
-                    }
-                    // Whatever closed the menu — Escape, an outside press, a row
-                    // being chosen — the keyboard belongs on the button again,
-                    // not on a panel that no longer exists.
-                    if !next && !controlled {
-                        button_focus.focus(window, cx);
                     }
                 }
             });
@@ -2423,6 +2488,9 @@ mod reveal_tests;
 
 #[cfg(test)]
 mod submenu_tests;
+
+#[cfg(test)]
+mod trigger_tests;
 
 #[cfg(test)]
 mod submenu_regression_tests;
