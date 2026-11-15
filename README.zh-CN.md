@@ -19,12 +19,12 @@
 | `Checkbox` / `Radio` / `Switch` | 基础实现 | 受控与非受控模式；鼠标 hover / pressed 接线及颜色过渡；Radio 圆点与 Switch 滑块在绘制阶段按实际边界居中，适配非整数缩放；完整交互验证待补 |
 | `Link` / `Divider` | 基础实现 | 三种 Link 配色、四种 Divider 外观 |
 | `Badge` / `Avatar` | 基础实现 | 7 种 Badge 外观、4 档 Avatar；Avatar 仅首字母 |
-| `ProgressBar` | 部分实现 | 确定进度与不定态滑动动画，两者均遵循 reduced motion；不定态像素基线待补 |
+| `ProgressBar` | 部分实现 | 确定进度与不定态滑动动画，相位每帧取自时钟（`with_animation` 的进度从不前进，之前实际是静止的）；reduced motion 下停在固定分段并有静态基线；滑动周期仍是近似值 |
 | `Tooltip` | 基础实现 | `Button::tooltip` 接入根级锚定 overlay，配置 4px 间隙；悬停与翻转位置尚待人工验证 |
 | `Popover` | 实验性 | 已有锚定浮层、受控/非受控开关、同帧滚动定位、外部点击关闭、Esc 关闭，以及提供 `track_focus` 时的焦点交接与 Tab 焦点陷阱；陷阱在面板项之间循环且不会逃到背后页面 |
 | `ContextMenu` | 实验性 | 右键在指针处打开；面板越出窗口时翻转或限位，Esc 或面板外按下关闭并归还键盘；行与 `Menu` 共用同一套渲染 |
 | `Menu` / `MenuItem` | 部分实现 | 面板、前导图标、勾选与单选行、分隔线、标题、经 `Popover` 的 `MenuDropdown` 触发器接线，`MenuTrigger` 自有开合状态、`MenuGroup`、两行行高、视口高度上限与逐层行滚动，方向键/Home/End 导航并跳过禁用行、typeahead，以及 Tab 离开即关闭；任意层子菜单（右开/左翻、逐层 Esc 与 ←、悬停延时、首帧定位、子面板点击不误关根菜单）|
-| `Spinner` | 基础实现 | 四档尺寸按上游梯度（16/20/24/28），`Spinner::label` 提供无障碍名称，遵循 reduced motion |
+| `Spinner` | 基础实现 | 四档尺寸按上游梯度（16/20/24/28），`Spinner::label` 提供无障碍名称；弧线按上游实测的 1.5s 周期转动并做 30°–255° 伸缩，环色 `brandStroke2Contrast`、弧色 `brandStroke1`，reduced motion 下为静态 240° 弧 |
 | `Dialog` / `AlertDialog` | 基础实现 | 自渲染 deferred 模态：Fluent scrim 与卡片（background overlay、x-large 圆角、shadow64），受控/非受控开关，打开移入焦点、关闭归还，Tab 约束在卡片内；`AlertDialog` 必须显式选择——无 Esc 与 scrim 关闭 |
 | `Sheet` / 侧边抽屉 | 基础实现 | 四向抽屉（默认右侧），滑入/滑出过渡遵循 reduced motion；复用 Dialog 的 `colorBackgroundOverlay` scrim 与焦点陷阱，打开移入焦点、退出动画结束后归还；受控/非受控开关，Esc 与 scrim 按下都请求关闭；固定尺寸、内容裁剪，无滚动与拖拽关闭 |
 | `Tabs` / `TabList` / `Tab` | 基础实现 | 横向/纵向标签条；选中/hover/禁用三态，指示条按上一帧记录的标签绘制边界滑动；方向键与 Home/End 移动并跳过禁用项，`role=tablist`/`tab`；聚焦时不加外框 |
@@ -138,7 +138,7 @@ GPUI 精确锁定在快照版本（`gpui-pre = 0.3.10`）；用 caret 版本会�
 - `Textarea` 在本版 GPUI 快照中不处理鼠标滚轮；长正文可用光标/键盘滚动，滚动条会随光标出现
 - `ContextMenu` 锚定的是按下位置而不是触发器：按下时写入指针，定位器在同一帧读取，因此面板不会先用旧锚点画一帧。可点击区域不交给 `Popover` 当触发器——那样整个区域都会被算成“按在触发器上”，外部按下永远关不掉。面板越出窗口时翻转而不是滑动。
 - `MenuDropdown` 把 `Menu` 组合进 `Popover`，因此菜单继承锚定定位与关闭语义。方向键、Home/End、Enter/Space 与跳过禁用行均已可用；鼠标移动时写入的当前行与键盘一致，静止指针下的布局变化不会改选。子菜单支持任意层：每层各有当前行，最深层的当前行才是键盘激活目标，打开更深层的那一行用独立的 path hint 样式；→ 或 Enter 只在行确实带子菜单时打开，←/Esc 退一层，Tab 关闭整条链；悬停 300ms 自动打开，移到别的行、标题/分隔线/禁用行、离开整条链或键盘接管都会取消；右侧放不下时首帧即翻到行左侧。点击子面板属于菜单链内部（由实际发布的面板边界判断并遮挡命中），不会误关根菜单或穿透到背后控件；点击整条链外仍请求关闭。typeahead 前缀按完整层路径与会话归属，换分支、离开再返回或重新打开都不会继承。item 激活后菜单不会自动关闭，调用方必须在动作中显式关闭（便签应用每个 item 都这样做）。真实原生窗口中的子面板命中、DPI 与长内容仍未人工验证，且本版 GPUI 未提供 accesskit 的禁用状态。`MenuTrigger` 在非受控时自己拥有开合状态，调用方没给焦点句柄时会为菜单建一个自有的 `FocusHandle`，所以把触发器直接放到页面上也能用键盘操作；点击取反的是屏幕上的开合状态，受控调用方拒绝请求后再次点击仍会重新请求，不会与画面分叉。关闭时由 Popover 交接焦点：Tab/Shift+Tab 前进或后退到相邻控件，Esc 回到触发器，点击其他控件则保留该控件的焦点。`MenuGroup` 在构建期展开成标题 + 行，标题永远不是键盘停点。`MenuItem::secondary` 生成 48px 的两行行高，`MenuItemCheckbox`/`MenuItemRadio` 是同一套勾选/单选行的类型包装。菜单把高度限制在视口内（`spec::menu::max_height`），逐层滚动行区域，在当前行变化时以及键盘显式请求时跟随（滚轮把当前行滚走后，再按一次同一方向键会把它找回来），普通重绘不会拉回滚动位置；**只有行区域滚动**，因为整块面板滚动会把绘制在面板之外的子菜单面板裁掉。放在页面滚动容器里的菜单、`aria-haspopup`/`aria-expanded`（本版 accesskit 没有）与原生窗口中的滚动仍未验证
-- `ProgressBar` 不定态与 `Spinner` 的像素基线待补；`Spinner` 弧度跨度与旋转周期为近似值，尚未与官方 Fluent 截图核对
+- `Spinner` 与不定态 `ProgressBar` 每帧从时钟读相位，并在仍需运动时请求下一帧；GPUI 的 `with_animation` 包装进度从不前进，这正是两者此前只画一帧、实际静止的原因。弧线形状、1.5s 周期与颜色来自上游样式表，但不定态进度条的 2s 周期仍是近似值，也没有实测官方录屏。基线只记录 reduced-motion 帧：图库截图统一带 `FLUENT_GALLERY_REDUCE_MOTION=1`，因为循环动画永远等不到截图要求的三帧一致
 - `Button::tooltip` 的翻转由 gpui-base overlay 提供，悬停与翻转位置尚待人工验证；通用 `tooltip(text)` 助手使用 GPUI 原生定位，不提供相同锚定保证。测试只覆盖：根是否发布 service、实体身份是否跨重绘稳定、无根时调用方拿到 `None`
 - 不支持 RTL 布局、`letter_spacing`、CSS `outline`
 - 无通用 live region：保存/删除等状态变化不会主动播报。菜单当前项通过 active descendant 发布，但实际朗读未测

@@ -12,7 +12,7 @@ use fluent_ui::gpui_base::input::InputState;
 use fluent_ui::{
     Avatar, AvatarSize, Badge, BadgeAppearance, Button, ButtonAppearance, Checkbox, ControlSize,
     Dialog, Divider, Field, Link, Menu, MenuHeader, MenuItem, ProgressBar, Radio, Sheet, SheetSide,
-    Switch, TabItem, TabList, TextInput,
+    Spinner, SpinnerSize, Switch, TabItem, TabList, TextInput,
 };
 
 /// One baseline fixture.
@@ -133,6 +133,16 @@ pub const FIXTURES: &[Fixture] = &[
         name: "sheet-right-open",
         width: 460.0,
         height: 300.0,
+    },
+    Fixture {
+        name: "spinner-medium",
+        width: 240.0,
+        height: 60.0,
+    },
+    Fixture {
+        name: "progress-indeterminate",
+        width: 240.0,
+        height: 40.0,
     },
 ];
 
@@ -272,6 +282,22 @@ pub fn render(name: &str, window: &mut Window, cx: &mut App) -> Option<AnyElemen
         "progress-40" => div()
             .w(px(200.))
             .child(ProgressBar::new(40.))
+            .into_any_element(),
+        // Both of these are loops. The gallery holds them still for
+        // screenshots (`FLUENT_GALLERY_REDUCE_MOTION`), so the baseline records
+        // the reduced-motion shape: the spinner's static two-thirds arc and the
+        // parked indeterminate segment.
+        "spinner-medium" => div()
+            .w(px(240.))
+            .h(px(60.))
+            .flex()
+            .items_center()
+            .justify_center()
+            .child(Spinner::new().size(SpinnerSize::Medium))
+            .into_any_element(),
+        "progress-indeterminate" => div()
+            .w(px(200.))
+            .child(ProgressBar::new(0.).indeterminate())
             .into_any_element(),
         "avatar-medium" => Avatar::new("Ada Lovelace")
             .size(AvatarSize::Medium)

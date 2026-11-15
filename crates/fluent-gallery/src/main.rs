@@ -284,6 +284,14 @@ fn main() {
             FluentTheme::for_appearance(appearance).install(cx);
         }
 
+        // Animated fixtures (the spinner, the indeterminate bar) only produce a
+        // reproducible PNG when they are held still: the screenshot harness
+        // waits for three identical frames, which a moving component never
+        // reaches. Baselines therefore render with reduce-motion on.
+        if std::env::var_os("FLUENT_GALLERY_REDUCE_MOTION").is_some() {
+            cx.set_reduce_motion(true);
+        }
+
         // A fixture pins the window to its canvas so the PNG is reproducible.
         let fixture_size = std::env::var("FLUENT_GALLERY_FIXTURE")
             .ok()

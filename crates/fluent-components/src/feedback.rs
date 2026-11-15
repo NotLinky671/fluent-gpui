@@ -1,7 +1,7 @@
 //! Fluent 2 `Badge`, `ProgressBar` and `Avatar`.
 
 use fluent_core::gpui_compat::StyledExt as _;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use fluent_core::gpui_compat::{
     App, Context, IntoElement, ParentElement, Pixels, RenderOnce, SharedString, StyleRefinement,
@@ -13,8 +13,8 @@ use fluent_core::spec::feedback::{
 use fluent_theme::FluentTheme;
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
-    Animation, AnimationExt, AnyView, AppContext as _, ElementId, InteractiveElement as _,
-    PathBuilder, Render, StatefulInteractiveElement as _, canvas, point,
+    AnyView, AppContext as _, ElementId, InteractiveElement as _, PathBuilder, Render,
+    StatefulInteractiveElement as _, canvas, point,
 };
 
 /// A Fluent 2 badge.
@@ -122,7 +122,7 @@ impl Styled for ProgressBar {
 }
 
 impl RenderOnce for ProgressBar {
-    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let theme = FluentTheme::global(cx);
         let spec = feedback::progress(&theme, self.appearance);
 
@@ -137,11 +137,14 @@ impl RenderOnce for ProgressBar {
         if self.indeterminate {
             // Fluent's indeterminate bar sweeps across on a loop: a fixed-width
             // segment whose insets travel from off the left edge to off the
-            // right. The phase comes from a repeating animation rather than a
-            // transition because there is no target state to settle on.
+            // right.
             //
-            // Raw `Animation` does not read `cx.reduce_motion()`, so the
-            // policy is explicit: under reduced motion the same segment is
+            // The phase is read from the clock on every frame rather than from
+            // `with_animation`: in this GPUI snapshot an animation's progress
+            // never advances (the menu reveal hit the same wall and had to be
+            // driven by time), so an animated bar would simply stand still.
+            //
+            // The policy is explicit for reduced motion: the same segment is
             // parked at the fixed reduced-motion inset with no loop.
             let segment = move |left_edge: f32, right_edge: f32| {
                 // Clamping both edges to the track keeps the segment inside
@@ -161,13 +164,11 @@ impl RenderOnce for ProgressBar {
                     .child(segment(left_edge, right_edge))
                     .into_any_element();
             }
-            let animation = Animation::new(Duration::from_millis(2000)).repeat();
             let id = ElementId::Name(format!("progress-{:?}", self.appearance).into());
+            let phase = loop_phase(window, cx, &id, INDETERMINATE_PERIOD);
+            let (left_edge, right_edge) = feedback::indeterminate_segment_insets(phase);
             return track
-                .with_animation(id, animation, move |track, delta| {
-                    let (left_edge, right_edge) = feedback::indeterminate_segment_insets(delta);
-                    track.child(segment(left_edge, right_edge))
-                })
+                .child(segment(left_edge, right_edge))
                 .into_any_element();
         }
 
@@ -183,12 +184,38 @@ impl RenderOnce for ProgressBar {
     }
 }
 
-/// How long one spinner revolution takes.
+/// How long one indeterminate sweep takes.
 ///
-/// Approximation: Fluent's spinner period is not a published token; ~1.5s per
-/// turn matches the perceived pace of the upstream component. Verify against
-/// official recordings.
-const SPINNER_PERIOD: Duration = Duration::from_millis(1500);
+/// Approximation: the upstream stylesheet does not publish this period as a
+/// token, and no official recording has been measured yet. The value is kept
+/// from the previous implementation so the change under review only alters
+/// whether the bar moves at all.
+const INDETERMINATE_PERIOD: Duration = Duration::from_millis(2000);
+
+/// The phase (0..1) of a looping animation, driven by the wall clock.
+///
+/// Each id keeps its own start instant, so two spinners that appear at
+/// different times are not forced into the same phase — matching CSS, where an
+/// animation starts when its element is created. Every frame that is still
+/// animating asks for the next one; without that request a `RenderOnce`
+/// component would be painted once and never again.
+fn loop_phase(window: &mut Window, cx: &mut App, id: &ElementId, period: Duration) -> f32 {
+    let state = window.use_keyed_state(id.clone(), cx, |_, _| LoopStart(None));
+    let now = cx.background_executor().now();
+    let start = match state.read(cx).0 {
+        Some(start) => start,
+        None => {
+            state.update(cx, |slot, _| slot.0 = Some(now));
+            now
+        }
+    };
+    window.request_animation_frame();
+    let elapsed = now.saturating_duration_since(start).as_secs_f32();
+    (elapsed / period.as_secs_f32()).fract()
+}
+
+/// Start instant of a looping animation, stored per element id.
+struct LoopStart(Option<Instant>);
 
 /// A Fluent 2 spinner: a stroked ring with a sweeping brand arc.
 #[derive(IntoElement)]
@@ -242,21 +269,9 @@ impl Styled for Spinner {
 }
 
 impl RenderOnce for Spinner {
-    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let theme = FluentTheme::global(cx);
         let spec = feedback::spinner(&theme, self.size);
-
-        // The whole indicator is one painted canvas: a faint full-circle track
-        // plus the brand arc. `PathBuilder::stroke` gives round caps; rotating
-        // the start angle by `delta * 360°` per frame gives the sweep.
-        let ring = move |delta: f32| {
-            canvas(
-                move |_, _, _| (),
-                move |bounds, _, window, _| {
-                    paint_spinner(bounds, spec, delta, window);
-                },
-            )
-        };
 
         // `div()` becomes a StatefulInteractiveElement once it carries an id;
         // the id is also what accesskit needs before `role`/`aria_label`
@@ -267,7 +282,7 @@ impl RenderOnce for Spinner {
             .id
             .unwrap_or_else(|| spinner_element_id(self.size, self.label.as_ref()));
         let mut el = div()
-            .id(id)
+            .id(id.clone())
             .size(spec.diameter)
             .role(gpui::accesskit::Role::ProgressIndicator);
         if let Some(label) = self.label {
@@ -275,25 +290,45 @@ impl RenderOnce for Spinner {
         }
         let el = el.refine_style(&self.style);
 
-        if feedback::spinner_animation_allowed(cx.reduce_motion()) {
-            // `repeat_synced` keeps every spinner on screen phase-locked, like
-            // Fluent where all spinners share one clock.
-            let animation = Animation::new(SPINNER_PERIOD).repeat_synced();
-            return el
-                .with_animation("spin", animation, move |el, delta| el.child(ring(delta)))
-                .into_any_element();
-        }
+        // The phase comes from the clock, not from `with_animation`: in this
+        // GPUI snapshot an animation's progress never advances, so the ring
+        // used to be painted once and never move again.
+        let (start, sweep) = if feedback::spinner_animation_allowed(cx.reduce_motion()) {
+            let ease = theme.tokens().curve.easy_ease;
+            let phase = loop_phase(window, cx, &id, feedback::SPINNER_PERIOD);
+            feedback::spinner_arc(phase, ease)
+        } else {
+            // Reduced motion freezes the ring on the static two-thirds arc.
+            // Upstream only slows the ring here (1.5s -> 1.8s) but keeps
+            // turning it; an object that never stops moving is exactly what
+            // the preference exists to suppress.
+            feedback::spinner_reduced_arc()
+        };
 
-        // Reduced motion: same ring + arc, frozen at phase 0, no loop.
-        el.child(ring(0.0)).into_any_element()
+        el.child(
+            // A canvas has no intrinsic size: without this it gets the parent's
+            // width and zero height, and `paint_spinner` returns early on a
+            // zero radius — the ring would never be painted at all.
+            canvas(
+                move |_, _, _| (),
+                move |bounds, _, window, _| paint_spinner(bounds, spec, start, sweep, window),
+            )
+            .size_full(),
+        )
+        .into_any_element()
     }
 }
 
-/// Paints the track ring and the indicator arc for one phase.
+/// Paints the track ring and the indicator arc.
+///
+/// `start` and `sweep` are degrees clockwise from 12 o'clock, both resolved by
+/// [`fluent_core::spec::feedback::spinner_arc`] so the shape stays on the
+/// measured upstream keyframes instead of being re-derived here.
 fn paint_spinner(
     bounds: gpui::Bounds<Pixels>,
     spec: feedback::SpinnerSpec,
-    delta: f32,
+    start: f32,
+    sweep: f32,
     window: &mut Window,
 ) {
     let center = bounds.center();
@@ -313,22 +348,29 @@ fn paint_spinner(
         window.paint_path(path, spec.track);
     }
 
-    // Indicator: the arc endpoints rotate with the phase.
-    let [(sx, sy), (ex, ey)] = feedback::spinner_arc_endpoints(delta);
-    let start = point(center.x + radius * sx, center.y + radius * sy);
-    let end = point(center.x + radius * ex, center.y + radius * ey);
+    // Indicator: an arc that both turns and stretches. The sweep changes every
+    // frame, so the large-arc flag has to follow it; hard-coding it would make
+    // the ring snap the moment the arc passed 180 degrees.
+    let (sx, sy) = circle_point(start);
+    let (ex, ey) = circle_point(start + sweep);
     let mut arc = PathBuilder::stroke(spec.stroke_width);
-    arc.move_to(start);
+    arc.move_to(point(center.x + radius * sx, center.y + radius * sy));
     arc.arc_to(
         point(radius, radius),
         px(0.),
-        feedback::SPINNER_ARC_DEGREES > 180.0,
+        sweep > 180.0,
         true,
-        end,
+        point(center.x + radius * ex, center.y + radius * ey),
     );
     if let Ok(path) = arc.build() {
         window.paint_path(path, spec.indicator);
     }
+}
+
+/// Point on a unit circle at `degrees` clockwise from 12 o'clock (y down).
+fn circle_point(degrees: f32) -> (f32, f32) {
+    let rad = degrees.to_radians();
+    (rad.sin(), -rad.cos())
 }
 
 /// Default element id: `spinner-{size}-{label}`.

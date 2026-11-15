@@ -1,6 +1,9 @@
 //! Badge, ProgressBar and Avatar spec.
 
+use std::time::Duration;
+
 use fluent_theme::FluentTheme;
+use fluent_tokens::CubicBezier;
 use gpui::{Hsla, Pixels, px};
 
 /// Fluent `BadgeAppearance`.
@@ -187,9 +190,9 @@ pub enum SpinnerSize {
 /// Resolved spinner.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct SpinnerSpec {
-    /// The full-ring track colour (`colorNeutralStrokeAlpha2`).
+    /// The full-ring track colour (`colorBrandStroke2Contrast`).
     pub track: Hsla,
-    /// The sweeping arc colour (`colorBrandStroke2Contrast`).
+    /// The sweeping arc colour (`colorBrandStroke1`).
     pub indicator: Hsla,
     /// Outer diameter.
     pub diameter: Pixels,
@@ -200,6 +203,13 @@ pub struct SpinnerSpec {
 }
 
 /// Resolves a spinner.
+///
+/// Upstream paints the ring with `background-color: var(--colorBrandStroke2Contrast)`
+/// and the moving tail with `color: var(--colorBrandStroke1)`, then masks the
+/// background down to a ring (`useSpinnerStyles.styles.ts`). So the track is a
+/// brand tint rather than a neutral stroke, and the arc is the stronger brand
+/// stroke — the opposite assignment of what this library shipped before the
+/// upstream stylesheet was read.
 pub fn spinner(theme: &FluentTheme, size: SpinnerSize) -> SpinnerSpec {
     let t = theme.tokens();
     let c = &t.color;
@@ -210,38 +220,80 @@ pub fn spinner(theme: &FluentTheme, size: SpinnerSize) -> SpinnerSpec {
         SpinnerSize::Medium => (px(28.), t.stroke_width.thick),
     };
     SpinnerSpec {
-        track: c.neutral_stroke_alpha_2,
-        indicator: c.brand_stroke_2_contrast,
+        track: c.brand_stroke_2_contrast,
+        indicator: c.brand_stroke_1,
         diameter,
         stroke_width,
     }
 }
 
-/// Arc end points of the spinner indicator on the unit circle.
+/// One revolution of the Fluent spinner.
 ///
-/// `delta` is the animation phase in 0..1 (one full turn per period). The arc
-/// starts at `delta * 360°` and sweeps `SPINNER_ARC_DEGREES`, matching Fluent's
-/// indicator that covers about three quarters of the track. Angles are
-/// degrees clockwise from 12 o'clock; the returned points are on the unit
-/// circle centred on the origin (y down).
-pub fn spinner_arc_endpoints(delta: f32) -> [(f32, f32); 2] {
-    let start = (delta.rem_euclid(1.0)) * 360.0;
-    let end = start + SPINNER_ARC_DEGREES;
-    [circle_point(start), circle_point(end)]
+/// Upstream: `animation-duration: 1.5s; animation-timing-function: linear` on
+/// the ring, and the same 1.5s on its tail (`useSpinnerStyles.styles.ts`).
+pub const SPINNER_PERIOD: Duration = Duration::from_millis(1500);
+
+/// The indicator arc at `delta`, as `(start, sweep)` in degrees.
+///
+/// Upstream composes two animations, both 1.5s and both on `curveEasyEase`
+/// (`cubic-bezier(0.33, 0, 0.67, 1)`):
+///
+/// - the ring rotates `0 -> 360deg` linearly across the period;
+/// - the tail container rotates `-135deg -> 0deg -> 225deg`, with each half
+///   eased on its own;
+/// - inside the tail, two `135deg` wedges rotate `0 -> 105deg -> 0` and
+///   `0 -> 225deg -> 0`, behind a `conic-gradient` mask that hides the first
+///   `105deg`. The visible arc therefore grows from `30deg` to `255deg` and
+///   shrinks back, which is what makes the spinner read as "working" rather
+///   than merely rotating.
+///
+/// Angles are degrees clockwise from 12 o'clock. `ease` is the theme's
+/// `curveEasyEase` so the shapes stay on the design system's curve.
+pub fn spinner_arc(delta: f32, ease: CubicBezier) -> (f32, f32) {
+    let phase = delta.rem_euclid(1.0);
+    let second_half = phase >= 0.5;
+    // Each half is its own keyframe interval, so the curve is sampled inside it.
+    let half = if second_half {
+        (phase - 0.5) * 2.0
+    } else {
+        phase * 2.0
+    };
+    let eased = ease.sample(half);
+    // The container turns -135 -> 0 over the first half and 0 -> 225 over the
+    // second; the wedges open 0 -> their maximum over the first half and close
+    // again over the second, which is why the sweep uses the mirrored value.
+    let (container, opening) = if second_half {
+        (225.0 * eased, 1.0 - eased)
+    } else {
+        (-135.0 + 135.0 * eased, eased)
+    };
+    let start = 360.0 * phase + container + TAIL_MASK_DEGREES;
+    let sweep = MIN_ARC_DEGREES + (MAX_ARC_DEGREES - MIN_ARC_DEGREES) * opening;
+    (start, sweep)
 }
 
-/// Degrees of track the indicator arc covers.
+/// The arc a spinner shows when motion is reduced.
 ///
-/// Approximation: Fluent's spinner arc spans about three quarters of the ring;
-/// the exact upstream figure is not published as a token. Verify against
-/// official screenshots.
-pub const SPINNER_ARC_DEGREES: f32 = 270.0;
-
-/// Point on a unit circle at `degrees` clockwise from 12 o'clock (y down).
-fn circle_point(degrees: f32) -> (f32, f32) {
-    let rad = degrees.to_radians();
-    (rad.sin(), -rad.cos())
+/// Upstream's reduced-motion rule replaces the two wedges with one
+/// `conic-gradient(transparent 120deg, currentcolor 360deg)` and stops the tail
+/// animation, leaving a static `240deg` arc. This library also stops the ring,
+/// where upstream only slows it from 1.5s to 1.8s: an endlessly rotating object
+/// is what the preference exists to suppress.
+pub fn spinner_reduced_arc() -> (f32, f32) {
+    (REDUCED_ARC_START_DEGREES, 360.0 - REDUCED_ARC_START_DEGREES)
 }
+
+/// Degrees the tail mask hides, measured from the mask's own start.
+const TAIL_MASK_DEGREES: f32 = 105.0;
+
+/// Shortest visible arc: the `135deg` wedge minus the `105deg` mask.
+const MIN_ARC_DEGREES: f32 = 30.0;
+
+/// Longest visible arc: both wedges, still behind the mask.
+const MAX_ARC_DEGREES: f32 = 255.0;
+
+/// Where the reduced-motion arc starts.
+const REDUCED_ARC_START_DEGREES: f32 = 120.0;
 
 /// How far the indeterminate `ProgressBar` segment has travelled at `delta`.
 ///
@@ -465,19 +517,66 @@ mod tests {
         let t = Tokens::web_light();
         let theme = FluentTheme::web_light();
         let spec = spinner(&theme, SpinnerSize::Medium);
-        assert_eq!(spec.track, t.color.neutral_stroke_alpha_2);
-        assert_eq!(spec.indicator, t.color.brand_stroke_2_contrast);
+        // Upstream: ring `colorBrandStroke2Contrast`, tail `colorBrandStroke1`.
+        assert_eq!(spec.track, t.color.brand_stroke_2_contrast);
+        assert_eq!(spec.indicator, t.color.brand_stroke_1);
         assert!(spec.stroke_width > px(0.));
     }
 
     #[test]
-    fn spinner_arc_covers_about_three_quarters() {
-        let [start, end] = spinner_arc_endpoints(0.0);
-        // Phase 0 starts at 12 o'clock.
-        assert!((start.0 - 0.0).abs() < 1e-6 && (start.1 + 1.0).abs() < 1e-6);
-        // The arc end stays on the unit circle.
-        let len = (end.0 * end.0 + end.1 * end.1).sqrt();
-        assert!((len - 1.0).abs() < 1e-5);
+    fn the_spinner_arc_grows_from_thirty_to_255_degrees() {
+        let ease = Tokens::web_light().curve.easy_ease;
+        // Upstream keyframes: a 135deg wedge behind a 105deg mask (30deg at the
+        // ends) opening to both wedges at the half turn (255deg).
+        assert!((spinner_arc(0.0, ease).1 - 30.0).abs() < 0.01);
+        assert!((spinner_arc(0.5, ease).1 - 255.0).abs() < 0.01);
+        assert!((spinner_arc(1.0, ease).1 - 30.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn the_spinner_arc_is_symmetric_and_monotone_within_a_half() {
+        let ease = Tokens::web_light().curve.easy_ease;
+        for step in 1..100 {
+            let phase = step as f32 / 100.0;
+            let pair = spinner_arc(phase, ease).1;
+            let mirror = spinner_arc(1.0 - phase, ease).1;
+            assert!(
+                (pair - mirror).abs() < 0.01,
+                "the arc must close the way it opened: {pair} vs {mirror} at {phase}"
+            );
+        }
+        let mut previous = spinner_arc(0.0, ease).1;
+        for step in 1..=50 {
+            let sweep = spinner_arc(step as f32 / 100.0, ease).1;
+            assert!(
+                sweep >= previous - 1e-4,
+                "the arc must not shrink before the half turn: {sweep} < {previous}"
+            );
+            previous = sweep;
+        }
+    }
+
+    #[test]
+    fn the_spinner_turns_once_per_period() {
+        let ease = Tokens::web_light().curve.easy_ease;
+        // The container rotation is continuous across the half turn, and the
+        // ring adds 180deg per half on top of it.
+        let mid_before = spinner_arc(0.4999, ease).0;
+        let mid_after = spinner_arc(0.5001, ease).0;
+        assert!(
+            (mid_after - mid_before).abs() < 0.5,
+            "the start angle jumped at the half turn: {mid_before} vs {mid_after}"
+        );
+        let quarter = spinner_arc(0.25, ease).0;
+        // 360 * 0.25 + container(-67.5) + mask(105) = 127.5
+        assert!((quarter - 127.5).abs() < 0.01, "got {quarter}");
+    }
+
+    #[test]
+    fn the_reduced_motion_arc_is_a_static_two_thirds() {
+        let (start, sweep) = spinner_reduced_arc();
+        assert_eq!(start, 120.0);
+        assert_eq!(sweep, 240.0);
     }
 
     #[test]

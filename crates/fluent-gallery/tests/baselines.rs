@@ -65,6 +65,10 @@ fn render(name: &str, appearance: &str, out: &Path) {
     command
         .env("FLUENT_GALLERY_FIXTURE", name)
         .env("FLUENT_GALLERY_APPEARANCE", appearance)
+        // Loops (spinner, indeterminate bar) never reach a still frame, and the
+        // capture waits for three identical frames. Freeze them instead of
+        // storing a picture of whatever phase the timer happened to hit.
+        .env("FLUENT_GALLERY_REDUCE_MOTION", "1")
         .env("FLUENT_GALLERY_SCREENSHOT", out);
     let status = run(&mut command, &log, Duration::from_secs(30))
         .unwrap_or_else(|error| panic!("rendering {name}: {error}; see {}", log.display()));
