@@ -13,6 +13,7 @@
 | `Dialog` / `AlertDialog` | gpui-base `Dialog`/`AlertDialog` 宿主 + Fluent scrim/卡片 + window keyed 状态 + 焦点交接 | 自己 deferred 渲染，无 root host；不走 Popover 定位器 |
 | `Sheet` | gpui-base `Sheet` 宿主（焦点陷阱 / Esc / overlay 关闭）+ window keyed 状态 + `Presence` 滑动；scrim 与 Dialog 共用 token | 不是 Popover 定位器；无拖拽关闭或滚动区；底层不区分 Esc 与 scrim |
 | `MenuDropdown` | 把 `Menu` 组合进 `Popover`，继承定位与关闭；键盘与鼠标移动共用菜单的当前项，布局变化不触发改选 | 子菜单点击归属另由 `InteriorRegions` 接线，见 [menus.md](menus.md#内部点击归属) |
+| `ContextMenu` | 区域层捕获右键 → 写入指针 → `Popover` 的点锚定定位器；菜单本体仍是 `Menu` | 不是触发器锚定：没有触发器矩形，区域层也不交给 `Popover` 当 trigger |
 | `Menu` / `MenuItem` | Fluent 菜单面板、菜单项、前导图标、勾选/单选行、方向键/Home/End/Enter 导航、任意层子菜单 | 键盘只覆盖已声明的 `.item()` 行；每个面板 `role=menu`，但焦点范围只有根容器 |
 
 **阅读顺序**：[公开导出](../../crates/fluent-ui/src/lib.rs) → 对应组件 → 状态/坐标读写者 → [现有测试](../../crates/fluent-components/src/popover/tests.rs)。
@@ -120,7 +121,26 @@ deferred positioner prepaint：读取同一共享值，结合面板尺寸和视�
 
 **尚未覆盖**：真实窗口中的滑入/滑出观感与系统 reduced-motion、固定尺寸下的长内容裁剪、拖拽关闭与滚动区都没有实现或验证；真实屏幕阅读器对面板模态语义的朗读与焦点顺序未验证。
 
-**命令入口**：`cargo test -p fluent-components --lib sheet --locked`。
+**命令入口**：`cargo test -p fluent-components --lib sheet --locked
+cargo test -p fluent-components --lib context_menu --locked`。
+
+## ContextMenu：指针锚定的浮层
+
+右键菜单没有触发器矩形：锚点是按下那一刻的指针位置。实现分三段：
+
+- 区域层（`context-menu-region-{id}`）捕获右键，`stop_propagation()` 让嵌套区域不会连父级一起打开，把位置写进 window keyed 的 `PointAnchor`（`Rc<Cell<Option<Point<Pixels>>>>`），未打开时打开并把请求交给 `on_open_change`。
+- `Popover` 的定位器在 `prepaint` 里先读指针锚点、再读触发器边界：有指针时用
+  `fluent_core::spec::menu::context_menu_origin(pointer, panel, viewport, margin)`，只有触发器时仍走原来的 `panel_origin`，两者都没有就不绘制。两轴各自判断：放得下就落在指针处，放不下就翻转，再钳制到窗口边距内。
+- 整个挂载层（区域层 + 定位好的面板）用 `.absolute().top_0().left_0().right_0().bottom_0()` **覆盖**宿主，不占宿主的布局槽位，因此宿主必须是定位容器（`.relative()`）才能把区域限制在宿主内。
+  两处塌陷都是实测出来的，不是理论推断：
+  1. 区域层自己用 `size_full()` 时，在 flex 列里百分比高度对着仍在协商的高度解析，塌成 0 高，右键完全没反应；
+  2. 挂载层用 `relative().size_full()` 时，它和宿主里同样 `size_full()` 的兄弟（比如卡片上的居中提示）平分高度——卡片下半张能右键、上半张不能。图库的卡片正是这种结构，`a_right_click_inside_a_fixed_card_still_opens_the_menu` 压在卡片上半部，改回 `size_full()` 立刻失败。
+
+区域层**不**作为 `Popover` 的触发器。`Popover` 的关闭逻辑里，落在触发器内的按下会跳过关闭以免和触发器的 toggle 重复；区域层就是整片可点击区域，交给它当触发器会让每次外部按下都被当成“按在触发器上”，菜单永远关不掉。
+
+焦点沿用 Popover 的交接：打开时面板拿走键盘，Escape 关闭且焦点仍在面板内时还给打开前的控件，点击别的控件关闭则不夺走它的焦点。
+
+未验证：原生窗口里的右键事件到 `MouseDown` 的映射、系统级菜单键（Shift+F10 / Apps）唤起（尚未接线）、以及高 DPI 多显示器下的翻转观感。
 
 ## 验证入口与尚未覆盖的场景
 
@@ -150,6 +170,12 @@ cargo run -p fluent-gallery
 | `controlled_caller_that_ignores_the_request_stays_open` | 受控调用方收到关闭请求但未更新值时，面板保持打开 |
 | `a_press_inside_a_published_content_region_keeps_the_panel_open` / `a_region_not_published_again_is_treated_as_outside` / `a_press_outside_panel_and_regions_still_requests_a_close` | 内容在面板外发布的区域算内部（子菜单点击不关根菜单）；停止发布后同一位置恢复为外部；面板与区域之外仍上报关闭 |
 | `escape_requests_a_close_while_focus_is_inside` | 焦点在浮层内时 Esc 上报关闭；测试自行绑定 `Dismiss` 并聚焦 |
+| `a_right_click_opens_the_menu_at_the_pointer` | 面板原点就是按下位置（±2 px），并只上报一次打开 |
+| `a_right_click_near_the_window_edge_keeps_the_menu_on_screen` | 右下角按下时面板右/下边贴住指针并留在窗口内，不越界 |
+| `escape_closes_the_menu` / `escape_returns_the_keyboard_to_the_control_that_had_it` | Esc 关闭并上报一次；焦点回到打开前的控件 |
+| `a_press_outside_the_panel_closes_the_menu` | 区域内、面板外的左键按下关闭菜单；把区域层当触发器后该测试失败 |
+| `a_controlled_right_click_still_opens_the_menu` / `a_right_click_inside_a_fixed_card_still_opens_the_menu` | 受控（页面决定开合）也能打开；挂在固定卡片上时整张卡片都能右键，改回 `relative().size_full()` 后压在上半部的那条失败 |
+| `a_second_right_click_moves_the_menu` | 第二次右键把面板移到新指针处，而不是再叠一层 |
 
 [Tooltip 测试](../../crates/fluent-components/src/tooltip/tests.rs)只覆盖 service 归属：无 `FluentRoot` 时调用方拿到 `None`、根渲染后 service 可用、实体身份跨重绘稳定。定位、翻转、悬停时机与多窗口隔离不在其中。
 
@@ -192,6 +218,7 @@ PR 要描述用户/调用方看到的“之前 → 之后”，并区分实现�
 | 子菜单关闭后再按 Escape | 关闭整条链 | 同上 |
 | 两个浮层同时打开，Escape | 只关焦点所在的那个 | `closing_one_popover_leaves_its_sibling_alone` |
 | 受控调用方接受关闭请求 | 不再自行重新打开 | `a_controlled_caller_that_accepts_the_request_stays_closed` |
+| 右键菜单，面板外按下 | 关闭并归还键盘 | `a_press_outside_the_panel_closes_the_menu` / `escape_returns_the_keyboard_to_the_control_that_had_it` |
 | 非受控浮层重绘 | 保持打开 | `an_uncontrolled_popover_stays_open_across_redraws` |
 
 仍未覆盖：真实窗口下的命中归属、事件顺序、Tooltip 的 hover/翻转/滚动跟随、边缘与缩放。

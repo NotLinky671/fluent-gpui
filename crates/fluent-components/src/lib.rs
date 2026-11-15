@@ -63,6 +63,7 @@ pub const TEXT_INPUT_NAVIGATE_BINDING_CONTEXT: &str = "FluentTextInputNavigate >
 
 pub mod button;
 mod circle;
+pub mod context_menu;
 pub mod dialog;
 pub mod feedback;
 pub mod field;
@@ -83,6 +84,7 @@ pub mod titlebar;
 pub mod tooltip;
 
 pub use button::Button;
+pub use context_menu::ContextMenu;
 pub use dialog::{AlertDialog, Dialog, DialogOpenChange};
 pub use feedback::{Avatar, Badge, ProgressBar, Spinner, TooltipSurface, TooltipView};
 pub use field::{Field, Label, ValidationMessage};

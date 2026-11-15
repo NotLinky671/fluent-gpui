@@ -198,13 +198,18 @@ struct PendingOpen { path: Vec<ElementId>, row: ElementId, deadline: Instant }
   点击外部控件不夺其焦点、关闭回调主动移焦不被撤销。
 - **滚动**（`menu/scroll_tests.rs`）：面板被视口夹住；End/Home 把当前行带入视野；
   滚轮把当前行滚出后同一个 End/Home 能把它找回来，且普通重绘不会把面板拽回当前行。
-- **spec**（`crates/fluent-core/src/spec/menu.rs`）：当前项填充与 path hint 填充不同。
+- **右键菜单**（`crates/fluent-components/src/context_menu/tests.rs`）：右键在指针处打开、贴边翻转、
+  Esc 关闭并归还键盘、面板外按下关闭、第二次右键移动面板。行渲染与 `Menu` 共用，定位见
+  [overlays.md](overlays.md#contextmenu指针锚定的浮层)。
+- **spec**（`crates/fluent-core/src/spec/menu.rs`）：当前项填充与 path hint 填充不同；右键菜单的
+  `context_menu_origin` 在四个边角各翻转/钳制一次。
 
 命令：
 
 ```text
 cargo test -p fluent-components --lib menu:: --locked
 cargo test -p fluent-components --lib popover:: --locked
+cargo test -p fluent-components --lib context_menu --locked
 cargo test -p fluent-core --lib spec::menu --locked
 ```
 

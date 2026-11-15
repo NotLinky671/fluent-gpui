@@ -222,4 +222,71 @@ impl Gallery {
 
         sheet_section.into_any_element()
     }
+
+    /// The right-click surface. `open` stays on the page so the demo exercises
+    /// the controlled path, and the menu is the same `Menu` the other demos
+    /// use: only the trigger and the placement are different.
+    pub(crate) fn context_menu_section(
+        &mut self,
+        cx: &mut Context<Self>,
+        theme: &FluentTheme,
+    ) -> AnyElement {
+        let t = theme.tokens();
+        let weak = cx.entity().downgrade();
+        let on_change = move |next: bool, _window: &mut Window, cx: &mut App| {
+            weak.update(cx, |this, cx| {
+                this.context_menu_open = next;
+                cx.notify();
+            })
+            .ok();
+        };
+
+        let menu = Menu::new("gallery-context-menu")
+            .item(MenuItem::new("gallery-context-cut", "Cut").secondary("Ctrl+X"))
+            .item(MenuItem::new("gallery-context-copy", "Copy").secondary("Ctrl+C"))
+            .item(MenuItem::new("gallery-context-paste", "Paste").secondary("Ctrl+V"))
+            .separator()
+            .header(MenuHeader::new("Arrange"))
+            .item(MenuItem::new("gallery-context-front", "Bring to front"))
+            .item(MenuItem::new("gallery-context-delete", "Delete").danger(true));
+
+        div()
+            .flex()
+            .flex_col()
+            .gap(px(12.))
+            .p(px(16.))
+            .child(
+                div()
+                    .text_size(px(12.))
+                    .text_color(t.color.neutral_foreground_2)
+                    .child("ContextMenu - right click inside the outline"),
+            )
+            .child(
+                div()
+                    .relative()
+                    .w(px(280.))
+                    .h(px(160.))
+                    .rounded(px(6.))
+                    .border_1()
+                    .border_color(t.color.neutral_stroke_1)
+                    .bg(t.color.neutral_background_2)
+                    .child(
+                        div()
+                            .size_full()
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .text_size(px(12.))
+                            .text_color(t.color.neutral_foreground_2)
+                            .child("Right click"),
+                    )
+                    .child(
+                        ContextMenu::new("gallery-context", menu)
+                            .region(div().size_full())
+                            .open(self.context_menu_open)
+                            .on_open_change(on_change),
+                    ),
+            )
+            .into_any_element()
+    }
 }

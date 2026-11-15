@@ -2,6 +2,7 @@
 
 use crate::gpui_compat::{Hsla, Pixels, px};
 use fluent_theme::FluentTheme;
+use gpui::{Point, Size, point};
 
 /// What the caller can vary on a menu item.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -155,6 +156,34 @@ pub fn max_height(viewport_height: Pixels, viewport_margin: Pixels) -> Pixels {
     (viewport_height - viewport_margin - viewport_margin).max(px(0.))
 }
 
+/// The top-left corner a context menu opens at for a press at `pointer`.
+///
+/// The panel hangs down and to the right of the pointer, like the WinUI context
+/// menu. When that would put it past the inset window edge on an axis, it flips
+/// to the other side of the pointer so the press stays against the panel's edge
+/// the menu grew from; a panel larger than the window is clamped to the margin
+/// instead of flipping into a negative origin.
+pub fn context_menu_origin(
+    pointer: Point<Pixels>,
+    panel: Size<Pixels>,
+    viewport: Size<Pixels>,
+    margin: Pixels,
+) -> Point<Pixels> {
+    let place = |at: Pixels, panel: Pixels, viewport: Pixels| {
+        let limit = (viewport - panel - margin).max(margin);
+        let flipped = at - panel;
+        if at + panel > viewport - margin {
+            flipped.clamp(margin, limit)
+        } else {
+            at.clamp(margin, limit)
+        }
+    };
+    point(
+        place(pointer.x, panel.width, viewport.width),
+        place(pointer.y, panel.height, viewport.height),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -249,5 +278,79 @@ mod tests {
     #[test]
     fn a_window_shorter_than_the_margins_never_yields_a_negative_cap() {
         assert_eq!(max_height(px(10.), px(8.)), px(0.));
+    }
+
+    fn context_menu_probe() -> (Point<Pixels>, Size<Pixels>, Size<Pixels>, Pixels) {
+        (
+            point(px(200.), px(120.)),
+            Size {
+                width: px(160.),
+                height: px(240.),
+            },
+            Size {
+                width: px(600.),
+                height: px(400.),
+            },
+            px(8.),
+        )
+    }
+
+    #[test]
+    fn a_context_menu_opens_down_and_right_from_the_pointer() {
+        let (pointer, panel, viewport, margin) = context_menu_probe();
+        assert_eq!(
+            context_menu_origin(pointer, panel, viewport, margin),
+            point(px(200.), px(120.))
+        );
+    }
+
+    #[test]
+    fn a_context_menu_flips_left_when_it_would_leave_the_window() {
+        let (_, panel, viewport, margin) = context_menu_probe();
+        let origin = context_menu_origin(point(px(560.), px(120.)), panel, viewport, margin);
+        assert_eq!(
+            origin.x,
+            px(400.),
+            "the panel keeps its right edge at the press"
+        );
+        assert_eq!(origin.y, px(120.));
+    }
+
+    #[test]
+    fn a_context_menu_flips_up_when_it_would_leave_the_window() {
+        let (_, panel, viewport, margin) = context_menu_probe();
+        let origin = context_menu_origin(point(px(200.), px(360.)), panel, viewport, margin);
+        assert_eq!(origin.x, px(200.));
+        assert_eq!(
+            origin.y,
+            px(120.),
+            "the panel keeps its bottom edge at the press"
+        );
+    }
+
+    #[test]
+    fn a_context_menu_larger_than_the_window_sits_on_the_margin() {
+        let panel = Size {
+            width: px(600.),
+            height: px(400.),
+        };
+        let viewport = Size {
+            width: px(600.),
+            height: px(400.),
+        };
+        assert_eq!(
+            context_menu_origin(point(px(300.), px(200.)), panel, viewport, px(8.)),
+            point(px(8.), px(8.)),
+            "both axes clamp instead of flipping to a negative origin"
+        );
+        let huge = Size {
+            width: px(900.),
+            height: px(700.),
+        };
+        assert_eq!(
+            context_menu_origin(point(px(300.), px(200.)), huge, viewport, px(8.)),
+            point(px(8.), px(8.)),
+            "a panel that cannot fit is pinned to the margin, never off-screen"
+        );
     }
 }

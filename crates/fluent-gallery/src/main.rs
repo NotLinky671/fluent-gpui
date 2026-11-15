@@ -19,9 +19,9 @@ use fluent_ui::gpui_base::input::{InputState, TextareaState};
 use fluent_ui::prelude::*;
 use fluent_ui::{
     AlertDialog, Appearance, Avatar, AvatarSize, Badge, BadgeAppearance, BadgeSize, Button,
-    ButtonAppearance, ButtonShape, Checkbox, ControlSize, Dialog, Divider, Field, FluentIcon,
-    FluentRoot, FluentTheme, FontMode, InputAppearance, Link, Menu, MenuDropdown, MenuGroup,
-    MenuHeader, MenuItem, MenuItemCheckbox, MenuItemRadio, MenuTrigger, Popover,
+    ButtonAppearance, ButtonShape, Checkbox, ContextMenu, ControlSize, Dialog, Divider, Field,
+    FluentIcon, FluentRoot, FluentTheme, FontMode, InputAppearance, Link, Menu, MenuDropdown,
+    MenuGroup, MenuHeader, MenuItem, MenuItemCheckbox, MenuItemRadio, MenuTrigger, Popover,
     ProgressAppearance, ProgressBar, Radio, Sheet, SheetSide, Spinner, SpinnerSize, Switch,
     TabItem, TabList, TextInput, Textarea, TextareaAppearance, TitleBar, TooltipSurface,
     ValidationMessage,
@@ -79,6 +79,9 @@ struct Gallery {
     alert_open: bool,
     /// The edge of the open sheet, or `None` when it is closed.
     sheet_side: Option<SheetSide>,
+    /// Whether the context menu demo is open. The page owns it so the demo
+    /// exercises the controlled path.
+    context_menu_open: bool,
     /// Keeps the OS appearance observer alive for the window's lifetime.
     _appearance_sub: Option<Subscription>,
 }
@@ -129,6 +132,7 @@ impl Gallery {
             vertical_tab_focus: cx.focus_handle().tab_stop(true),
             alert_open: false,
             sheet_side: None,
+            context_menu_open: false,
             fixture,
             _appearance_sub: sub,
         }
@@ -189,6 +193,7 @@ impl Render for Gallery {
         let feedback_section = self.feedback_section();
         let dialog_section = self.dialog_section(cx, &theme);
         let sheet_section = self.sheet_section(cx, &theme);
+        let context_menu_section = self.context_menu_section(cx, &theme);
         // `FLUENT_GALLERY_SECTION` narrows the gallery to one section; useful for
         // screenshots and pixel baselines that would otherwise be below the fold.
         let want = |name: &str| match std::env::var("FLUENT_GALLERY_SECTION") {
@@ -228,6 +233,9 @@ impl Render for Gallery {
         }
         if want("sheet") {
             sections.push(sheet_section.into_any_element());
+        }
+        if want("context-menu") {
+            sections.push(context_menu_section.into_any_element());
         }
         FluentRoot::new()
             .flex()

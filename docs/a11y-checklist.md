@@ -36,6 +36,7 @@ cargo test -p fluent-components --lib menu::scroll_tests --locked`、`--lib tabs
 | `Field` / `Label` | 无 | 不自动关联；调用方给输入控件 `accessibility_label` | — | — | 调用方负责命名 |
 | `Menu` / `MenuItem` | 每个面板 `Role::Menu`，行 `Role::MenuItem` | 面板名默认 `Menu`，可用 `accessibility_label` 覆盖；行有 `aria_label`、`aria_selected`；当前行作为 focused 容器的 active descendant | 方向键/Home/End/Enter/Space/typeahead/→ 子菜单/Esc 逐层/Tab 关闭 | 最深当前项填充 + 父行 path hint | 已实现（单焦点范围，见 [menus.md](subsystems/menus.md)） |
 | `MenuDropdown` | 继承 `Menu` | 继承，真实 Popover 面板 | 同上 + Esc/Tab | — | 已实现；模态内打开时按 owner 挂到模态子树 |
+| `ContextMenu` | 同 `Menu`（面板 `Role::Menu`，行 `Role::MenuItem`），区域层无 role | 面板名默认 `Menu`，可用 `accessibility_label`；**没有“右键菜单”语义，也没有键盘唤起** | 面板内方向键/Enter/Esc 同 `Menu`；唤起只支持指针 | 同 `Menu` | 打开时面板拿走键盘、关闭归还；真实屏幕阅读器未验证 |
 | `TabList` / `Tab` | `TabList` / `Tab` + `aria_selected` | 无 label | 方向键/Home/End | 选中指示条；聚焦不加外框 | 已实现（模型差异见缺口 2） |
 | `Popover` | 无 role（容器） | — | Esc/外部点击 | — | 非模态；不隐藏背景，也不得当作模态处理 |
 | `Dialog` | 宿主 `Role::Dialog`（`AlertDialog` 为 `Role::AlertDialog`） | 宿主 `aria_modal(true)`；名称默认取 `title` 文本，`accessibility_label` 覆盖，`title_element` 不提供名称；不同 Dialog 使用不同 host id | 主机焦点陷阱 + Enter/Esc | 卡片内 | 已实现；打开时 AX 树只保留最上层模态子树，背景节点消失，关闭恢复；模态内 deferred popup 按 owner reparent |
@@ -65,6 +66,7 @@ cargo test -p fluent-components --lib menu::scroll_tests --locked`、`--lib tabs
 7. **`title_element` 不提供名称**。自定义标题必须另给 `accessibility_label`，否则宿主无名。
 8. **`Dialog::title` 已改为 `SharedString`**。需要自定义元素时用 `title_element`；旧 `IntoElement` 调用方必须 clean cutover。
 9. **触发按钮没有“弹出菜单”语义**。本版 `accesskit 0.24.1` 的 `Role` 没有 `MenuButton`，`div` 也没有 `aria_haspopup`／`aria_expanded` 的调用点，因此 `MenuTrigger` 只能发布普通按钮角色与标签：屏幕阅读器不会知道它开菜单，也不知道菜单是否展开。可用 `accessibility_label` 让名称至少说明用途。
+10. **右键菜单没有键盘唤起**。`ContextMenu` 只在区域层监听右键；Shift+F10 与 Apps 键尚未接线，键盘用户无法打开它。本版 `accesskit` 也没有表达“这是上下文菜单”的角色。
 
 ## 键盘与焦点归还（已回归入口）
 
@@ -79,6 +81,7 @@ cargo test -p fluent-components --lib menu::scroll_tests --locked`、`--lib tabs
 | 菜单触发器开合、键盘归属与关闭归还 | `menu::family_tests`（其中“没有调用方焦点句柄”的用例在移除 `MenuDropdown::track_focus` 后失败） |
 | 菜单高度上限与当前行滚动可见 | `menu::scroll_tests`（移除 `max_h` 或 `scroll_to_item` 后失败） |
 | 受控触发器的开合请求与关闭后焦点去向 | `menu::trigger_tests`（点击改回取反内部状态、或在关闭回调里抢先聚焦触发器、或去掉 `restore_focus` 时失败） |
+| 右键菜单的指针定位、贴边翻转、关闭与焦点归还 | `context_menu::tests`（不改翻转、忽略指针锚点、把区域层当触发器、打开时不抢焦点都会失败） |
 | 中文输入 committed text 只进 typeahead、不激活行 | `menu::cjk_consumer_tests`（真实平台输入句柄） |
 
 ## 复跑
@@ -93,6 +96,7 @@ cargo test -p fluent-components --lib tabs --locked
 cargo test -p fluent-components --lib sheet --locked
 cargo test -p fluent-components --lib popover --locked
 cargo test -p fluent-components --lib dialog --locked
+cargo test -p fluent-components --lib context_menu --locked
 ```
 
 ## 未验证

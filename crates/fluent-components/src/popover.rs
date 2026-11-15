@@ -42,8 +42,17 @@ enum TabHandoff {
     Prev,
 }
 
+/// A window-space point the panel hangs from instead of a trigger's bounds.
+///
+/// A context menu has no trigger element: it opens where the press happened, so
+/// the press writes the point and the deferred positioner reads it in the same
+/// frame the panel is measured.
+pub type PointAnchor = Rc<Cell<Option<Point<Pixels>>>>;
+
 struct PopoverPositioner {
     trigger_bounds: TriggerBounds,
+    /// Set for a point-anchored surface; wins over `trigger_bounds`.
+    anchor_point: Option<PointAnchor>,
     /// Written back during prepaint so the panel's own mouse-out handler knows
     /// where the surface ended up.
     panel_bounds: TriggerBounds,
@@ -120,17 +129,26 @@ impl Element for PopoverPositioner {
     ) -> bool {
         // Deferred prepaint runs after the trigger's measurement callback. Do
         // not capture a copy of these bounds in render/request_layout.
-        let Some(trigger) = self.trigger_bounds.get() else {
-            return false;
-        };
+        let pointer = self.anchor_point.as_ref().and_then(|point| point.get());
+        let trigger = self.trigger_bounds.get();
         let panel = window.layout_bounds(*panel_layout);
-        let origin = panel_origin(
-            trigger,
-            panel.size,
-            window.viewport_size(),
-            self.geometry.viewport_margin + window.client_inset().unwrap_or_default(),
-            self.geometry.anchor_gap,
-        );
+        let margin = self.geometry.viewport_margin + window.client_inset().unwrap_or_default();
+        let origin = match (pointer, trigger) {
+            (Some(pointer), _) => fluent_core::spec::menu::context_menu_origin(
+                pointer,
+                panel.size,
+                window.viewport_size(),
+                margin,
+            ),
+            (None, Some(trigger)) => panel_origin(
+                trigger,
+                panel.size,
+                window.viewport_size(),
+                margin,
+                self.geometry.anchor_gap,
+            ),
+            (None, None) => return false,
+        };
         // layout_bounds includes the pixel-snapped ancestor scroll offset.
         // Replace that offset, preserving GPUI's physical-pixel snapping rather
         // than rounding a relative displacement to whole logical pixels.
@@ -174,6 +192,8 @@ pub struct Popover {
     /// Focus to fall back to when the panel closes and nothing owned focus when
     /// it opened, so the keyboard never strands on an unmounted panel.
     restore_focus: Option<gpui::FocusHandle>,
+    /// A point the panel hangs from instead of the trigger's measured bounds.
+    anchor_point: Option<PointAnchor>,
     /// Extra window-space regions owned by the content but part of this floating
     /// surface. Used only for the outside-press test, never for placement.
     interior: Option<InteriorRegions>,
@@ -192,6 +212,7 @@ impl Popover {
             on_open_change: None,
             focus: None,
             restore_focus: None,
+            anchor_point: None,
             interior: None,
             style: StyleRefinement::default(),
         }
@@ -204,6 +225,16 @@ impl Popover {
     }
 
     /// The floating panel's body.
+    /// Anchors the panel to a window-space point instead of the trigger.
+    ///
+    /// The positioner reads the point during prepaint, so the caller can write
+    /// it in the same frame as the press and the panel opens exactly there,
+    /// with no frame at the old position.
+    pub fn anchor_point(mut self, anchor: PointAnchor) -> Self {
+        self.anchor_point = Some(anchor);
+        self
+    }
+
     pub fn content(mut self, content: impl IntoElement) -> Self {
         self.content = Some(content.into_any_element());
         self
@@ -458,6 +489,7 @@ impl RenderOnce for Popover {
                     .when_some(trigger, |el, trigger| el.child(trigger)),
             );
 
+        let anchor_point = self.anchor_point.clone();
         let panel_bounds: TriggerBounds = TriggerBounds::default();
         let close_bounds = panel_bounds.clone();
         let interior = self.interior.clone();
@@ -550,6 +582,7 @@ impl RenderOnce for Popover {
                 el.child(
                     deferred(PopoverPositioner {
                         trigger_bounds,
+                        anchor_point,
                         panel_bounds,
                         panel,
                         geometry,
