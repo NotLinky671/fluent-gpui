@@ -76,12 +76,16 @@ pub fn reported(window: &gpui::Window) -> Option<i32> {
 #[derive(Default)]
 struct BackdropRegistry {
     windows: HashMap<AnyWindowHandle, Held>,
+    next_switch: u64,
 }
 
 #[derive(Clone, Copy)]
 struct Held {
     asked: (WindowBackdrop, bool),
     outcome: BackdropOutcome,
+    // Keep the last completed request until the opaque frame has been presented.
+    // The ticket prevents an older callback from completing a newer switch.
+    pending_solid: Option<(bool, u64)>,
 }
 
 impl Global for BackdropRegistry {}
@@ -92,7 +96,10 @@ impl Global for BackdropRegistry {}
 /// One window owns one backdrop: the request is recorded per window, so two roots
 /// in the same window cannot fight over the material, and a rebuilt window starts
 /// from its own state. High contrast comes from the theme and revokes the
-/// material instead of leaving a translucent layer over the desktop.
+/// material instead of leaving a translucent layer over the desktop. When a
+/// confirmed material is revoked, the root paints one opaque frame before a
+/// next-frame callback removes the material and makes the renderer opaque.
+/// A superseding request cancels that callback.
 pub fn policy_for(window: &gpui::Window, cx: &mut App, request: WindowBackdrop) -> BackdropPolicy {
     let theme = FluentTheme::global(cx);
     let high_contrast = theme.appearance() == Appearance::HighContrast;
@@ -109,8 +116,52 @@ pub fn policy_for(window: &gpui::Window, cx: &mut App, request: WindowBackdrop) 
         .get(&handle)
         .copied();
 
+    if let Some(mut held) = cached
+        && target == WindowBackdrop::Solid
+        && held.asked.0 != WindowBackdrop::Solid
+        && held.outcome == BackdropOutcome::Applied
+    {
+        // DWM changes take effect independently of GPUI's current draw. Removing
+        // the material here would expose the previously presented translucent
+        // frame. Paint the opaque root first, leaving both DWM and the renderer
+        // alone until the next frame callback (after this frame is presented).
+        if !held.pending_solid.is_some_and(|(mode, _)| mode == dark) {
+            let registry = cx.default_global::<BackdropRegistry>();
+            registry.next_switch = registry.next_switch.wrapping_add(1);
+            let ticket = (dark, registry.next_switch);
+            held.pending_solid = Some(ticket);
+            registry.windows.insert(handle, held);
+            window.on_next_frame(move |window, cx| {
+                let current = cx.default_global::<BackdropRegistry>().windows.get(&handle);
+                if !current.is_some_and(|held| held.pending_solid == Some(ticket)) {
+                    return;
+                }
+                let outcome = apply(window, WindowBackdrop::Solid, dark);
+                cx.default_global::<BackdropRegistry>().windows.insert(
+                    handle,
+                    Held {
+                        asked: (WindowBackdrop::Solid, dark),
+                        outcome,
+                        pending_solid: None,
+                    },
+                );
+                window.refresh();
+            });
+        }
+        // Solid and high contrast ignore the old material outcome when deciding
+        // the layer: this frame is fully opaque, never a translucent fallback.
+        return resolve(request, held.outcome, high_contrast, &theme);
+    }
+
     let outcome = match cached {
-        Some(held) if held.asked == (target, dark) => held.outcome,
+        Some(mut held) if held.asked == (target, dark) => {
+            if held.pending_solid.take().is_some() {
+                cx.default_global::<BackdropRegistry>()
+                    .windows
+                    .insert(handle, held);
+            }
+            held.outcome
+        }
         _ => {
             let outcome = apply(window, target, dark);
             cx.default_global::<BackdropRegistry>().windows.insert(
@@ -118,6 +169,7 @@ pub fn policy_for(window: &gpui::Window, cx: &mut App, request: WindowBackdrop) 
                 Held {
                     asked: (target, dark),
                     outcome,
+                    pending_solid: None,
                 },
             );
             outcome
@@ -127,7 +179,10 @@ pub fn policy_for(window: &gpui::Window, cx: &mut App, request: WindowBackdrop) 
     resolve(request, outcome, high_contrast, &theme)
 }
 
-/// What this window was last asked for and what the compositor answered.
+/// The last completed request for this window and what the compositor answered.
+///
+/// While Solid waits for its first opaque frame, this still reports the prior
+/// material; it does not claim the pending removal has already succeeded.
 ///
 /// Diagnostics only: the policy already carries the decision, but when a material
 /// does not appear the first question is whether the compositor refused it, and

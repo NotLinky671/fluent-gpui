@@ -59,10 +59,12 @@ Windows/macOS 应用在打开窗口后安装 `window.on_window_should_close(cx, 
 | 层 | 位置 | 职责 |
 |---|---|---|
 | 策略 | `crates/fluent-core/src/spec/backdrop.rs` | `WindowBackdrop`（`Solid` / `Mica` / `MicaAlt`）、`BackdropOutcome`（`Applied` / `Unsupported` / `Failed` / `Mismatch`）、`resolve(...) -> BackdropPolicy`（窗口外观 + 根层颜色 + 是否显示材质） |
-| 适配 | `crates/fluent-components/src/backdrop.rs` | 唯一与平台对话的地方：`apply` **先请求、后设外观**——写 `DWMWA_USE_IMMERSIVE_DARK_MODE` 与 `DWMWA_SYSTEMBACKDROP_TYPE` 后读回，只有读回等于请求值才把 GPUI 外观切成材质（决定清屏 alpha）；否则设成 `Opaque` 并显式写 `DWMSBT_NONE` 撤销；`policy_for` 用按窗口的注册表记住上次请求（含明暗），只在请求变化时再问一次 |
+| 适配 | `crates/fluent-components/src/backdrop.rs` | 唯一与平台对话的地方：`apply` **先请求、后设外观**——写 `DWMWA_USE_IMMERSIVE_DARK_MODE` 与 `DWMWA_SYSTEMBACKDROP_TYPE` 后读回，只有读回等于请求值才把 GPUI 外观切成材质（决定清屏 alpha）；否则设成 `Opaque` 并显式写 `DWMSBT_NONE` 撤销；`policy_for` 用按窗口的注册表记住上次请求（含明暗），只在请求变化时再问一次；已启用材质转实色时先提交不透明根层，再分帧撤销 |
 | 绘制 | `crates/fluent-components/src/root.rs` | 有请求时用 `policy.layer`，否则用 `neutral_background_1` |
 
 材质出现过一次才允许半透明：`Applied` 之外（被拒、平台不支持、合成器回了别的值、高对比度）一律退回不透明主题底，避免把正文放在看不见的壁纸上。回退是两件事，只做前一件的版本会露出破绽：页面变成实色，窗口其实还按透明清屏——GPUI 的外观必须真的设回 `Opaque`，并且必须显式写 `DWMSBT_NONE`，因为 `Opaque` 分支不会替我们清除 `DWMWA_SYSTEMBACKDROP_TYPE`，材质会留在窗口上。非 Windows 平台先问再改，请求拿不到 `Applied` 就不动外观，因此不会出现不支持却留下透明窗口的情况。`apply` 返回的仍是平台的原始答复：回退成功不会把 `Failed` 改写成成功，`last_request` 读到的也还是那次失败。Windows 会接受调用却保留自己的材质，所以读回值不一致记 `Mismatch` 而不是成功。高对比度从主题的 `Appearance::HighContrast` 读取，并会把窗口请求本身降为 `Solid`，否则再次关闭高对比度时材质不会回来。
+
+从已确认的 Mica / Mica Alt 切到 Solid 或高对比度时，`policy_for` 先返回完全不透明的根层，保留当前原生材质与清屏方式，使这帧实色底先提交；`on_next_frame` 随后调用 `apply(Solid)`，真正撤销 DWM 材质并将 GPUI 设为 `Opaque`，再刷新窗口。DWM 属性写入独立于 GPUI 的本帧提交，若在 render 中立即撤销，会让上一帧半透明内容短暂失去合成底。待执行请求按窗口和切换编号校验；切回原材质或改选其他材质会使旧回调失效，同一待执行请求的重绘不会重复排队。`last_request` 在等待期间仍报告最后完成的请求与真实结果。首次 Solid、首次请求失败和材质间切换保留原路径；低层 `apply` 仍是立即调用，拥有整窗绘制的应用应通过 `FluentRoot::backdrop` 使用分帧撤销。
 
 根层用 50% 而不是全透明：`LayerFillColorDefault` 在浅色主题是 `#80FFFFFF`（白色 50%），同一条 alpha 在深色主题同样成立。在本机壁纸下，Mica 面实测 `(239, 244, 249)`，叠层后 `(247, 249, 252)`；全透明会把正文直接压在壁纸上。
 
