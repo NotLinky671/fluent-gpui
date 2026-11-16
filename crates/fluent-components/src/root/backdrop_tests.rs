@@ -1,49 +1,75 @@
-//! What the root paints when it asks for a window material.
+//! What asking for a window material does to the window.
 //!
-//! The compositor is the only authority: GPUI's setter returns nothing, so a
-//! refused request is indistinguishable from one that never happened unless the
-//! root consults the answer. These tests pin both directions — a material the
-//! platform confirmed must let the window show through, and one it refused,
-//! could not confirm, or that high contrast overrules must leave the page
-//! opaque.
+//! The test platform has no compositor: its appearance getter always reports
+//! `Opaque` and its setter does nothing. Asserting on the policy or the painted
+//! colour alone would therefore miss the case that matters — a request that
+//! leaves the window composing against the desktop while the page paints an
+//! opaque surface. These tests install a recorded platform, drive the production
+//! path (`policy_for` → `apply` → the appearance setter) and check the calls a
+//! real window would have received.
 
 use super::*;
-use crate::backdrop::{BackdropOutcome, MATERIAL_LAYER_ALPHA, WindowBackdrop, prime};
-use fluent_theme::FluentTheme;
-use gpui::{AppContext, Context, Render, TestAppContext, Window, WindowHandle, px, size};
+use crate::backdrop::{
+    BackdropOutcome, MATERIAL_LAYER_ALPHA, RecordedCalls, WindowBackdrop, fake_calls, install_fake,
+    last_request,
+};
+use fluent_theme::{Appearance, FluentTheme};
+use gpui::{
+    AppContext, Context, Render, TestAppContext, Window, WindowBackgroundAppearance, WindowHandle,
+    px, size,
+};
+use std::cell::Cell;
+use std::rc::Rc;
+
+type Asked = Rc<Cell<Option<WindowBackdrop>>>;
 
 struct View {
-    backdrop: Option<WindowBackdrop>,
+    asked: Asked,
 }
 
 impl Render for View {
     fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
         let mut root = FluentRoot::new();
-        if let Some(backdrop) = self.backdrop {
+        if let Some(backdrop) = self.asked.get() {
             root = root.backdrop(backdrop);
         }
         root.child(div().size_full())
     }
 }
 
-fn open(cx: &mut TestAppContext, backdrop: Option<WindowBackdrop>) -> WindowHandle<View> {
-    cx.update(fluent_core::gpui_compat::init_base);
-    let handle = cx.open_window(size(px(600.), px(400.)), |_, _| View { backdrop });
-    cx.run_until_parked();
-    handle
+struct Setup {
+    handle: WindowHandle<View>,
+    asked: Asked,
 }
 
-fn open_high_contrast(
+fn open(cx: &mut TestAppContext, backdrop: Option<WindowBackdrop>) -> Setup {
+    open_with(cx, backdrop, None)
+}
+
+fn open_with(
     cx: &mut TestAppContext,
     backdrop: Option<WindowBackdrop>,
-) -> WindowHandle<View> {
+    appearance: Option<Appearance>,
+) -> Setup {
     cx.update(|cx| {
         fluent_core::gpui_compat::init_base(cx);
-        FluentTheme::high_contrast().install(cx);
+        if let Some(appearance) = appearance {
+            FluentTheme::for_appearance(appearance).install(cx);
+        }
     });
-    let handle = cx.open_window(size(px(600.), px(400.)), |_, _| View { backdrop });
+    let asked: Asked = Rc::new(Cell::new(backdrop));
+    let for_view = asked.clone();
+    let handle = cx.open_window(size(px(600.), px(400.)), move |_, _| View {
+        asked: for_view,
+    });
     cx.run_until_parked();
-    handle
+    Setup { handle, asked }
+}
+
+/// Asks for another backdrop and lets one frame run.
+fn ask(cx: &mut TestAppContext, setup: &Setup, backdrop: Option<WindowBackdrop>) {
+    setup.asked.set(backdrop);
+    let _ = surface(cx, setup.handle);
 }
 
 /// The colour of the largest painted quad, which is the root's own surface.
@@ -70,55 +96,261 @@ fn surface(cx: &mut TestAppContext, handle: WindowHandle<View>) -> gpui::Hsla {
     colour.expect("the root must paint a surface")
 }
 
-fn confirmed(cx: &mut TestAppContext, backdrop: WindowBackdrop) {
-    cx.update(|cx| prime(cx, backdrop, BackdropOutcome::Applied));
+fn calls() -> RecordedCalls {
+    fake_calls().expect("this test installed a recorded platform")
+}
+
+/// What the window was last asked for. Read after a frame, because the request
+/// is made while the root renders.
+fn last_of(cx: &mut TestAppContext, setup: &Setup) -> Option<(WindowBackdrop, BackdropOutcome)> {
+    let mut last = None;
+    cx.update_window(setup.handle.into(), |_, window, cx| {
+        last = last_request(window, cx);
+    })
+    .unwrap();
+    last
 }
 
 #[test]
 fn the_default_root_paints_an_opaque_surface() {
     let mut cx = TestAppContext::single();
     let expected = cx.update(|cx| FluentTheme::global(cx).tokens().color.neutral_background_1);
-    let handle = open(&mut cx, None);
-    let colour = surface(&mut cx, handle);
+    let setup = open(&mut cx, None);
+    let colour = surface(&mut cx, setup.handle);
     assert_eq!(
         colour, expected,
         "a root that asks for nothing must paint the theme surface unchanged"
     );
     assert_eq!(colour.a, 1.0, "and it must be opaque");
-}
-
-#[test]
-fn a_material_the_compositor_refuses_stays_opaque() {
-    let mut cx = TestAppContext::single();
-    let handle = open(&mut cx, Some(WindowBackdrop::Mica));
-    let colour = surface(&mut cx, handle);
-    assert_eq!(
-        colour.a, 1.0,
-        "the test platform has no compositor, so Mica cannot be confirmed and the page must stay opaque"
+    assert!(
+        fake_calls().is_none(),
+        "a root with no request must not talk to the platform at all"
     );
 }
 
 #[test]
-fn a_confirmed_material_lets_the_window_through() {
+fn a_refused_material_leaves_the_window_opaque() {
     let mut cx = TestAppContext::single();
-    let handle = open(&mut cx, Some(WindowBackdrop::Mica));
-    confirmed(&mut cx, WindowBackdrop::Mica);
-    let colour = surface(&mut cx, handle);
+    install_fake(vec![(
+        WindowBackdrop::Mica,
+        BackdropOutcome::Unsupported("no compositor"),
+    )]);
+    let setup = open(&mut cx, Some(WindowBackdrop::Mica));
+    let colour = surface(&mut cx, setup.handle);
+    let recorded = calls();
+
+    assert_eq!(
+        recorded.requests,
+        vec![(WindowBackdrop::Mica, false)],
+        "the request must still be made"
+    );
+    assert_eq!(
+        recorded.appearances,
+        vec![WindowBackgroundAppearance::Opaque],
+        "a refused request must never make the window transparent, not even for one setter call"
+    );
+    assert_eq!(
+        recorded.clears, 1,
+        "the refused material must be cleared explicitly"
+    );
+    assert_eq!(colour.a, 1.0, "and the page must stay opaque");
+    assert_eq!(
+        last_of(&mut cx, &setup),
+        Some((
+            WindowBackdrop::Mica,
+            BackdropOutcome::Unsupported("no compositor")
+        )),
+        "the window must keep the refusal, not the fallback's success"
+    );
+}
+
+#[test]
+fn a_failed_request_keeps_its_reason() {
+    let mut cx = TestAppContext::single();
+    install_fake(vec![(
+        WindowBackdrop::Mica,
+        BackdropOutcome::Failed(-2147467259),
+    )]);
+    let setup = open(&mut cx, Some(WindowBackdrop::Mica));
+    let colour = surface(&mut cx, setup.handle);
+    let recorded = calls();
+
+    assert_eq!(
+        recorded.appearances,
+        vec![WindowBackgroundAppearance::Opaque]
+    );
+    assert_eq!(recorded.clears, 1);
+    assert_eq!(colour.a, 1.0);
+    assert_eq!(
+        last_of(&mut cx, &setup),
+        Some((WindowBackdrop::Mica, BackdropOutcome::Failed(-2147467259))),
+        "clearing the material must not overwrite the failure that caused it"
+    );
+}
+
+#[test]
+fn a_mismatched_material_is_treated_as_a_refusal() {
+    let mut cx = TestAppContext::single();
+    install_fake(vec![(
+        WindowBackdrop::Mica,
+        BackdropOutcome::Mismatch {
+            asked: 2,
+            reported: 1,
+        },
+    )]);
+    let setup = open(&mut cx, Some(WindowBackdrop::Mica));
+    let colour = surface(&mut cx, setup.handle);
+    let recorded = calls();
+
+    assert_eq!(
+        recorded.appearances,
+        vec![WindowBackgroundAppearance::Opaque]
+    );
+    assert_eq!(recorded.clears, 1);
+    assert_eq!(colour.a, 1.0);
+    assert_eq!(
+        last_of(&mut cx, &setup),
+        Some((
+            WindowBackdrop::Mica,
+            BackdropOutcome::Mismatch {
+                asked: 2,
+                reported: 1
+            }
+        ))
+    );
+}
+
+#[test]
+fn a_confirmed_material_turns_the_window_transparent() {
+    let mut cx = TestAppContext::single();
+    install_fake(vec![(WindowBackdrop::Mica, BackdropOutcome::Applied)]);
+    let setup = open(&mut cx, Some(WindowBackdrop::Mica));
+    let colour = surface(&mut cx, setup.handle);
+    let recorded = calls();
+
+    assert_eq!(
+        recorded.appearances,
+        vec![WindowBackgroundAppearance::MicaBackdrop]
+    );
+    assert_eq!(
+        recorded.clears, 0,
+        "a confirmed material must not be cleared again"
+    );
     assert!(
         (colour.a - MATERIAL_LAYER_ALPHA).abs() < 0.01,
         "a confirmed material paints a translucent layer, got alpha {}",
         colour.a
     );
+    assert_eq!(
+        last_of(&mut cx, &setup),
+        Some((WindowBackdrop::Mica, BackdropOutcome::Applied))
+    );
 }
 
 #[test]
-fn high_contrast_refuses_the_material_even_when_it_was_confirmed() {
+fn high_contrast_asks_for_solid_and_stays_opaque() {
     let mut cx = TestAppContext::single();
-    let handle = open_high_contrast(&mut cx, Some(WindowBackdrop::Mica));
-    confirmed(&mut cx, WindowBackdrop::Mica);
-    let colour = surface(&mut cx, handle);
-    assert_eq!(
-        colour.a, 1.0,
-        "high contrast overrules the material, so the page must stay opaque"
+    install_fake(Vec::new());
+    let setup = open_with(
+        &mut cx,
+        Some(WindowBackdrop::Mica),
+        Some(Appearance::HighContrast),
     );
+    let colour = surface(&mut cx, setup.handle);
+    let recorded = calls();
+
+    assert_eq!(
+        recorded.requests,
+        vec![(WindowBackdrop::Solid, false)],
+        "high contrast downgrades the window request itself, otherwise turning it off could not bring the material back"
+    );
+    assert_eq!(
+        recorded.appearances,
+        vec![WindowBackgroundAppearance::Opaque]
+    );
+    assert_eq!(recorded.clears, 0, "the request already asked for none");
+    assert_eq!(colour.a, 1.0);
+    assert_eq!(
+        last_of(&mut cx, &setup),
+        Some((WindowBackdrop::Solid, BackdropOutcome::Applied))
+    );
+}
+
+#[test]
+fn a_repaint_does_not_ask_the_compositor_again() {
+    let mut cx = TestAppContext::single();
+    install_fake(vec![(WindowBackdrop::Mica, BackdropOutcome::Applied)]);
+    let setup = open(&mut cx, Some(WindowBackdrop::Mica));
+    for _ in 0..4 {
+        let _ = surface(&mut cx, setup.handle);
+    }
+    let recorded = calls();
+
+    assert_eq!(
+        recorded.requests.len(),
+        1,
+        "each further frame must not re-issue the platform call: {:?}",
+        recorded.requests
+    );
+    assert_eq!(recorded.appearances.len(), 1);
+    assert_eq!(recorded.clears, 0);
+}
+
+#[test]
+fn solid_removes_the_material_and_mica_can_come_back() {
+    let mut cx = TestAppContext::single();
+    install_fake(vec![(WindowBackdrop::Mica, BackdropOutcome::Applied)]);
+    let setup = open(&mut cx, Some(WindowBackdrop::Mica));
+    let _ = surface(&mut cx, setup.handle);
+
+    ask(&mut cx, &setup, Some(WindowBackdrop::Solid));
+    let solid = surface(&mut cx, setup.handle);
+    assert_eq!(
+        solid.a, 1.0,
+        "asking for Solid must remove the material, not merely stop painting it"
+    );
+
+    ask(&mut cx, &setup, Some(WindowBackdrop::Mica));
+    let back = surface(&mut cx, setup.handle);
+    assert!((back.a - MATERIAL_LAYER_ALPHA).abs() < 0.01);
+
+    let recorded = calls();
+    assert_eq!(
+        recorded.requests,
+        vec![
+            (WindowBackdrop::Mica, false),
+            (WindowBackdrop::Solid, false),
+            (WindowBackdrop::Mica, false),
+        ],
+        "each change of request is one platform call, in order"
+    );
+    assert_eq!(
+        recorded.appearances,
+        vec![
+            WindowBackgroundAppearance::MicaBackdrop,
+            WindowBackgroundAppearance::Opaque,
+            WindowBackgroundAppearance::MicaBackdrop,
+        ]
+    );
+    assert_eq!(recorded.clears, 0, "the Solid request clears by itself");
+}
+
+#[test]
+fn the_dark_flag_is_part_of_the_request() {
+    let mut cx = TestAppContext::single();
+    install_fake(vec![(WindowBackdrop::Mica, BackdropOutcome::Applied)]);
+    let setup = open_with(&mut cx, Some(WindowBackdrop::Mica), Some(Appearance::Dark));
+    let dark_alpha = surface(&mut cx, setup.handle).a;
+
+    cx.update(|cx| FluentTheme::for_appearance(Appearance::Light).install(cx));
+    let light_alpha = surface(&mut cx, setup.handle).a;
+
+    let recorded = calls();
+    assert_eq!(
+        recorded.requests,
+        vec![(WindowBackdrop::Mica, true), (WindowBackdrop::Mica, false)],
+        "the app mode must be part of the cached request, or a theme switch would not re-tint the material"
+    );
+    assert!((dark_alpha - MATERIAL_LAYER_ALPHA).abs() < 0.01);
+    assert!((light_alpha - MATERIAL_LAYER_ALPHA).abs() < 0.01);
 }

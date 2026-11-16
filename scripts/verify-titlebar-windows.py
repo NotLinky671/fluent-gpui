@@ -10,6 +10,7 @@ import ctypes as c
 from ctypes import wintypes as w
 import json
 import os
+import re
 from pathlib import Path
 import subprocess
 import time
@@ -218,15 +219,22 @@ def backdrop(process, handles, path):
     hwnd = handles[0]
     wait_for(lambda: "backdrop:policy=" in path.read_text(encoding="utf-8"), "backdrop policy")
     text = path.read_text(encoding="utf-8")
+    values = []
     steps = [line for line in text.splitlines() if line.startswith("backdrop:request=")]
     # Every step of the round trip is checked against the DWM contract, not
-    # against what the adapter believed it asked for.
-    assert len(steps) == 3, steps
+    # against what the adapter believed it asked for, and the value DWM reports
+    # afterwards is compared with the material that was asked for: Mica, MicaAlt,
+    # then Solid actually revoking it, then Mica coming back.
+    assert len(steps) == 4, steps
     for line in steps:
         assert line.endswith(" ok"), line
+        reported = re.search(r"reported=Some\((\d+)\)", line)
+        assert reported, line
+        values.append(int(reported.group(1)))
+    assert values == [2, 4, 1, 2], values
     assert "material:true" in text, text
     screenshot(hwnd, "mica-window")
-    results["backdrop"] = {"steps": steps, "policy": "material"}
+    results["backdrop"] = {"steps": steps, "reported": values, "policy": "material"}
 
 
 def two(process, handles, _):

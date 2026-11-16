@@ -59,18 +59,18 @@ Windows/macOS 应用在打开窗口后安装 `window.on_window_should_close(cx, 
 | 层 | 位置 | 职责 |
 |---|---|---|
 | 策略 | `crates/fluent-core/src/spec/backdrop.rs` | `WindowBackdrop`（`Solid` / `Mica` / `MicaAlt`）、`BackdropOutcome`（`Applied` / `Unsupported` / `Failed` / `Mismatch`）、`resolve(...) -> BackdropPolicy`（窗口外观 + 根层颜色 + 是否显示材质） |
-| 适配 | `crates/fluent-components/src/backdrop.rs` | 唯一与平台对话的地方：`apply` 先设 GPUI 的外观（决定清屏 alpha），再调 `DwmSetWindowAttribute(DWMWA_SYSTEMBACKDROP_TYPE)` 并**读回**；`set_dark_mode` 写 `DWMWA_USE_IMMERSIVE_DARK_MODE`；`policy_for` 用按窗口的 keyed state 记住上次请求（含明暗），只在请求变化时再问一次 |
+| 适配 | `crates/fluent-components/src/backdrop.rs` | 唯一与平台对话的地方：`apply` **先请求、后设外观**——写 `DWMWA_USE_IMMERSIVE_DARK_MODE` 与 `DWMWA_SYSTEMBACKDROP_TYPE` 后读回，只有读回等于请求值才把 GPUI 外观切成材质（决定清屏 alpha）；否则设成 `Opaque` 并显式写 `DWMSBT_NONE` 撤销；`policy_for` 用按窗口的注册表记住上次请求（含明暗），只在请求变化时再问一次 |
 | 绘制 | `crates/fluent-components/src/root.rs` | 有请求时用 `policy.layer`，否则用 `neutral_background_1` |
 
-材质出现过一次才允许半透明：`Applied` 之外（被拒、平台不支持、合成器回了别的值、高对比度）一律退回不透明主题底，避免把正文放在看不见的壁纸上。Windows 会接受调用却保留自己的材质，所以读回值不一致记 `Mismatch` 而不是成功。高对比度从主题的 `Appearance::HighContrast` 读取，并会把窗口请求本身降为 `Solid`，否则再次关闭高对比度时材质不会回来。
+材质出现过一次才允许半透明：`Applied` 之外（被拒、平台不支持、合成器回了别的值、高对比度）一律退回不透明主题底，避免把正文放在看不见的壁纸上。回退是两件事，只做前一件的版本会露出破绽：页面变成实色，窗口其实还按透明清屏——GPUI 的外观必须真的设回 `Opaque`，并且必须显式写 `DWMSBT_NONE`，因为 `Opaque` 分支不会替我们清除 `DWMWA_SYSTEMBACKDROP_TYPE`，材质会留在窗口上。非 Windows 平台先问再改，请求拿不到 `Applied` 就不动外观，因此不会出现不支持却留下透明窗口的情况。`apply` 返回的仍是平台的原始答复：回退成功不会把 `Failed` 改写成成功，`last_request` 读到的也还是那次失败。Windows 会接受调用却保留自己的材质，所以读回值不一致记 `Mismatch` 而不是成功。高对比度从主题的 `Appearance::HighContrast` 读取，并会把窗口请求本身降为 `Solid`，否则再次关闭高对比度时材质不会回来。
 
 根层用 50% 而不是全透明：`LayerFillColorDefault` 在浅色主题是 `#80FFFFFF`（白色 50%），同一条 alpha 在深色主题同样成立。在本机壁纸下，Mica 面实测 `(239, 244, 249)`，叠层后 `(247, 249, 252)`；全透明会把正文直接压在壁纸上。
 
-一个窗口只有一个材质拥有者：请求存在该窗口的 keyed state 里，两个根不会互相抢；窗口重建后从新窗口自己的状态开始。
+一个窗口只有一个材质拥有者：请求按窗口记录在 `BackdropRegistry`（`App` 全局，以 `window.window_handle()` 为键）里，两个根不会互相抢；窗口重建后从新窗口自己的状态开始。放在全局注册表而不是 keyed element state，是因为 `use_keyed_state` 的 id 会与父元素 id 组合，只有同一位置的元素读得到，而诊断接口 `last_request(window, cx)` 需要在元素之外回答这个窗口最后被问了什么、合成器回了什么。
 
 材质跟随的是应用模式，不是我们画的颜色：DWM 用窗口的 immersive dark 标记决定 Mica 的明暗，所以 `policy_for` 把 `Appearance::Dark` 折算成 `DWMWA_USE_IMMERSIVE_DARK_MODE = 1` 一起写入，并把明暗并入缓存的请求（切主题时重新应用）。不写这一位时，深色主题会得到"浅色材质 + 50% 深色层"的灰面：实测 `(141, 142, 145)`，既不是深色材质也不是主题底色；写入后同一位置为 `(34, 37, 43)`（深色 Mica 面约 `(26, 31, 41)`），而实色深色是 `(41, 41, 41)`。
 
-图库有可现场切换的入口：`backdrop` 一节的三选一（Solid / Mica / Mica Alt），初始值仍可由 `FLUENT_GALLERY_BACKDROP` 指定；截图夹具不设该变量，保持实色。
+图库有可现场切换的入口：`backdrop` 一节的三选一（Solid / Mica / Mica Alt），初始值仍可由 `FLUENT_GALLERY_BACKDROP` 指定；截图夹具不设该变量，保持实色。选项里的 `Solid` 是显式请求（`Some(WindowBackdrop::Solid)`），不是没有请求：材质已经在窗口上时，只有请求 Solid 才会撤销它；`None` 只表示还没人选过，默认窗口因此不会被接管。这条映射由 `sections::overlays::choice_tests` 固定。
 
 ## 验证边界
 

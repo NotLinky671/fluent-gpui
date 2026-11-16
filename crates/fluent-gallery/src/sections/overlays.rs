@@ -1,5 +1,19 @@
 use super::*;
 
+/// The backdrop a choice writes.
+///
+/// Solid is an explicit request, not "no request": once a material is on the
+/// window, only asking for Solid takes it away again. Only `None` — the initial
+/// state before anyone picked anything — leaves the window alone.
+pub(crate) fn backdrop_for_choice(index: usize) -> Option<WindowBackdrop> {
+    match index {
+        0 => Some(WindowBackdrop::Solid),
+        1 => Some(WindowBackdrop::Mica),
+        2 => Some(WindowBackdrop::MicaAlt),
+        _ => None,
+    }
+}
+
 impl Gallery {
     /// Window material demo. The section is also the control: picking a value
     /// re-renders the root, which asks the compositor and only turns the surface
@@ -11,18 +25,13 @@ impl Gallery {
             _ => 0,
         };
         let options: [(usize, &'static str, &'static str, Option<WindowBackdrop>); 3] = [
-            (0, "gallery-backdrop-solid", "Solid", None),
-            (
-                1,
-                "gallery-backdrop-mica",
-                "Mica",
-                Some(WindowBackdrop::Mica),
-            ),
+            (0, "gallery-backdrop-solid", "Solid", backdrop_for_choice(0)),
+            (1, "gallery-backdrop-mica", "Mica", backdrop_for_choice(1)),
             (
                 2,
                 "gallery-backdrop-mica-alt",
                 "Mica Alt",
-                Some(WindowBackdrop::MicaAlt),
+                backdrop_for_choice(2),
             ),
         ];
         let radios: Vec<AnyElement> = options
@@ -340,5 +349,26 @@ impl Gallery {
                     ),
             )
             .into_any_element()
+    }
+}
+
+#[cfg(test)]
+mod choice_tests {
+    use super::*;
+
+    #[test]
+    fn choosing_solid_asks_for_solid_rather_than_for_nothing() {
+        assert_eq!(
+            backdrop_for_choice(0),
+            Some(WindowBackdrop::Solid),
+            "choosing Solid must revoke a material that is already on the window"
+        );
+        assert_eq!(backdrop_for_choice(1), Some(WindowBackdrop::Mica));
+        assert_eq!(backdrop_for_choice(2), Some(WindowBackdrop::MicaAlt));
+        assert_eq!(
+            backdrop_for_choice(9),
+            None,
+            "an unknown choice must not take the window over"
+        );
     }
 }

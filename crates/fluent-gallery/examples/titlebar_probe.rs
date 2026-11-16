@@ -57,7 +57,9 @@ fn probe_backdrop(
 
     let mut last = (request, BackdropOutcome::Unsupported("nothing was asked"));
     for step in steps {
-        let outcome = apply(window, *step);
+        // The probe runs on the light theme, so the material is asked for in
+        // its light form.
+        let outcome = apply(window, *step, false);
         let reported_now = reported(window);
         // The DWM contract itself, written out here rather than read back from
         // the adapter: were the adapter to map a request to the wrong value, it
@@ -200,6 +202,7 @@ fn main() {
                                 "backdrop" => (
                                     &[
                                         WindowBackdrop::Mica,
+                                        WindowBackdrop::MicaAlt,
                                         WindowBackdrop::Solid,
                                         WindowBackdrop::Mica,
                                     ],
