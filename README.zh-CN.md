@@ -62,16 +62,6 @@ fn main() {
 
 `FluentRoot` 负责应用主题的背景色、前景色、字体，并托管 Tooltip 浮层——应用的最外层应当用它包裹。
 
-## 集成验证应用
-
-[`fluent-notes`](crates/fluent-notes) 是一个小型原生便签应用，用真实操作流程组合现有组件（草稿、主题、菜单、浮层、焦点与模态确认），补充 Gallery 的单组件矩阵。
-
-```text
-cargo run -p fluent-notes
-```
-
-数据只保存在内存中，关闭窗口即丢失；不联网、不做账号或持久化。删除与未保存切换已使用真正的 `AlertDialog` / `Dialog` 模态对话框。使用说明、可重复的手工验收清单、已知限制与 M2 接入点见 [docs/apps/notes.md](docs/apps/notes.md)。
-
 ## 受控与非受控
 
 选择类控件（`Checkbox` / `Radio` / `Switch`）支持两种模式，对应 Fluent React 的 `checked` / `defaultChecked`：
@@ -126,7 +116,7 @@ GPUI 精确锁定在快照版本（`gpui-pre = 0.3.10`）；用 caret 版本会�
 
 ## 已知限制
 
-- 图库与便签应用都以 `TitleBar::window_options` 接入自绘标题栏。窗口按钮独立于内容层，位于普通模态之上、Popover/菜单之下；组件不退出应用。Windows/macOS 关闭检查由应用的 `on_window_should_close` 处理，Linux 自绘按钮另用 `TitleBar::on_close` 否决。便签应用关闭窗口仍会丢弃内存中的便签（与接入前一致，未新增关闭确认）。原生平台与 DPI 验证范围见[修复记录](docs/validation/titlebar-2026-11-10.md)；macOS/Linux 真机、Snap、跨显示器缩放与屏幕阅读器仍需验证。窗口材质为显式 opt-in：`FluentRoot::backdrop(WindowBackdrop::Mica)` 向 DWM 请求并读回确认，被拒、不支持、回了别的材质或高对比度时退回主题实色，并同时把窗口外观真的设回不透明、显式清除 `DWMWA_SYSTEMBACKDROP_TYPE`（GPUI 的 `Opaque` 分支不会替我们清除）；材质同时跟随主题的明暗（DWM 从窗口的 immersive-dark 标记取色调），图库的 `backdrop` 一节可现场切换三种取值，其中 Solid 是显式请求而不是没有请求。从已确认的材质切到 Solid（含高对比度）时，先绘制一帧完整实色根背景，再于下一帧撤销材质；中途切回材质会取消待执行的撤销。实测往返与像素结果见[材质记录](docs/validation/mica-2026-11-16.md)；物理手势、失活与高对比度观感、macOS/Linux 仍未验证
+- 图库以 `TitleBar::window_options` 接入自绘标题栏。窗口按钮独立于内容层，位于普通模态之上、Popover/菜单之下；组件不退出应用。Windows/macOS 关闭检查由应用的 `on_window_should_close` 处理，Linux 自绘按钮另用 `TitleBar::on_close` 否决。原生平台与 DPI 验证范围见[修复记录](docs/validation/titlebar-2026-11-10.md)；macOS/Linux 真机、Snap、跨显示器缩放与屏幕阅读器仍需验证。窗口材质为显式 opt-in：`FluentRoot::backdrop(WindowBackdrop::Mica)` 向 DWM 请求并读回确认，被拒、不支持、回了别的材质或高对比度时退回主题实色，并同时把窗口外观真的设回不透明、显式清除 `DWMWA_SYSTEMBACKDROP_TYPE`（GPUI 的 `Opaque` 分支不会替我们清除）；材质同时跟随主题的明暗（DWM 从窗口的 immersive-dark 标记取色调），图库的 `backdrop` 一节可现场切换三种取值，其中 Solid 是显式请求而不是没有请求。从已确认的材质切到 Solid（含高对比度）时，先绘制一帧完整实色根背景，再于下一帧撤销材质；中途切回材质会取消待执行的撤销。实测往返与像素结果见[材质记录](docs/validation/mica-2026-11-16.md)；物理手势、失活与高对比度观感、macOS/Linux 仍未验证
 - `Tabs` 让整条标签条持焦点、方向键改选中（Fluent 的自动激活），不是严格 roving tabindex；hover/pressed 是瞬时样式而非过渡，选中态优先于两者；指示条位置取自上一帧记录的标签绘制边界，因此比布局变化晚一帧
 - 字体模式只做本机字体可用性解析：`SegoeCompat` 依次查找 `Segoe UI` / `Selawik`，都没有时回退到 `.SystemUIFont`；仓库未内置这两款字体。因此 macOS 等未安装 Selawik 的环境切换 Font mode 可能没有任何像素变化，这是预期的回退结果，不是渲染缺陷
 - Gallery 的两条默认 `TabList` 各自持有一个持久 `FocusHandle` 并 `track_focus`，是实际的 Tab 停靠点；像素 fixture 里的 `fx-tabs` / `fx-tabs-vertical` 用 keyed 焦点句柄保证跨重绘稳定。未接 `track_focus` 时标签条没有属于自己的焦点句柄，不参与 Tab 顺序与键盘导航
@@ -137,7 +127,7 @@ GPUI 精确锁定在快照版本（`gpui-pre = 0.3.10`）；用 caret 版本会�
 - `Badge` 前景按对比度选取：每种外观取主题的一对静态深/浅标签 token 中与徽标背景对比更高的一个，因此在 light、dark 与 high-contrast 下文字都可辨。映射仍取自 token 且有 spec 断言覆盖；受影响外观的原生窗口视觉检查尚待进行。见[修复记录](docs/validation/badge-contrast-2026-11-03.md)
 - `Textarea` 在本版 GPUI 快照中不处理鼠标滚轮；长正文可用光标/键盘滚动，滚动条会随光标出现
 - `ContextMenu` 锚定的是按下位置而不是触发器：按下时写入指针，定位器在同一帧读取，因此面板不会先用旧锚点画一帧。可点击区域不交给 `Popover` 当触发器——那样整个区域都会被算成“按在触发器上”，外部按下永远关不掉。面板越出窗口时翻转而不是滑动。
-- `MenuDropdown` 把 `Menu` 组合进 `Popover`，因此菜单继承锚定定位与关闭语义。方向键、Home/End、Enter/Space 与跳过禁用行均已可用；鼠标移动时写入的当前行与键盘一致，静止指针下的布局变化不会改选。子菜单支持任意层：每层各有当前行，最深层的当前行才是键盘激活目标，打开更深层的那一行用独立的 path hint 样式；→ 或 Enter 只在行确实带子菜单时打开，←/Esc 退一层，Tab 关闭整条链；悬停 300ms 自动打开，移到别的行、标题/分隔线/禁用行、离开整条链或键盘接管都会取消；右侧放不下时首帧即翻到行左侧。点击子面板属于菜单链内部（由实际发布的面板边界判断并遮挡命中），不会误关根菜单或穿透到背后控件；点击整条链外仍请求关闭。typeahead 前缀按完整层路径与会话归属，换分支、离开再返回或重新打开都不会继承。item 激活后菜单不会自动关闭，调用方必须在动作中显式关闭（便签应用每个 item 都这样做）。真实原生窗口中的子面板命中、DPI 与长内容仍未人工验证，且本版 GPUI 未提供 accesskit 的禁用状态。`MenuTrigger` 在非受控时自己拥有开合状态，调用方没给焦点句柄时会为菜单建一个自有的 `FocusHandle`，所以把触发器直接放到页面上也能用键盘操作；点击取反的是屏幕上的开合状态，受控调用方拒绝请求后再次点击仍会重新请求，不会与画面分叉。关闭时由 Popover 交接焦点：Tab/Shift+Tab 前进或后退到相邻控件，Esc 回到触发器，点击其他控件则保留该控件的焦点。`MenuGroup` 在构建期展开成标题 + 行，标题永远不是键盘停点。`MenuItem::secondary` 生成 48px 的两行行高，`MenuItemCheckbox`/`MenuItemRadio` 是同一套勾选/单选行的类型包装。菜单把高度限制在视口内（`spec::menu::max_height`），逐层滚动行区域，在当前行变化时以及键盘显式请求时跟随（滚轮把当前行滚走后，再按一次同一方向键会把它找回来），普通重绘不会拉回滚动位置；**只有行区域滚动**，因为整块面板滚动会把绘制在面板之外的子菜单面板裁掉。放在页面滚动容器里的菜单、`aria-haspopup`/`aria-expanded`（本版 accesskit 没有）与原生窗口中的滚动仍未验证
+- `MenuDropdown` 把 `Menu` 组合进 `Popover`，因此菜单继承锚定定位与关闭语义。方向键、Home/End、Enter/Space 与跳过禁用行均已可用；鼠标移动时写入的当前行与键盘一致，静止指针下的布局变化不会改选。子菜单支持任意层：每层各有当前行，最深层的当前行才是键盘激活目标，打开更深层的那一行用独立的 path hint 样式；→ 或 Enter 只在行确实带子菜单时打开，←/Esc 退一层，Tab 关闭整条链；悬停 300ms 自动打开，移到别的行、标题/分隔线/禁用行、离开整条链或键盘接管都会取消；右侧放不下时首帧即翻到行左侧。点击子面板属于菜单链内部（由实际发布的面板边界判断并遮挡命中），不会误关根菜单或穿透到背后控件；点击整条链外仍请求关闭。typeahead 前缀按完整层路径与会话归属，换分支、离开再返回或重新打开都不会继承。item 激活后菜单不会自动关闭，调用方必须在动作中显式关闭。真实原生窗口中的子面板命中、DPI 与长内容仍未人工验证，且本版 GPUI 未提供 accesskit 的禁用状态。`MenuTrigger` 在非受控时自己拥有开合状态，调用方没给焦点句柄时会为菜单建一个自有的 `FocusHandle`，所以把触发器直接放到页面上也能用键盘操作；点击取反的是屏幕上的开合状态，受控调用方拒绝请求后再次点击仍会重新请求，不会与画面分叉。关闭时由 Popover 交接焦点：Tab/Shift+Tab 前进或后退到相邻控件，Esc 回到触发器，点击其他控件则保留该控件的焦点。`MenuGroup` 在构建期展开成标题 + 行，标题永远不是键盘停点。`MenuItem::secondary` 生成 48px 的两行行高，`MenuItemCheckbox`/`MenuItemRadio` 是同一套勾选/单选行的类型包装。菜单把高度限制在视口内（`spec::menu::max_height`），逐层滚动行区域，在当前行变化时以及键盘显式请求时跟随（滚轮把当前行滚走后，再按一次同一方向键会把它找回来），普通重绘不会拉回滚动位置；**只有行区域滚动**，因为整块面板滚动会把绘制在面板之外的子菜单面板裁掉。放在页面滚动容器里的菜单、`aria-haspopup`/`aria-expanded`（本版 accesskit 没有）与原生窗口中的滚动仍未验证
 - `Spinner` 与不定态 `ProgressBar` 每帧从时钟读相位，并在仍需运动时请求下一帧；GPUI 的 `with_animation` 包装进度从不前进，这正是两者此前只画一帧、实际静止的原因。弧线形状、1.5s 周期与颜色来自上游样式表，但不定态进度条的 2s 周期仍是近似值，也没有实测官方录屏。基线只记录 reduced-motion 帧：图库截图统一带 `FLUENT_GALLERY_REDUCE_MOTION=1`，因为循环动画永远等不到截图要求的三帧一致
 - `Button::tooltip` 的翻转由 gpui-base overlay 提供，悬停与翻转位置尚待人工验证；通用 `tooltip(text)` 助手使用 GPUI 原生定位，不提供相同锚定保证。测试只覆盖：根是否发布 service、实体身份是否跨重绘稳定、无根时调用方拿到 `None`
 - 不支持 RTL 布局、`letter_spacing`、CSS `outline`
@@ -167,7 +157,6 @@ cargo run -p xtask --locked -- gen-icons --check
 
 ```text
 cargo run -p fluent-gallery
-cargo run -p fluent-notes
 cargo test -p fluent-gallery --features screenshot --test baselines --locked
 ```
 

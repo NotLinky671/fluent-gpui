@@ -94,7 +94,7 @@ deferred positioner prepaint：读取同一共享值，结合面板尺寸和视�
 
 **状态与关闭**。`.open(bool)` 为受控；`default_open` 仅初始化 window keyed store。Escape / scrim 按下 / `DialogHandle::close` 统一经 `DialogChangeReason::{Cancel,BackdropPress,Imperative}` 上报给 `on_open_change`，再（非受控时）写 keyed store 并 `cx.notify`。`on_ok`/`on_cancel` 返回 `false` 可否决；Enter 绑定到宿主的 `Confirm` 走 `on_ok`。`AlertDialog` 由 gpui-base 特化：`Role::AlertDialog`、无 scrim 关闭；本组件再叠加 `close_on_escape(false)`，因此必须点击 footer 动作。
 
-**焦点**。宿主自带 `focus_trap`，配合 `FluentRoot` 的 `advance_focus` 让 Tab 在卡片内循环。gpui-base 不记忆旧焦点，本组件在 wrapper 里用 keyed state 复刻 Popover 的交接：打开首帧记录 `window.focused` 并聚焦宿主句柄，关闭首帧在焦点仍位于对话框内时归还。**如果调用方在关闭的同一帧直接把对话框元素卸载，归还永远不会发生**——组件必须保持挂载并用受控 `open` 驱动，notes 应用就是这么接的。
+**焦点**。宿主自带 `focus_trap`，配合 `FluentRoot` 的 `advance_focus` 让 Tab 在卡片内循环。gpui-base 不记忆旧焦点，本组件在 wrapper 里用 keyed state 复刻 Popover 的交接：打开首帧记录 `window.focused` 并聚焦宿主句柄，关闭首帧在焦点仍位于对话框内时归还。**如果调用方在关闭的同一帧直接把对话框元素卸载，归还永远不会发生**——组件必须保持挂载并用受控 `open` 驱动。
 
 **AX 与模态隔离**。宿主发布 `Role::Dialog`/`Role::AlertDialog` 与 `aria_modal(true)`，名称默认取 `title`（`SharedString`；`accessibility_label` 覆盖，`title_element` 不提供名称），每个 `Dialog` 用调用方 id 生成独立 host id。打开期间 AX 树只保留真实绘制序最上层模态的子树：背景节点与被覆盖模态删除，关闭后恢复。属于模态的 deferred Popover/Menu 按 schedule 时的 owner reparent 到模态子树；owner 被裁掉时随 owner 删除。选择最上层按 `(deferred priority, push order)`，不是节点深度或 render 顺序。普通 Popover 不带 modal，不得据此隐藏背景。回归入口：`dialog::tests`。
 

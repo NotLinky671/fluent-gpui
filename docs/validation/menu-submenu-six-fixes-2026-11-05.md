@@ -44,7 +44,7 @@
 - 涉及的子系统与已核对源码/测试：
   [菜单协议](../subsystems/menus.md)、[浮层](../subsystems/overlays.md)、[焦点](../subsystems/focus.md)、
   [子系统导航](../subsystems/README.md)、[无障碍清单](../a11y-checklist.md)、
-  [便签应用说明](../apps/notes.md)、中英文 README。
+  便签应用说明（该应用已于 2026-11-16 删除）、中英文 README。
   源码：`crates/fluent-components/src/menu.rs`、`menu/submenu_tests.rs`、新增
   `menu/submenu_regression_tests.rs`、`crates/fluent-components/src/popover.rs`、
   `popover/dismissal_tests.rs`、`crates/fluent-core/src/spec/menu.rs`。

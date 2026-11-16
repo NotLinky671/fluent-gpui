@@ -13,7 +13,6 @@ cargo run -p fluent-gallery                 # 组件图库
 FLUENT_GALLERY_SECTION=tabs cargo run -p fluent-gallery   # 只看某个分区
 FLUENT_GALLERY_APPEARANCE=dark cargo run -p fluent-gallery
 FLUENT_GALLERY_APPEARANCE=high-contrast cargo run -p fluent-gallery
-cargo run -p fluent-notes                   # 便签应用
 ```
 
 可用分区：`buttons` `dialog` `feedback` `fields` `inputs` `misc` `selection` `sheet`
@@ -39,7 +38,7 @@ cargo run -p fluent-notes                   # 便签应用
 - **官方行为**：整组都没有图标时不留这个槽。
 - **需要你回答**：改成对齐标题，还是保持现状？改了会影响你已经看过的菜单外观。
 
-## 4. 子菜单（`misc` 或便签的菜单）
+## 4. 子菜单（`misc` 或图库的菜单）
 
 - **操作**：鼠标停在带右箭头的行上 300ms；或按 `→` / `Enter`。
 - **期望**：
@@ -81,14 +80,7 @@ cargo run -p fluent-notes                   # 便签应用
 - **期望**：文字对比度足够、禁用态仍可辨认、危险项是红色、scrim 足够暗、1px 分隔线在 150% 下不发虚。
 - **算错**：深色下文字看不清、高对比下边框消失、150% 下指示条粗细变成 1px 或 3px。
 
-## 10. 便签应用（`cargo run -p fluent-notes`）
-
-- **中文 IME**：新建便签 → 切中文输入法 → 打拼音（看组合中间态）→ 上屏 → 退格删字 → 方向键移动光标。
-  - **已知未测**：组合中间态在 GPUI 输入里是否正常显示。这是当前最大的一块空白。
-- **缩放**：100% 与 150% 各看一遍列表与编辑器。
-- **菜单与属性面板**：禁用项、勾选项、Esc、外部点击关闭。
-
-## 11. 其他平台（如你有 macOS / Linux 机器）
+## 10. 其他平台（如你有 macOS / Linux 机器）
 
 - **macOS**：Retina（scale 2.0）下 Tabs 指示条粗细、分隔线是否清晰；窗口缩放时 Popover 是否跟着重定位。
 - **Linux**：Wayland 与 X11 下浮层定位、tooltip 翻转、菜单子面板位置。

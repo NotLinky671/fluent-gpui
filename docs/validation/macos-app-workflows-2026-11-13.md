@@ -21,7 +21,7 @@
   - D1：布局与视觉顺序改为 标题 → 正文 → 操作栏 → 状态栏（此前 标题 → 操作栏 → 正文），Tab 从标题先到正文。正文现已显式使用 `TextareaTabBehavior::Navigate`（组件默认仍为 `Indent`），Tab/Shift+Tab 移出字段而不改正文。该调用依赖 core 组件补丁合并后才能编译；合并前测试保持启用（不 `#[ignore]`），本记录不声称已转绿。
   - C1：列表标题/预览/字数只读已保存 `Note`；编辑区字数读草稿；输入不更新列表，保存才写回。仅修注释与文档，数据模型未变。
   - B3：文档明确 `SegoeCompat` 依次查找本机 `Segoe UI` / `Selawik`，都缺失时回退 `.SystemUIFont`；仓库未内置字体，macOS 上切换 Font mode 可能没有像素变化。
-- 子系统与已核对源码：[焦点](../subsystems/focus.md)、[Tabs](../validation/tabs-2026-11-04.md)、[notes 应用说明](../apps/notes.md)、gpui-base `input/base/state.rs:196-197`。D1 需要组件层契约变化，本 patch 没有改组件机制，因此不写“子系统机制未变即完成”；待 core API 落地后同步 `focus.md`/组件说明。
+- 子系统与已核对源码：[焦点](../subsystems/focus.md)、[Tabs](../validation/tabs-2026-11-04.md)、notes 应用说明（该应用已于 2026-11-16 删除）、gpui-base `input/base/state.rs:196-197`。D1 需要组件层契约变化，本 patch 没有改组件机制，因此不写“子系统机制未变即完成”；待 core API 落地后同步 `focus.md`/组件说明。
 
 ## 验证记录
 
