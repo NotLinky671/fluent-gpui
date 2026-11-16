@@ -15,6 +15,10 @@ use smallvec::SmallVec;
 use crate::actions::{Cancel, Confirm};
 use crate::{FocusTrapElement as _, StyledExt as _};
 
+/// Shared default priority for modal hosts. At equal priority, deferred
+/// descendants paint after their ancestors in stable scheduling order.
+pub const MODAL_PRIORITY: usize = 10;
+
 const CONTEXT: &str = "Dialog";
 type Decision = Rc<dyn Fn(&ClickEvent, &mut Window, &mut App) -> bool>;
 type Closed = Rc<dyn Fn(&ClickEvent, &mut Window, &mut App)>;
@@ -682,7 +686,7 @@ impl RenderOnce for Dialog {
                     .refine_style(&self.style),
             ),
         )
-        .with_priority(10 + self.layer)
+        .with_priority(MODAL_PRIORITY + self.layer)
         .into_any_element()
     }
 }

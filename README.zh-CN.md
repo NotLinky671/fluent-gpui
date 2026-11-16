@@ -117,7 +117,7 @@ GPUI 精确锁定在快照版本（`gpui-pre = 0.3.10`）；用 caret 版本会�
 ## 已知限制
 
 - 图库以 `TitleBar::window_options` 接入自绘标题栏。窗口按钮独立于内容层，位于普通模态之上、Popover/菜单之下；组件不退出应用。Windows/macOS 关闭检查由应用的 `on_window_should_close` 处理，Linux 自绘按钮另用 `TitleBar::on_close` 否决。原生平台与 DPI 验证范围见[修复记录](docs/validation/titlebar-2026-11-10.md)；macOS/Linux 真机、Snap、跨显示器缩放与屏幕阅读器仍需验证。窗口材质为显式 opt-in：`FluentRoot::backdrop(WindowBackdrop::Mica)` 向 DWM 请求并读回确认，被拒、不支持、回了别的材质或高对比度时退回主题实色，并同时把窗口外观真的设回不透明、显式清除 `DWMWA_SYSTEMBACKDROP_TYPE`（GPUI 的 `Opaque` 分支不会替我们清除）；材质同时跟随主题的明暗（DWM 从窗口的 immersive-dark 标记取色调），图库的 `backdrop` 一节可现场切换三种取值，其中 Solid 是显式请求而不是没有请求。从已确认的材质切到 Solid（含高对比度）时，先绘制一帧完整实色根背景，再于下一帧撤销材质；中途切回材质会取消待执行的撤销。实测往返与像素结果见[材质记录](docs/validation/mica-2026-11-16.md)；物理手势、失活与高对比度观感、macOS/Linux 仍未验证
-- `Tabs` 让整条标签条持焦点、方向键改选中（Fluent 的自动激活），不是严格 roving tabindex；hover/pressed 是瞬时样式而非过渡，选中态优先于两者；指示条位置取自上一帧记录的标签绘制边界，因此比布局变化晚一帧
+- `Tabs` 让整条标签条持焦点、方向键改选中（Fluent 的自动激活），不是严格 roving tabindex；hover/pressed 是瞬时样式而非过渡，选中态优先于两者；指示条在当前帧预绘制阶段读取标签边界并采样位置/长度动画，首帧与标签尺寸变化无需额外重绘
 - 字体模式只做本机字体可用性解析：`SegoeCompat` 依次查找 `Segoe UI` / `Selawik`，都没有时回退到 `.SystemUIFont`；仓库未内置这两款字体。因此 macOS 等未安装 Selawik 的环境切换 Font mode 可能没有任何像素变化，这是预期的回退结果，不是渲染缺陷
 - Gallery 的两条默认 `TabList` 各自持有一个持久 `FocusHandle` 并 `track_focus`，是实际的 Tab 停靠点；像素 fixture 里的 `fx-tabs` / `fx-tabs-vertical` 用 keyed 焦点句柄保证跨重绘稳定。未接 `track_focus` 时标签条没有属于自己的焦点句柄，不参与 Tab 顺序与键盘导航
 - `Sheet` 的抽屉尺寸是组件常量（默认 320px，可用 `Sheet::size` 覆盖），内容超出时被裁剪，没有滚动区或拖拽关闭；Esc 与 scrim 按下都只上报 `on_open_change(false)`，底层不区分两者；退出动画结束前焦点仍被约束在抽屉内，之后只在焦点仍在抽屉内时归还——调用方若在 `open(false)` 的同一帧卸载元素，就不会发生归还

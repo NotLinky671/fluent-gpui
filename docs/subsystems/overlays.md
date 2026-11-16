@@ -86,7 +86,7 @@ deferred positioner prepaint：读取同一共享值，结合面板尺寸和视�
 
 源码：[dialog.rs](../../crates/fluent-components/src/dialog.rs)、[spec](../../crates/fluent-core/src/spec/dialog.rs)。
 
-**渲染路径**。组件把 gpui-base `Dialog`/`AlertDialog` 宿主拼好后交给它自己渲染：宿主在 render 里产出 `deferred(anchored(...))`，priority `10 + layer`，因此不需要任何根级 overlay host——`FluentRoot` 只负责提供 trap 感知的 Tab 遍历 context。关闭状态下宿主渲染一个空 `div()`，所以对话框元素可以一直挂在树里。
+**渲染路径**。组件把 gpui-base `Dialog`/`AlertDialog` 宿主拼好后交给它自己渲染：宿主在 render 里产出 `deferred(anchored(...))`，priority `MODAL_PRIORITY + layer`（默认 10，与 Sheet 共用），GPUI 对相同 priority 保持调度顺序，因此嵌套子模态在父级之后绘制；因此不需要任何根级 overlay host——`FluentRoot` 只负责提供 trap 感知的 Tab 遍历 context。关闭状态下宿主渲染一个空 `div()`，所以对话框元素可以一直挂在树里。
 
 **布局占位**。宿主打开时是绝对定位的 deferred 层，关闭时却是 in-flow 的空 `div()`；直接返回宿主会让父级 flex 在开关前后差一个 item 及其 gap，下方内容跳动。wrapper 用同一个零高度在流占位包住宿主（与 Sheet 相同的约定），两种状态的布局槽一致。
 
@@ -104,7 +104,7 @@ deferred positioner prepaint：读取同一共享值，结合面板尺寸和视�
 
 源码：[sheet.rs](../../crates/fluent-components/src/sheet.rs)、[spec](../../crates/fluent-core/src/spec/sheet.rs)。
 
-**渲染路径**。组件把 gpui-base `Sheet` 宿主拼好后交给它自己渲染。宿主在 render 里产出 `anchored` 的全视口层，自带 `key_context("Sheet")`、`track_focus` 与 `focus_trap`，并把 overlay 按下和 Escape 统一走 `request_close` → `on_close`；它本身没有开关状态和动画。wrapper 再把宿主包进 `deferred`（与 Dialog 相同），让模态层在帧末绘制、不被祖先的滚动/裁剪容器截断。
+**渲染路径**。组件把 gpui-base `Sheet` 宿主拼好后交给它自己渲染。宿主在 render 里产出 `anchored` 的全视口层，自带 `key_context("Sheet")`、`track_focus` 与 `focus_trap`，并把 overlay 按下和 Escape 统一走 `request_close` → `on_close`；它本身没有开关状态和动画。wrapper 再把宿主包进 `deferred`，显式使用与 Dialog/AlertDialog 默认层相同的 `gpui_base::MODAL_PRIORITY`。相同 priority 按调度顺序稳定排序，嵌套子层的 scrim 与内容在父层之后绘制；不能使用默认 priority 0，否则父 Dialog 的 priority 10 会把子 Sheet 盖住。模态层在帧末绘制、不被祖先的滚动/裁剪容器截断。
 
 **布局占位**。`deferred` 宿主是绝对定位、不参与父级 flex 布局；如果打开时才把在流占位换成绝对宿主，父级会少一个 flex item（连同 gap），下方内容会跳动。组件在打开与关闭两种状态都保留同一个零高度在流占位：打开时由它包住 `deferred` 宿主，关闭后（含退出动画结束）返回同样的零高度占位，因此元素可以一直挂在树里且不改变周围布局。
 
@@ -114,7 +114,7 @@ deferred positioner prepaint：读取同一共享值，结合面板尺寸和视�
 
 **动效**。`Presence` 以 `durationSlow`（300ms）与 `curveEasyEase` 驱动进/出；位移量等于 `size × (1 − progress)`，所以任一尺寸都从自身边缘外滑入。`reduce_motion` 时 `Presence` 直接返回稳定帧，不播放过渡。进场中途关闭时 `Presence` 会缩短反向时长而不是跳变。
 
-**状态与关闭**。`.open(bool)` 为受控，`default_open` 只初始化 window keyed store；`on_open_change(false)` 在 Esc / scrim 请求时调用，底层不区分两者。受控调用方不更新 `open` 时抽屉保持打开。
+**状态与关闭**。`.open(bool)` 为受控，`default_open` 只初始化 window keyed store；`on_open_change(false)` 在 Esc / scrim 请求时调用，底层不区分两者。受控调用方不更新 `open` 时抽屉保持打开。Sheet 消费 `Cancel`，不再向父级传播 Escape；即使受控调用方拒绝关闭，重复 Escape 也只请求当前抽屉关闭，不会关闭背后的 Dialog/Sheet。嵌套关闭与三层绘制顺序的回归入口为 `sheet::nested_tests`，修复与验证见 [M2 记录](../validation/m2-modal-tabs-2026-11-16.md)。
 
 **焦点**。宿主自带焦点陷阱；wrapper 在进入首帧记录 `window.focused` 并把焦点交给宿主句柄，退出动画结束且焦点仍在抽屉内时才归还。**调用方若在 `open(false)` 同帧卸载元素，归还不会发生**——保持挂载并用受控 `open` 驱动。
 

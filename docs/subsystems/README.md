@@ -66,7 +66,7 @@ cargo test -p fluent-core --lib --locked
 - **动效边界**：transition 路径依赖 gpui-base 的 reduced-motion 策略，不等于所有动画都走该路径。[ProgressBar 不定态与 Spinner](../../crates/fluent-components/src/feedback.rs)曾经用循环 `Animation` + `with_animation`，但在本 GPUI 快照里该包装的进度永不前进，两个组件实际上静止不动；现在改为每帧从 `cx.background_executor().now()` 读相位，并在仍要动时调用 `window.request_animation_frame()`，与菜单淡入用同一套时间驱动（`menu::render::reveal`）。`RenderOnce` 组件没有自己的重绘循环，漏掉那一行就等于只画一帧。reduced-motion 由组件显式检查 `cx.reduce_motion()` 改为静态帧，决策仍在 `spinner_animation_allowed` / `indeterminate_animation_allowed` 纯函数里。鼠标 pressed 接线存在，不证明键盘 pressed 或按住移出后释放等取消路径完整。
 - **Spinner 形状**：弧不是固定 270°，而是上游关键帧合成的 **30°–255°** 往复（`135deg` 楔形被 `105deg` 遮罩挡住，容器 `-135→0→225`，两个楔形 `0→最大→0`，全部走 `curveEasyEase`），周期 1.5s，环色 `brandStroke2Contrast`、弧色 `brandStroke1`，描边 `strokeWidthThick`；reduced-motion 为静态 240° 弧。这些数值来自 `useSpinnerStyles.styles.js` 与 `curves.js`，不在本仓库的 token 快照内，改上游版本时必须重核。
 - **透明色混色**：`spec::motion::mix` 按**预乘 alpha** 插值，透明端的颜色不参与。Fluent 的 `subtle` / `transparent` 按钮静止色是 `transparent_black()`；若按原始通道插值，淡入会经过半透明近黑（浅色主题实测 lightness 0.23，深色 0.05），表现为悬停时"深灰闪一下"。不透明两端的行为不变。
-- **Tabs**：`TabList` 让整条 strip 持焦点、方向键改选中（自动激活），聚焦时不加外框；选中指示条位置取自上一帧记录的 tab 绘制边界并走 `motion::length`，所以切换是滑动而不是跳变。每个 tab 不是独立 tab stop，与严格 roving tabindex 有差异。
+- **Tabs**：`TabList` 让整条 strip 持焦点、方向键改选中（自动激活），聚焦时不加外框；选中指示条在当前帧的 `on_children_prepainted` 读取 tab 边界并走 `motion::length`，由同帧 canvas 绘制，首次挂载与尺寸变化无需额外重绘，所以切换是滑动而不是跳变。每个 tab 不是独立 tab stop，与严格 roving tabindex 有差异。
 - **验证入口**：motion 纯函数与插值测试只检查数值；状态保持、回调次数、禁用/取消、焦点及 reduced motion 需要相应行为测试和原生操作。透明淡入另有控件级绘制断言见 `button/hover_tests.rs`。
 
 ```text

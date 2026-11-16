@@ -130,6 +130,11 @@ pub const FIXTURES: &[Fixture] = &[
         height: 60.0,
     },
     Fixture {
+        name: "dialog-sheet-open",
+        width: 640.0,
+        height: 420.0,
+    },
+    Fixture {
         name: "sheet-right-open",
         width: 460.0,
         height: 300.0,
@@ -373,6 +378,19 @@ pub fn render(name: &str, window: &mut Window, cx: &mut App) -> Option<AnyElemen
                     .appearance(ButtonAppearance::Secondary)
                     .accessibility_label("Cancel")
                     .child("Cancel"),
+            )
+            .into_any_element(),
+        "dialog-sheet-open" => Dialog::new("fx-parent-dialog")
+            .title("Parent dialog")
+            .open(true)
+            .child("The child sheet must paint above this card and its scrim.")
+            .child(
+                Sheet::new("fx-child-sheet")
+                    .title("Child sheet")
+                    .size(px(260.))
+                    .open(true)
+                    .child("This panel stays above the parent dialog.")
+                    .footer_child(Button::new("fx-child-action").child("Child action")),
             )
             .into_any_element(),
         "sheet-right-open" => Sheet::new("fx-sheet-right")

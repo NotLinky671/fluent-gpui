@@ -133,7 +133,8 @@ impl RenderOnce for Sheet {
                 .track_focus(&self.focus)
                 .focus_trap("sheet", &self.focus)
                 .on_action(move |_: &Cancel, window, cx| {
-                    cx.propagate();
+                    // A handled Escape belongs to this modal, including a
+                    // controlled caller that refuses the close request.
                     close(&escape_request, &escape_notify, window, cx);
                 })
                 .when_some(self.overlay, |this, overlay| {

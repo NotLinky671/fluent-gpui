@@ -8,9 +8,9 @@
 //! automatic activation). The selected tab is marked by the sliding indicator;
 //! focus does not add an outline.
 //!
-//! The indicator is positioned from the tabs' painted bounds, recorded during the
-//! previous frame's prepaint and fed through the same transition helper the other
-//! controls use, so changing the selection slides it instead of jumping.
+//! The indicator samples the current tab bounds during prepaint, then paints in
+//! the same frame. Position and extent use the shared transition helper, so
+//! changing the selection slides it instead of jumping.
 
 use fluent_core::gpui_compat::StyledExt as _;
 use fluent_core::gpui_compat::{
@@ -21,8 +21,8 @@ use fluent_core::gpui_compat::{
 use fluent_core::spec::tabs::{self, TabsOrientation};
 use fluent_icons::FluentIcon;
 use fluent_theme::FluentTheme;
-use gpui::Bounds;
 use gpui::prelude::FluentBuilder as _;
+use gpui::{Bounds, canvas, fill, point, size};
 
 use crate::icon::Icon;
 
@@ -60,13 +60,6 @@ impl TabItem {
         self.disabled = disabled;
         self
     }
-}
-
-/// Painted geometry of the strip, captured for the following frame.
-#[derive(Default)]
-struct Geometry {
-    row: Option<Bounds<Pixels>>,
-    tabs: Vec<Bounds<Pixels>>,
 }
 
 /// A horizontal or vertical tab strip.
@@ -211,15 +204,6 @@ impl RenderOnce for TabList {
             None => edge_selectable(&self.items, true).unwrap_or(0),
         };
 
-        let geometry = window.use_keyed_state(
-            SharedString::from(format!("tabs-geometry-{:?}", element_id)),
-            cx,
-            |_, _| std::rc::Rc::new(std::cell::RefCell::new(Geometry::default())),
-        );
-        let painted = geometry.read(cx).clone();
-        let painted_row = painted.borrow().row;
-        let painted_tab = painted.borrow().tabs.get(selected).copied();
-
         let select: SelectFn = {
             let selected_state = selected_state.clone();
             let on_change = self.on_change.clone();
@@ -339,77 +323,77 @@ impl RenderOnce for TabList {
             row = row.child(tab.child(item.label.clone()));
         }
 
-        // Indicator, positioned from the previous frame's recorded bounds.
-        if let (Some(row_bounds), Some(tab_bounds)) = (painted_row, painted_tab) {
-            let thickness = m.indicator_thickness;
-            let mut indicator = div().absolute().rounded(thickness / 2.).bg(spec.indicator);
-            if horizontal {
-                let target = tab_bounds.origin.x - row_bounds.origin.x;
-                let left = crate::motion::length(
-                    SharedString::from(format!("tabs-indicator-x-{:?}", element_id)),
-                    target,
-                    fluent_core::spec::motion::motion_policy(),
-                    window,
-                    cx,
-                );
-                // The width has to animate with the left edge. Snapping it to the
-                // target tab while the left edge still slides makes the trailing
-                // edge jump for a frame — visible when a wide tab hands over to a
-                // narrower one.
-                let width = crate::motion::length(
-                    SharedString::from(format!("tabs-indicator-w-{:?}", element_id)),
-                    tab_bounds.size.width,
-                    fluent_core::spec::motion::motion_policy(),
-                    window,
-                    cx,
-                );
-                indicator = indicator
-                    .left(left)
-                    .top(tab_bounds.size.height - thickness)
-                    .w(width)
-                    .h(thickness);
-                indicator = indicator.top(tab_bounds.size.height - thickness);
-            } else {
-                let target = tab_bounds.origin.y - row_bounds.origin.y;
-                let top = crate::motion::length(
-                    SharedString::from(format!("tabs-indicator-y-{:?}", element_id)),
-                    target,
-                    fluent_core::spec::motion::motion_policy(),
-                    window,
-                    cx,
-                );
-                let height = crate::motion::length(
-                    SharedString::from(format!("tabs-indicator-h-{:?}", element_id)),
-                    tab_bounds.size.height,
-                    fluent_core::spec::motion::motion_policy(),
-                    window,
-                    cx,
-                );
-                indicator = indicator.left(px(0.)).top(top).h(height).w(thickness);
-            }
-            row = row.child(indicator);
-        }
-
+        // This slot is local to this render: prepaint publishes current geometry
+        // before the canvas paints. No previous-frame layout or repair redraw.
+        let indicator = std::rc::Rc::new(std::cell::Cell::new(None::<Bounds<Pixels>>));
+        let paint_indicator = indicator.clone();
+        let thickness = m.indicator_thickness;
         let tabs_len = self.items.len();
-        let row_out = painted.clone();
-        let row_recorder = row.on_children_prepainted(move |children, _, _| {
-            let tabs: Vec<Bounds<Pixels>> = children.iter().take(tabs_len).copied().collect();
-            let mut state = row_out.borrow_mut();
-            state.tabs = tabs;
-        });
-
-        let outer_out = painted.clone();
-        container.child(
-            div()
-                .on_children_prepainted(move |children, _, _| {
-                    if let Some(bounds) = children.first() {
-                        outer_out.borrow_mut().row = Some(*bounds);
-                    }
-                })
-                .child(row_recorder),
+        let indicator_canvas = canvas(
+            |_, _, _| {},
+            move |bounds, (), window, _| {
+                if let Some(local) = paint_indicator.get() {
+                    window.paint_quad(
+                        fill(
+                            Bounds::new(bounds.origin + local.origin, local.size),
+                            spec.indicator,
+                        )
+                        .corner_radii(thickness / 2.),
+                    );
+                }
+            },
         )
+        .absolute()
+        .inset_0();
+        row = row
+            .child(indicator_canvas)
+            .on_children_prepainted(move |children, window, cx| {
+                // The final absolute child covers the row and supplies its origin;
+                // all preceding children are the actual tabs in this frame.
+                let Some(tab) = children.get(selected).filter(|_| selected < tabs_len) else {
+                    return;
+                };
+                let Some(row) = children.get(tabs_len) else {
+                    return;
+                };
+                let policy = fluent_core::spec::motion::motion_policy();
+                let (position_axis, extent_axis, target_position, target_extent) = if horizontal {
+                    ("x", "w", tab.origin.x - row.origin.x, tab.size.width)
+                } else {
+                    ("y", "h", tab.origin.y - row.origin.y, tab.size.height)
+                };
+                let position = crate::motion::length(
+                    SharedString::from(format!("tabs-indicator-{position_axis}-{element_id:?}")),
+                    target_position,
+                    policy.clone(),
+                    window,
+                    cx,
+                );
+                let extent = crate::motion::length(
+                    SharedString::from(format!("tabs-indicator-{extent_axis}-{element_id:?}")),
+                    target_extent,
+                    policy,
+                    window,
+                    cx,
+                );
+                let bounds = if horizontal {
+                    Bounds::new(
+                        point(
+                            position,
+                            tab.origin.y - row.origin.y + tab.size.height - thickness,
+                        ),
+                        size(extent, thickness),
+                    )
+                } else {
+                    Bounds::new(point(px(0.), position), size(thickness, extent))
+                };
+                indicator.set(Some(bounds));
+            });
+        container.child(div().child(row))
     }
 }
 
+#[cfg(test)]
+mod geometry_tests;
 #[cfg(test)]
 mod tests;

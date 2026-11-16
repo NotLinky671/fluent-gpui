@@ -111,7 +111,7 @@ pub use component_traits::{Disableable, Selectable};
 pub use date_picker::DatePicker;
 pub use dialog::{
     Dialog, DialogBackdrop, DialogChangeReason, DialogClose, DialogDescription, DialogHandle,
-    DialogPopup, DialogTitle, DialogTrigger,
+    DialogPopup, DialogTitle, DialogTrigger, MODAL_PRIORITY,
 };
 pub use element_ext::ElementExt;
 pub use event::{InteractiveElementExt, OngoingScrollExt};

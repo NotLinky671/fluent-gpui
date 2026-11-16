@@ -385,7 +385,9 @@ fn render_sheet(mut config: SheetConfig, window: &mut Window, cx: &mut App) -> A
 
     // The base host is window-anchored but not deferred. Deferring it mirrors
     // `Dialog`: the modal layer paints after every ancestor, so a sheet mounted
-    // inside a scrolling or clipped page still covers the whole window.
+    // inside a scrolling or clipped page still covers the whole window. Share
+    // Dialog's priority: equal-priority descendants are scheduled after their
+    // parents, so a nested sheet paints above its parent modal's scrim.
     //
     // The zero-height wrapper is load-bearing: a deferred host is absolute, so
     // without it the open state would drop the flex item (and its gap) and the
@@ -393,15 +395,20 @@ fn render_sheet(mut config: SheetConfig, window: &mut Window, cx: &mut App) -> A
     // zero-height slot, keeping the flow layout identical either way.
     div()
         .h(px(0.))
-        .child(deferred(
-            BaseSheet::new(cx)
-                .focus_handle(panel_focus)
-                .request_close(request_close)
-                .overlay(scrim)
-                .surface(surface),
-        ))
+        .child(
+            deferred(
+                BaseSheet::new(cx)
+                    .focus_handle(panel_focus)
+                    .request_close(request_close)
+                    .overlay(scrim)
+                    .surface(surface),
+            )
+            .with_priority(gpui_base::MODAL_PRIORITY),
+        )
         .into_any_element()
 }
 
+#[cfg(test)]
+mod nested_tests;
 #[cfg(test)]
 mod tests;
