@@ -18,13 +18,13 @@ use fluent_ui::gpui::{
 use fluent_ui::gpui_base::input::{InputState, TextareaState};
 use fluent_ui::prelude::*;
 use fluent_ui::{
-    AlertDialog, Appearance, Avatar, AvatarSize, Badge, BadgeAppearance, BadgeSize, Button,
-    ButtonAppearance, ButtonShape, Checkbox, ContextMenu, ControlSize, Dialog, Divider, Field,
-    FluentIcon, FluentRoot, FluentTheme, FontMode, InputAppearance, Link, Menu, MenuDropdown,
-    MenuGroup, MenuHeader, MenuItem, MenuItemCheckbox, MenuItemRadio, MenuTrigger, Popover,
-    ProgressAppearance, ProgressBar, Radio, Sheet, SheetSide, Spinner, SpinnerSize, Switch,
-    TabItem, TabList, TextInput, Textarea, TextareaAppearance, TitleBar, TooltipSurface,
-    ValidationMessage, WindowBackdrop,
+    Accordion, AccordionItem, AccordionSize, AlertDialog, Appearance, Avatar, AvatarSize, Badge,
+    BadgeAppearance, BadgeSize, Button, ButtonAppearance, ButtonShape, Checkbox, ContextMenu,
+    ControlSize, Dialog, Divider, Field, FluentIcon, FluentRoot, FluentTheme, FontMode,
+    InputAppearance, Link, Menu, MenuDropdown, MenuGroup, MenuHeader, MenuItem, MenuItemCheckbox,
+    MenuItemRadio, MenuTrigger, Popover, ProgressAppearance, ProgressBar, Radio, Sheet, SheetSide,
+    Spinner, SpinnerSize, Switch, TabItem, TabList, TextInput, Textarea, TextareaAppearance,
+    TitleBar, TooltipSurface, ValidationMessage, WindowBackdrop,
 };
 
 const APPEARANCES: [ButtonAppearance; 5] = [
@@ -200,6 +200,9 @@ impl Render for Gallery {
         // Tabs: one horizontal strip with a disabled tab, one vertical strip. The
         // selection is controlled so the demo exercises the caller-owned path.
         let tabs_section = self.tabs_section(cx);
+        // Accordion: single, multiple and small, so the three open-item rules
+        // are visible side by side.
+        let accordion_section = self.accordion_section(cx);
         let feedback_section = self.feedback_section();
         let dialog_section = self.dialog_section(cx, &theme);
         let sheet_section = self.sheet_section(cx, &theme);
@@ -238,6 +241,9 @@ impl Render for Gallery {
         }
         if want("tabs") {
             sections.push(tabs_section.into_any_element());
+        }
+        if want("accordion") {
+            sections.push(accordion_section.into_any_element());
         }
         if want("dialog") {
             sections.push(dialog_section.into_any_element());

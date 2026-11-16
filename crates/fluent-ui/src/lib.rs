@@ -19,14 +19,16 @@
 
 pub use fluent_components::backdrop;
 pub use fluent_components::{
-    AlertDialog, Avatar, Badge, Button, Checkbox, ContextMenu, Dialog, DialogOpenChange, Divider,
-    Field, FluentIcon, FluentRoot, Icon, IconStyle, InputAppearance, Label, Link, Menu,
-    MenuDropdown, MenuGroup, MenuHeader, MenuItem, MenuItemCheckbox, MenuItemRadio, MenuSeparator,
-    MenuTrigger, Popover, ProgressBar, Radio, RadioGroup, Sheet, SheetOpenChange, Spinner, Switch,
-    TabItem, TabList, TextInput, Textarea, TextareaAppearance, TextareaTabBehavior, TitleBar,
-    TitleBarLabels, TooltipSurface, TooltipView, ValidationMessage, tooltip,
+    Accordion, AccordionItem, AccordionToggle, AlertDialog, Avatar, Badge, Button, Checkbox,
+    ContextMenu, Dialog, DialogOpenChange, Divider, Field, FluentIcon, FluentRoot, Icon, IconStyle,
+    InputAppearance, Label, Link, Menu, MenuDropdown, MenuGroup, MenuHeader, MenuItem,
+    MenuItemCheckbox, MenuItemRadio, MenuSeparator, MenuTrigger, Popover, ProgressBar, Radio,
+    RadioGroup, Sheet, SheetOpenChange, Spinner, Switch, TabItem, TabList, TextInput, Textarea,
+    TextareaAppearance, TextareaTabBehavior, TitleBar, TitleBarLabels, TooltipSurface, TooltipView,
+    ValidationMessage, tooltip,
 };
 pub use fluent_core::spec::ControlSize;
+pub use fluent_core::spec::accordion::AccordionSize;
 pub use fluent_core::spec::backdrop::WindowBackdrop;
 pub use fluent_core::spec::button::{ButtonAppearance, ButtonShape, IconPosition};
 pub use fluent_core::spec::feedback::{

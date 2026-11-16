@@ -61,6 +61,7 @@ pub const TEXT_INPUT_NAVIGATE_KEY_CONTEXT: &str = "FluentTextInputNavigate";
 /// Binding context for Tab/Shift+Tab on a text control in navigate mode.
 pub const TEXT_INPUT_NAVIGATE_BINDING_CONTEXT: &str = "FluentTextInputNavigate > Input";
 
+pub mod accordion;
 pub mod backdrop;
 pub mod button;
 mod circle;
@@ -84,12 +85,14 @@ pub mod textarea;
 pub mod titlebar;
 pub mod tooltip;
 
+pub use accordion::{Accordion, AccordionItem, AccordionToggle};
 pub use button::Button;
 pub use context_menu::ContextMenu;
 pub use dialog::{AlertDialog, Dialog, DialogOpenChange};
 pub use feedback::{Avatar, Badge, ProgressBar, Spinner, TooltipSurface, TooltipView};
 pub use field::{Field, Label, ValidationMessage};
 pub use fluent_core::spec::ControlSize;
+pub use fluent_core::spec::accordion::AccordionSize;
 pub use fluent_core::spec::button::{ButtonAppearance, ButtonShape, IconPosition};
 pub use fluent_core::spec::input::InputAppearance;
 pub use fluent_core::spec::textarea::TextareaAppearance;

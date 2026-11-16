@@ -312,6 +312,74 @@ impl Gallery {
         tabs_section.into_any_element()
     }
 
+    pub(crate) fn accordion_section(&mut self, cx: &mut Context<Self>) -> AnyElement {
+        // Body copy sits inside the panel, which already carries Fluent's 12px
+        // side margins; the bottom padding is the only spacing the demo adds.
+        let body = |text: &'static str| div().pb(px(12.)).child(text);
+
+        let single = Accordion::new("gallery-accordion-single")
+            .default_open_items([0])
+            .item(
+                AccordionItem::new("gallery-accordion-overview", "Overview").content(body(
+                    "One panel is open at a time. Opening another closes it.",
+                )),
+            )
+            .item(
+                AccordionItem::new("gallery-accordion-details", "Details").content(body(
+                    "Headers are buttons: click, Enter and Space toggle them.",
+                )),
+            )
+            .item(
+                AccordionItem::new("gallery-accordion-policy", "Policy (disabled)")
+                    .disabled(true)
+                    .content(body("A disabled header takes no focus and no click.")),
+            );
+
+        let multiple = Accordion::new("gallery-accordion-multiple")
+            .multiple(true)
+            .collapsible(true)
+            .default_open_items([0, 2])
+            .item(
+                AccordionItem::new("gallery-accordion-multi-a", "Multiple")
+                    .content(body("Every panel opens on its own.")),
+            )
+            .item(
+                AccordionItem::new("gallery-accordion-multi-b", "Collapsible")
+                    .content(body("A second click on an open header closes it.")),
+            )
+            .item(
+                AccordionItem::new("gallery-accordion-multi-c", "Both together")
+                    .content(body("Two panels start open here.")),
+            );
+
+        let small = Accordion::new("gallery-accordion-small")
+            .size(AccordionSize::Small)
+            .item(
+                AccordionItem::new("gallery-accordion-small-home", "Home")
+                    .icon(FluentIcon::Home)
+                    .content(body("The small size is 32px tall instead of 44px.")),
+            )
+            .item(
+                AccordionItem::new("gallery-accordion-small-settings", "Settings")
+                    .icon(FluentIcon::Settings)
+                    .content(body("An item can carry a leading icon.")),
+            );
+
+        let accordion_section = div().flex().flex_col().gap(px(16.)).p(px(16.)).child(
+            div()
+                .flex()
+                .flex_row()
+                .items_start()
+                .gap(px(24.))
+                .child(div().w(px(320.)).child(single))
+                .child(div().w(px(320.)).child(multiple))
+                .child(div().w(px(320.)).child(small)),
+        );
+
+        let _ = cx;
+        accordion_section.into_any_element()
+    }
+
     pub(crate) fn feedback_section(&mut self) -> AnyElement {
         let feedback_section = div()
             .flex()

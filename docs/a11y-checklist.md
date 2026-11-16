@@ -37,6 +37,7 @@ cargo test -p fluent-components --lib menu::scroll_tests --locked`、`--lib tabs
 | `Menu` / `MenuItem` | 每个面板 `Role::Menu`，行 `Role::MenuItem` | 面板名默认 `Menu`，可用 `accessibility_label` 覆盖；行有 `aria_label`、`aria_selected`；当前行作为 focused 容器的 active descendant | 方向键/Home/End/Enter/Space/typeahead/→ 子菜单/Esc 逐层/Tab 关闭 | 最深当前项填充 + 父行 path hint | 已实现（单焦点范围，见 [menus.md](subsystems/menus.md)） |
 | `MenuDropdown` | 继承 `Menu` | 继承，真实 Popover 面板 | 同上 + Esc/Tab | — | 已实现；模态内打开时按 owner 挂到模态子树 |
 | `ContextMenu` | 同 `Menu`（面板 `Role::Menu`，行 `Role::MenuItem`），区域层无 role | 面板名默认 `Menu`，可用 `accessibility_label`；**没有“右键菜单”语义，也没有键盘唤起** | 面板内方向键/Enter/Esc 同 `Menu`；唤起只支持指针 | 同 `Menu` | 打开时面板拿走键盘、关闭归还；真实屏幕阅读器未验证 |
+| `Accordion` / `AccordionItem` | 标题 `Role::Button` + `aria_expanded`，面板 `Role::Group` | 标题文字即名称；没有 `aria-controls` | 每个可用标题独立 Tab stop；`Enter`/`Space` 走 GPUI 点击激活；`↑`/`↓`/`Home`/`End` 移动焦点、不切换、跳过禁用 | `focus_visible` + 2px `strokeFocus2` 内描边，鼠标不出环 | 打开集合受控/非受控；真实屏幕阅读器未验证 |
 | `TabList` / `Tab` | `TabList` / `Tab` + `aria_selected` | 无 label | 方向键/Home/End | 选中指示条；聚焦不加外框 | 已实现（模型差异见缺口 2） |
 | `Popover` | 无 role（容器） | — | Esc/外部点击 | — | 非模态；不隐藏背景，也不得当作模态处理 |
 | `Dialog` | 宿主 `Role::Dialog`（`AlertDialog` 为 `Role::AlertDialog`） | 宿主 `aria_modal(true)`；名称默认取 `title` 文本，`accessibility_label` 覆盖，`title_element` 不提供名称；不同 Dialog 使用不同 host id | 主机焦点陷阱 + Enter/Esc | 卡片内 | 已实现；打开时 AX 树只保留最上层模态子树，背景节点消失，关闭恢复；模态内 deferred popup 按 owner reparent |
