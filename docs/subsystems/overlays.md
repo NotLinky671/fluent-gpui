@@ -58,7 +58,7 @@ deferred positioner prepaint：读取同一共享值，结合面板尺寸和视�
 - `panel_origin` 的目标是触发器左侧与底部 + 4px；结合 `8px + client inset` 连续限位。边缘处理不是上下翻转，接近窗口边缘时也不保证继续保留触发器间隙。
 - 面板大于视口时对齐 inset，避免 clamp 上下界倒置；这不等于大内容总能完整容纳或自动滚动。
 - 定位器基于 `layout_bounds`、当前元素偏移与 `pixel_snap_point` 抵消祖先偏移，再调用 `with_absolute_element_offset`。不要再次加滚动距离，或改为整逻辑像素取整而丢失物理像素对齐。
-- deferred 路径让面板脱离普通滚动内容的裁剪；面板使用 `gpui_base::POPUP_PRIORITY`（100），高于普通模态与[标题栏按钮层](titlebar.md)（50），所以菜单覆盖按钮时仍接管点击。这不要求先改成根级 Host。若未来引入 Host，应另行论证生命周期、事件与状态，而不是把它当作同帧定位的必要前提。
+- deferred 只改变绘制顺序，**不**解除祖先容器的裁剪：实测把触发滚出滚动容器后，面板随触发一起消失，弹层状态仍是打开，反向滚动后重新出现（[原生验收](../validation/overlays-native-2026-11-16.md)）。面板使用 `gpui_base::POPUP_PRIORITY`（100），高于普通模态与[标题栏按钮层](titlebar.md)（50），所以菜单覆盖按钮时仍接管点击。这不要求先改成根级 Host。若未来引入 Host，应另行论证生命周期、事件与状态，而不是把它当作同帧定位的必要前提。
 
 ### 外观与覆盖
 
@@ -197,14 +197,21 @@ cargo run -p fluent-gallery
 
 [Tooltip 测试](../../crates/fluent-components/src/tooltip/tests.rs)只覆盖 service 归属：无 `FluentRoot` 时调用方拿到 `None`、根渲染后 service 可用、实体身份跨重绘稳定。定位、翻转、悬停时机与多窗口隔离不在其中。
 
-**后续行为验证清单**（不是已实现保证；由下一次相关浮层改动认领并记录结果）：
+**行为验证清单**（每项要么有测试，要么有原生记录；没做的留在这里）：
 
-- 受控调用方接受关闭请求后的实际关闭、非受控重绘后保持状态、不同 ID/窗口的隔离。
-- Escape 在焦点位于触发器内、面板内和两者之外时的分发结果；焦点归还在窗口失焦、面板被卸载等边界下的表现；嵌套/同时打开的多个浮层。
-- 面板在真实窗口中的命中归属（测试用 `canvas` 与垫底元素近似，不覆盖 GPU 字体与原生事件顺序）。
-- Sheet 在真实窗口中的滑入/滑出观感、系统 reduced-motion、固定 320px 尺寸下的长内容裁剪，以及关闭动画结束后焦点归还的时序。
-- Tooltip 的 hover/隐藏、翻转、滚动跟随、键盘触发及多窗口 service 归属。
-- 真实窗口中的边缘、缩放、长内容和滚动；现有测试直接 draw，并不验证 GPU 字体或所有原生事件。
+- 已覆盖（自动测试）：受控调用方接受关闭请求后的实际关闭、非受控重绘后保持状态、不同 ID 与窗口的隔离。
+- 已覆盖（自动测试）：Escape 在焦点位于触发器内、面板内和两者之外时的分发结果。
+- 已覆盖（原生，150% 缩放）：面板在真实窗口中的命中归属——点在面板自己的按钮上会到它手里，且不会关闭面板。
+- 已覆盖（原生）：Tooltip 的 hover 出现（0.58–0.64s）、离开消失（0.46s）、贴近右边缘时不越出窗口。
+- 已覆盖（原生）：滚动容器里的触发器被滚轮移动后面板跟随（一格滚轮 −108.7 逻辑像素）。
+- 已覆盖（原生）：子菜单 120ms 掠过不打开、停留 450ms 后打开、Escape 退一层再关整链。
+- 未覆盖：Sheet 在真实窗口中的滑入/滑出观感、系统 reduced-motion、固定 320px 下的长内容裁剪，以及关闭动画结束后焦点归还的时序。
+- 未覆盖：键盘触发的 Tooltip、滚动时 Tooltip 跟随、三层及以上子菜单链与右边缘翻折。
+- 未覆盖：面板打开期间改变窗口大小、超长内容；100%/200% 缩放与多显示器。
+- 未覆盖：真实窗口中的 GPU 字体渲染与完整原生事件顺序（现有测试直接 draw）。
+
+原生部分的入口是 `crates/fluent-gallery/examples/overlays_probe.rs` + `scripts/verify-overlays-windows.py`，
+结果与判据记在[浮层的原生验收](../validation/overlays-native-2026-11-16.md)。
 
 [现有像素夹具](../../crates/fluent-gallery/src/fixtures.rs)已包含 `dialog-open`、`menu-panel`、`sheet-right-open` 与 `popover-open` 等静态帧。`popover-open`（320×220）画的是触发按钮、默认 4px 间隙与面板表面（圆角、内边距、阴影），它证明的是**外观**，不是锚定行为——位置由 `panel_keeps_the_trigger_gap_inside_the_viewport` 一类行为测试断言。动画中间帧、真实指针/键盘路径与系统主题仍不在其中。
 发现风险时保留复现、被测版本和归属，按[工程规范](../code-standards.md#结果与交付)追踪；本轮文档整理不宣称补齐上述行为。
@@ -239,5 +246,6 @@ PR 要描述用户/调用方看到的“之前 → 之后”，并区分实现�
 | 右键菜单，面板外按下 | 关闭并归还键盘 | `a_press_outside_the_panel_closes_the_menu` / `escape_returns_the_keyboard_to_the_control_that_had_it` |
 | 非受控浮层重绘 | 保持打开 | `an_uncontrolled_popover_stays_open_across_redraws` |
 
-仍未覆盖：真实窗口下的命中归属、事件顺序、Tooltip 的 hover/翻转/滚动跟随、边缘与缩放。
-这些需要人工在真窗口里操作，不能由上述测试替代。
+仍未覆盖：Sheet 的原生滑入/滑出与焦点时序、键盘触发的 Tooltip、滚动时 Tooltip 跟随、三层及以上子菜单、
+面板打开期间改变窗口大小、100%/200% 缩放与多显示器。这些需要人工在真窗口里操作，
+不能由上述测试替代；已覆盖的原生项见[浮层的原生验收](../validation/overlays-native-2026-11-16.md)。
