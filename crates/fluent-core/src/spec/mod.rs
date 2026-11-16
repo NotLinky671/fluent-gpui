@@ -4,6 +4,7 @@
 //! `(FluentTheme, Props)`, never by rendering. Tests assert the numbers; the
 //! render layer only applies them.
 
+pub mod backdrop;
 pub mod button;
 pub mod dialog;
 pub mod feedback;

@@ -61,6 +61,7 @@ pub const TEXT_INPUT_NAVIGATE_KEY_CONTEXT: &str = "FluentTextInputNavigate";
 /// Binding context for Tab/Shift+Tab on a text control in navigate mode.
 pub const TEXT_INPUT_NAVIGATE_BINDING_CONTEXT: &str = "FluentTextInputNavigate > Input";
 
+pub mod backdrop;
 pub mod button;
 mod circle;
 pub mod context_menu;

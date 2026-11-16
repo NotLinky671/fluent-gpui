@@ -13,6 +13,13 @@ fluent-theme.workspace = true
 fluent-icons.workspace = true
 fluent-core.workspace = true
 image.workspace = true
+# The material adapter names the Win32 handle GPUI already hands out, and the DWM
+# entry points that report whether a backdrop request was honoured. Both are
+# already in the tree through gpui; declaring them keeps the versions equal.
+raw-window-handle = "0.6"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Dwm"] }
 
 [dev-dependencies]
 gpui = { workspace = true, features = ["test-support"] }

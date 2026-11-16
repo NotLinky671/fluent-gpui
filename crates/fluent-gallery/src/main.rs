@@ -24,7 +24,7 @@ use fluent_ui::{
     MenuGroup, MenuHeader, MenuItem, MenuItemCheckbox, MenuItemRadio, MenuTrigger, Popover,
     ProgressAppearance, ProgressBar, Radio, Sheet, SheetSide, Spinner, SpinnerSize, Switch,
     TabItem, TabList, TextInput, Textarea, TextareaAppearance, TitleBar, TooltipSurface,
-    ValidationMessage,
+    ValidationMessage, WindowBackdrop,
 };
 
 const APPEARANCES: [ButtonAppearance; 5] = [
@@ -60,6 +60,8 @@ struct Gallery {
     appearance: Appearance,
     /// Set by `FLUENT_GALLERY_FIXTURE`: render one component on a fixed canvas.
     fixture: Option<String>,
+    /// Set by `FLUENT_GALLERY_BACKDROP`: ask the compositor for a material.
+    backdrop: Option<WindowBackdrop>,
     clicks: usize,
     inputs: Vec<gpui::Entity<InputState>>,
     textareas: Vec<gpui::Entity<TextareaState>>,
@@ -89,6 +91,13 @@ struct Gallery {
 impl Gallery {
     fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let fixture = std::env::var("FLUENT_GALLERY_FIXTURE").ok();
+        // Opt-in only: a material changes what the page paints, so nothing asks
+        // for one unless it was named on the command line.
+        let backdrop = match std::env::var("FLUENT_GALLERY_BACKDROP").as_deref() {
+            Ok("mica") => Some(WindowBackdrop::Mica),
+            Ok("mica-alt") => Some(WindowBackdrop::MicaAlt),
+            _ => None,
+        };
         // A forced appearance (screenshots, CI baselines) must not be
         // overwritten by the OS observer, which fires immediately.
         let forced = std::env::var_os("FLUENT_GALLERY_APPEARANCE").is_some();
@@ -134,6 +143,7 @@ impl Gallery {
             sheet_side: None,
             context_menu_open: false,
             fixture,
+            backdrop,
             _appearance_sub: sub,
         }
     }
@@ -194,6 +204,7 @@ impl Render for Gallery {
         let dialog_section = self.dialog_section(cx, &theme);
         let sheet_section = self.sheet_section(cx, &theme);
         let context_menu_section = self.context_menu_section(cx, &theme);
+        let backdrop_section = self.backdrop_section(cx);
         // `FLUENT_GALLERY_SECTION` narrows the gallery to one section; useful for
         // screenshots and pixel baselines that would otherwise be below the fold.
         let want = |name: &str| match std::env::var("FLUENT_GALLERY_SECTION") {
@@ -237,9 +248,14 @@ impl Render for Gallery {
         if want("context-menu") {
             sections.push(context_menu_section.into_any_element());
         }
-        FluentRoot::new()
-            .flex()
-            .flex_col()
+        if want("backdrop") {
+            sections.push(backdrop_section.into_any_element());
+        }
+        let mut root = FluentRoot::new().flex().flex_col();
+        if let Some(backdrop) = self.backdrop {
+            root = root.backdrop(backdrop);
+        }
+        root
             // Placeholder artwork until the gallery has a real app logo; it also
             // exercises the leading slot that TitleBar reserves for one.
             .child(TitleBar::new("gallery-titlebar", "Fluent Gallery").icon(FluentIcon::Settings))

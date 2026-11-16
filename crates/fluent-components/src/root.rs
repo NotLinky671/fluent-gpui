@@ -24,6 +24,7 @@ use fluent_theme::FluentTheme;
 pub struct FluentRoot {
     children: Vec<AnyElement>,
     style: StyleRefinement,
+    backdrop: Option<crate::backdrop::WindowBackdrop>,
 }
 
 impl FluentRoot {
@@ -32,7 +33,21 @@ impl FluentRoot {
         Self {
             children: Vec::new(),
             style: StyleRefinement::default(),
+            backdrop: None,
         }
+    }
+
+    /// Asks the compositor for a window material behind this root.
+    ///
+    /// A window is opaque unless told otherwise, and this is the only place that
+    /// decides: without the call the root paints the theme's surface colour, and
+    /// with it the root paints a translucent layer so the material shows through.
+    /// The request is confirmed by the platform — when it is refused, unsupported
+    /// or contradicted by high contrast, the root stays opaque rather than
+    /// leaving unreadable text over the desktop.
+    pub fn backdrop(mut self, backdrop: crate::backdrop::WindowBackdrop) -> Self {
+        self.backdrop = Some(backdrop);
+        self
     }
 }
 
@@ -94,9 +109,17 @@ impl RenderOnce for FluentRoot {
         // through the same keyed state, so two windows never share one overlay.
         let overlay = crate::tooltip::register(window, cx);
 
+        // A requested material replaces the opaque surface with a translucent
+        // layer; the compositor's answer decides which, so a refusal leaves the
+        // page exactly as it was before.
+        let background = match self.backdrop {
+            Some(request) => crate::backdrop::policy_for(window, cx, request).layer,
+            None => tokens.color.neutral_background_1,
+        };
+
         div()
             .size_full()
-            .bg(tokens.color.neutral_background_1)
+            .bg(background)
             .text_color(tokens.color.neutral_foreground_1)
             .font_family(theme.font_family().clone())
             .text_size(fluent_core::spec::root::font_size(&theme))
@@ -115,3 +138,6 @@ impl RenderOnce for FluentRoot {
             .child(overlay)
     }
 }
+
+#[cfg(test)]
+mod backdrop_tests;

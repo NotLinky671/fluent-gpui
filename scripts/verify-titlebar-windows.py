@@ -214,6 +214,21 @@ def veto(process, handles, path):
     results["veto"] = {"rejected_window_preserved": True, "accepted_close_exited": True}
 
 
+def backdrop(process, handles, path):
+    hwnd = handles[0]
+    wait_for(lambda: "backdrop:policy=" in path.read_text(encoding="utf-8"), "backdrop policy")
+    text = path.read_text(encoding="utf-8")
+    steps = [line for line in text.splitlines() if line.startswith("backdrop:request=")]
+    # Every step of the round trip is checked against the DWM contract, not
+    # against what the adapter believed it asked for.
+    assert len(steps) == 3, steps
+    for line in steps:
+        assert line.endswith(" ok"), line
+    assert "material:true" in text, text
+    screenshot(hwnd, "mica-window")
+    results["backdrop"] = {"steps": steps, "policy": "material"}
+
+
 def two(process, handles, _):
     caption_click(handles[0], 23, 20)
     wait_for(lambda: len(windows(process.pid)) == 1, "one window removed")
@@ -227,6 +242,7 @@ try:
     run("basic", basic)
     run("veto", veto)
     run("two", two)
+    run("backdrop", backdrop)
 finally:
     (OUT / "results.json").write_text(json.dumps(results, indent=2), encoding="utf-8")
 print(json.dumps(results, indent=2))

@@ -1,6 +1,58 @@
 use super::*;
 
 impl Gallery {
+    /// Window material demo. The section is also the control: picking a value
+    /// re-renders the root, which asks the compositor and only turns the surface
+    /// translucent once DWM confirms the material.
+    pub(crate) fn backdrop_section(&mut self, cx: &mut Context<Self>) -> AnyElement {
+        let choice = match self.backdrop {
+            Some(WindowBackdrop::Mica) => 1,
+            Some(WindowBackdrop::MicaAlt) => 2,
+            _ => 0,
+        };
+        let options: [(usize, &'static str, &'static str, Option<WindowBackdrop>); 3] = [
+            (0, "gallery-backdrop-solid", "Solid", None),
+            (
+                1,
+                "gallery-backdrop-mica",
+                "Mica",
+                Some(WindowBackdrop::Mica),
+            ),
+            (
+                2,
+                "gallery-backdrop-mica-alt",
+                "Mica Alt",
+                Some(WindowBackdrop::MicaAlt),
+            ),
+        ];
+        let radios: Vec<AnyElement> = options
+            .into_iter()
+            .map(|(index, id, label, value)| {
+                Radio::new(id)
+                    .checked(choice == index)
+                    .label(label)
+                    .on_change(cx.listener(move |this, _, _, cx| {
+                        this.backdrop = value;
+                        cx.notify();
+                    }))
+                    .into_any_element()
+            })
+            .collect();
+
+        div()
+            .flex()
+            .flex_col()
+            .gap(px(8.))
+            .p(px(16.))
+            .child(div().flex().gap(px(16.)).children(radios))
+            .child(div().max_w(px(520.)).text_size(px(12.)).child(
+                "Mica needs Windows 11. A platform without the material, a request the \
+                         compositor refuses, or high contrast keeps the solid theme surface. \
+                         FLUENT_GALLERY_BACKDROP=mica or mica-alt picks the initial value.",
+            ))
+            .into_any_element()
+    }
+
     pub(crate) fn dialog_section(
         &mut self,
         cx: &mut Context<Self>,

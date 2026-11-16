@@ -50,15 +50,38 @@ Windows/macOS 应用在打开窗口后安装 `window.on_window_should_close(cx, 
 
 图形统一用一个 10px ink box。最大化/还原轮廓是一条**矢量描边路径**（`PathBuilder::stroke` + `arc_to` 圆角），不是 `paint_quad`：后者对边框宽度按设备像素取整，150% 下会把 1 DIP 描边和 1.5 DIP 半径都推到 2 设备像素，内侧圆角退化为直角、整块变重。圆角半径取 1.75 DIP，是对照 WinUI 参考图逐像素量出来的：150% 下参考图的角部覆盖为角格 1/9、次格 7/9，1.5 DIP 时为 2/9 与 9/9（仍偏方），1.75 DIP 时为 0–1/9 与 7/9，基本重合。还原图形后层只裁出顶部和右侧，避免用实心背景遮盖。关闭 X 也用描边路径。绘制时读取当前文字前景色，避免 render 时固定图标颜色覆盖 hover 白色。外接边界和定位按窗口 scale factor 对齐物理像素，但描边宽度与半径保留分数设备像素交给抗锯齿；最小化横线继续沿用原来的物理像素线宽。颜色与度量在 spec 中解析，包含 hover/pressed 和独立于应用 palette 的 Windows 关闭红色。
 
+## 窗口材质（Mica）
+
+材质是显式 opt-in，默认不接管宿主：`FluentRoot::new().backdrop(WindowBackdrop::Mica)` 才向合成器提出请求，省略时页面照旧画主题实色。`TitleBar` 只管窗口 chrome，不持有全窗口材质策略。
+
+分三层：
+
+| 层 | 位置 | 职责 |
+|---|---|---|
+| 策略 | `crates/fluent-core/src/spec/backdrop.rs` | `WindowBackdrop`（`Solid` / `Mica` / `MicaAlt`）、`BackdropOutcome`（`Applied` / `Unsupported` / `Failed` / `Mismatch`）、`resolve(...) -> BackdropPolicy`（窗口外观 + 根层颜色 + 是否显示材质） |
+| 适配 | `crates/fluent-components/src/backdrop.rs` | 唯一与平台对话的地方：`apply` 先设 GPUI 的外观（决定清屏 alpha），再调 `DwmSetWindowAttribute(DWMWA_SYSTEMBACKDROP_TYPE)` 并**读回**；`set_dark_mode` 写 `DWMWA_USE_IMMERSIVE_DARK_MODE`；`policy_for` 用按窗口的 keyed state 记住上次请求（含明暗），只在请求变化时再问一次 |
+| 绘制 | `crates/fluent-components/src/root.rs` | 有请求时用 `policy.layer`，否则用 `neutral_background_1` |
+
+材质出现过一次才允许半透明：`Applied` 之外（被拒、平台不支持、合成器回了别的值、高对比度）一律退回不透明主题底，避免把正文放在看不见的壁纸上。Windows 会接受调用却保留自己的材质，所以读回值不一致记 `Mismatch` 而不是成功。高对比度从主题的 `Appearance::HighContrast` 读取，并会把窗口请求本身降为 `Solid`，否则再次关闭高对比度时材质不会回来。
+
+根层用 50% 而不是全透明：`LayerFillColorDefault` 在浅色主题是 `#80FFFFFF`（白色 50%），同一条 alpha 在深色主题同样成立。在本机壁纸下，Mica 面实测 `(239, 244, 249)`，叠层后 `(247, 249, 252)`；全透明会把正文直接压在壁纸上。
+
+一个窗口只有一个材质拥有者：请求存在该窗口的 keyed state 里，两个根不会互相抢；窗口重建后从新窗口自己的状态开始。
+
+材质跟随的是应用模式，不是我们画的颜色：DWM 用窗口的 immersive dark 标记决定 Mica 的明暗，所以 `policy_for` 把 `Appearance::Dark` 折算成 `DWMWA_USE_IMMERSIVE_DARK_MODE = 1` 一起写入，并把明暗并入缓存的请求（切主题时重新应用）。不写这一位时，深色主题会得到"浅色材质 + 50% 深色层"的灰面：实测 `(141, 142, 145)`，既不是深色材质也不是主题底色；写入后同一位置为 `(34, 37, 43)`（深色 Mica 面约 `(26, 31, 41)`），而实色深色是 `(41, 41, 41)`。
+
+图库有可现场切换的入口：`backdrop` 一节的三选一（Solid / Mica / Mica Alt），初始值仍可由 `FLUENT_GALLERY_BACKDROP` 指定；截图夹具不设该变量，保持实色。
+
 ## 验证边界
 
 ```text
 cargo test -p fluent-core --lib spec::titlebar --locked
 cargo test -p fluent-components --lib titlebar --locked
 cargo test -p fluent-components --lib popover --locked
-cargo run -p fluent-gallery
+cargo test -p fluent-components --lib backdrop --locked
+cargo run -p fluent-gallery   # 设置页 `backdrop` 一节可直接切换材质
 ```
 
 spec 测试检查几何与跨主题状态颜色。行为测试检查 native 路径没有手动关闭、fallback 可否决且保留其他窗口、caption 与 modal/popup 的实际输入归属、hover/pressed 背景的绘制输出，以及最大化轮廓的几何：内圆角必须存在（半径大于描边），且描边不允许到达方形外角。最后一条在半径为 0 或描边被取整吃掉内圆角时失败。测试平台不执行 Windows 非客户区动作，不能用这些绿灯证明拖动、Snap、最大化/还原、真实退出或 macOS/Linux 的原生行为。
 
-原生检查应覆盖：标题左 padding 和文字上下的拖拽/双击；三个按钮的命中、最大化与还原；关闭检查否决；多窗口关闭；打开 Dialog/Sheet 后的窗口按钮；菜单覆盖时的点击；light/dark/high-contrast、窄窗口、长标题、100%/150%/200% DPI。Mica 与便签应用接入另行处理。运行结果见[标题栏修复记录](../validation/titlebar-2026-11-10.md)。
+原生检查应覆盖：标题左 padding 和文字上下的拖拽/双击；三个按钮的命中、最大化与还原；关闭检查否决；多窗口关闭；打开 Dialog/Sheet 后的窗口按钮；菜单覆盖时的点击；light/dark/high-contrast、窄窗口、长标题、100%/150%/200% DPI。Mica 的原生往返与像素结果见[材质验证记录](../validation/mica-2026-11-16.md)，其余原生操作见[标题栏修复记录](../validation/titlebar-2026-11-10.md)。

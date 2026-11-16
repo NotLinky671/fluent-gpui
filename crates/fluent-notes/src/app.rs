@@ -15,7 +15,7 @@ use fluent_ui::{
     AlertDialog, Appearance, Badge, BadgeAppearance, BadgeSize, Button, ButtonAppearance, Checkbox,
     ControlSize, Dialog, Divider, Field, FluentIcon, FluentRoot, FluentTheme, Icon, Label, Menu,
     MenuDropdown, MenuHeader, MenuItem, Popover, Radio, Switch, TextInput, Textarea,
-    TextareaTabBehavior, TitleBar,
+    TextareaTabBehavior, TitleBar, WindowBackdrop,
 };
 
 use crate::model::{Note, NoteId, NoteTone, NotesModel};
@@ -86,6 +86,16 @@ pub struct NotesApp {
     compact_list: bool,
     status: Status,
     _subscriptions: Vec<Subscription>,
+}
+
+/// `FLUENT_NOTES_BACKDROP=mica|mica-alt` asks the window for a material. The
+/// request only turns into a translucent root once the compositor confirms it.
+fn notes_backdrop() -> Option<WindowBackdrop> {
+    match std::env::var("FLUENT_NOTES_BACKDROP").ok()?.as_str() {
+        "mica" => Some(WindowBackdrop::Mica),
+        "mica-alt" => Some(WindowBackdrop::MicaAlt),
+        _ => None,
+    }
 }
 
 impl NotesApp {
@@ -459,8 +469,13 @@ impl NotesApp {
     fn render_root(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let narrow = window.viewport_size().width < px(680.);
         let body = self.render_body(cx, narrow);
-        FluentRoot::new()
-            .flex()
+        let mut root = FluentRoot::new();
+        // The material is opt-in: without the variable the window stays opaque,
+        // and an unconfirmed request falls back to the theme surface.
+        if let Some(backdrop) = notes_backdrop() {
+            root = root.backdrop(backdrop);
+        }
+        root.flex()
             .flex_col()
             .size_full()
             // The window asks for a transparent caption, so the view supplies it.
