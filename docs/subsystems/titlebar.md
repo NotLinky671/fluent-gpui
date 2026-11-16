@@ -86,4 +86,4 @@ cargo run -p fluent-gallery   # 设置页 `backdrop` 一节可直接切换材质
 
 spec 测试检查几何与跨主题状态颜色。行为测试检查 native 路径没有手动关闭、fallback 可否决且保留其他窗口、caption 与 modal/popup 的实际输入归属、hover/pressed 背景的绘制输出，以及最大化轮廓的几何：内圆角必须存在（半径大于描边），且描边不允许到达方形外角。最后一条在半径为 0 或描边被取整吃掉内圆角时失败。测试平台不执行 Windows 非客户区动作，不能用这些绿灯证明拖动、Snap、最大化/还原、真实退出或 macOS/Linux 的原生行为。
 
-原生检查应覆盖：标题左 padding 和文字上下的拖拽/双击；三个按钮的命中、最大化与还原；关闭检查否决；多窗口关闭；打开 Dialog/Sheet 后的窗口按钮；菜单覆盖时的点击；light/dark/high-contrast、窄窗口、长标题、100%/150%/200% DPI。Mica 的原生往返与像素结果见[材质验证记录](../validation/mica-2026-11-16.md)，其余原生操作见[标题栏修复记录](../validation/titlebar-2026-11-10.md)。
+原生检查应覆盖：标题左 padding 和文字上下的拖拽/双击；三个按钮的命中、最大化与还原；关闭检查否决；多窗口关闭；打开 Dialog/Sheet 后的窗口按钮；菜单覆盖时的点击；light/dark/high-contrast、窄窗口、长标题、100%/150%/200% DPI。Mica 的原生往返与像素结果见[材质验证记录](../validation/mica-2026-11-16.md)，物理手势（拖动、双击缩放、吸附、角部缩放、多轮移动后的 caption 命中）见[手势验收记录](../validation/titlebar-gestures-2026-11-16.md)，其余原生操作见[标题栏修复记录](../validation/titlebar-2026-11-10.md)。手势记录同时列出仍靠眼睛判断的部分：最大化圆角与阴影观感、高对比与失活、macOS/Linux、跨显示器缩放。
