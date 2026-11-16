@@ -267,9 +267,9 @@ mod platform {
 }
 
 #[cfg(test)]
-use fake::{answer, appearance as record_appearance, clear as record_clear};
-#[cfg(test)]
 pub(crate) use fake::{Calls as RecordedCalls, calls as fake_calls, install as install_fake};
+#[cfg(test)]
+use fake::{answer, appearance as record_appearance, clear as record_clear};
 #[cfg(test)]
 mod fake {
     //! A recorded platform, so tests can see the calls a real window receives.
