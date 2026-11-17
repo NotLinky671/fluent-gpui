@@ -6,6 +6,8 @@
 //! presses through a window and reads the painted result, so a header that
 //! looks interactive but never toggles fails here.
 
+use std::time::Duration;
+
 use super::*;
 use crate::root::FluentRoot;
 use gpui::{
@@ -18,6 +20,13 @@ use gpui::{
 /// uses it, so a painted quad of this colour is a body and nothing else.
 fn body_colour() -> Hsla {
     gpui::rgba(0x14_a0_3c_ff).into()
+}
+
+/// The colour of the marker that sits directly below the accordion. Its y is
+/// the accordion's total height, which is how a running height motion is
+/// measured without reaching into the component.
+fn marker_colour() -> Hsla {
+    gpui::rgba(0xff_8a_00_ff).into()
 }
 
 struct AccordionView {
@@ -68,7 +77,8 @@ impl Render for AccordionView {
                         .h(px(24.))
                         .child("before"),
                 )
-                .child(self.accordion()),
+                .child(self.accordion())
+                .child(div().h(px(4.)).w_full().bg(marker_colour())),
         )
     }
 }
@@ -99,7 +109,7 @@ fn open_view(
         default_open,
     });
     cx.run_until_parked();
-    draw(cx, handle);
+    settle(cx, handle);
     handle
 }
 
@@ -115,6 +125,15 @@ fn draw(cx: &mut TestAppContext, handle: WindowHandle<AccordionView>) {
         })
         .unwrap();
         cx.run_until_parked();
+    }
+}
+
+/// Advances the clock far enough for a panel motion to finish, twice: the first
+/// frame learns the content height and starts the clock, the second one runs it.
+fn settle(cx: &mut TestAppContext, handle: WindowHandle<AccordionView>) {
+    for _ in 0..2 {
+        cx.executor().advance_clock(Duration::from_millis(250));
+        draw(cx, handle);
     }
 }
 
@@ -184,7 +203,11 @@ fn ringed(cx: &mut TestAppContext, handle: WindowHandle<AccordionView>) -> Vec<B
 }
 
 /// Presses and releases the pointer at `position`.
-fn click(cx: &mut TestAppContext, handle: WindowHandle<AccordionView>, position: Point<Pixels>) {
+fn click_raw(
+    cx: &mut TestAppContext,
+    handle: WindowHandle<AccordionView>,
+    position: Point<Pixels>,
+) {
     cx.update_window(handle.into(), move |_, window, cx| {
         window.dispatch_event(
             MouseDownEvent {
@@ -212,7 +235,7 @@ fn click(cx: &mut TestAppContext, handle: WindowHandle<AccordionView>, position:
     draw(cx, handle);
 }
 
-fn press(cx: &mut TestAppContext, handle: WindowHandle<AccordionView>, key: &'static str) {
+fn press_raw(cx: &mut TestAppContext, handle: WindowHandle<AccordionView>, key: &'static str) {
     let keystroke = Keystroke::parse(key).unwrap();
     cx.update_window(handle.into(), move |_, window, cx| {
         window.dispatch_event(
@@ -228,6 +251,18 @@ fn press(cx: &mut TestAppContext, handle: WindowHandle<AccordionView>, key: &'st
     .unwrap();
     cx.run_until_parked();
     draw(cx, handle);
+}
+
+/// Clicks, then lets the panel motion finish.
+fn click(cx: &mut TestAppContext, handle: WindowHandle<AccordionView>, position: Point<Pixels>) {
+    click_raw(cx, handle, position);
+    settle(cx, handle);
+}
+
+/// Presses a key, then lets the panel motion finish.
+fn press(cx: &mut TestAppContext, handle: WindowHandle<AccordionView>, key: &'static str) {
+    press_raw(cx, handle, key);
+    settle(cx, handle);
 }
 
 /// The 32px above the accordion: the fixture's leading focus stop and its gap.
@@ -423,5 +458,111 @@ fn a_multiple_collapsible_accordion_closes_its_last_panel(cx: &mut TestAppContex
     assert!(
         bodies(cx, handle).is_empty(),
         "a collapsible multiple accordion can close every panel"
+    );
+}
+
+/// `motionTokens.durationNormal`, written out rather than read from the
+/// component: the motion length is part of what these tests are pinning down.
+const FLUENT_DURATION: Duration = Duration::from_millis(200);
+
+/// The y of the marker below the accordion: the fixture's offset plus the
+/// accordion's current total height, so it measures a running motion.
+fn marker(cx: &mut TestAppContext, handle: WindowHandle<AccordionView>) -> f32 {
+    let marker = marker_colour();
+    let mut found = None;
+    cx.update_window(handle.into(), |_, window, _| {
+        let scale = window.scale_factor();
+        for quad in window.painted_quads() {
+            if quad.background.as_solid() != Some(marker) {
+                continue;
+            }
+            found = Some(quad.bounds.origin.y.0 / scale);
+        }
+    })
+    .unwrap();
+    found.expect("the marker below the accordion must be painted")
+}
+
+#[gpui::test]
+fn the_panel_grows_over_the_fluent_duration(cx: &mut TestAppContext) {
+    let handle = open(cx);
+    let closed = marker(cx, handle);
+
+    click_raw(cx, handle, header_at(0));
+    let at_once = marker(cx, handle) - closed;
+    assert!(
+        at_once.abs() < 1.,
+        "the panel must not jump open; it was {at_once}px tall on the first frame"
+    );
+
+    cx.executor().advance_clock(FLUENT_DURATION / 2);
+    draw(cx, handle);
+    let halfway = marker(cx, handle) - closed;
+    assert!(
+        halfway > 8. && halfway < 32.,
+        "halfway through motionTokens.durationNormal the panel must be part way open, got {halfway}px"
+    );
+
+    cx.executor().advance_clock(FLUENT_DURATION);
+    draw(cx, handle);
+    let settled = marker(cx, handle) - closed;
+    assert!(
+        (settled - 40.).abs() < 1.,
+        "the panel must end at the height of its body, got {settled}px"
+    );
+}
+
+#[gpui::test]
+fn the_panel_closes_over_the_fluent_duration(cx: &mut TestAppContext) {
+    // Collapsible, otherwise the last open panel has no way to close.
+    let handle = open_view(cx, Vec::new(), false, true);
+    let closed = marker(cx, handle);
+
+    click(cx, handle, header_at(0));
+    let opened = marker(cx, handle) - closed;
+    assert!(
+        (opened - 40.).abs() < 1.,
+        "the panel starts open, got {opened}px"
+    );
+
+    click_raw(cx, handle, header_at(0));
+    let at_once = marker(cx, handle) - closed;
+    assert!(
+        at_once > 36.,
+        "a closing panel must not vanish at once, it was {at_once}px tall"
+    );
+
+    cx.executor().advance_clock(FLUENT_DURATION / 2);
+    draw(cx, handle);
+    let halfway = marker(cx, handle) - closed;
+    assert!(
+        halfway > 8. && halfway < 32.,
+        "halfway closed the panel must be part way gone, got {halfway}px"
+    );
+    // The body is clipped by the shrinking panel, so it cannot be counted in the
+    // painted quads here; the height above is the evidence it is still mounted.
+
+    cx.executor().advance_clock(FLUENT_DURATION);
+    draw(cx, handle);
+    let ended = marker(cx, handle) - closed;
+    assert!(ended.abs() < 1., "the panel must end closed, got {ended}px");
+    assert!(
+        bodies(cx, handle).is_empty(),
+        "the body unmounts once the motion ends, like unmountOnExit"
+    );
+}
+
+#[gpui::test]
+fn reduced_motion_opens_the_panel_at_once(cx: &mut TestAppContext) {
+    let handle = open(cx);
+    cx.update(|cx| cx.set_reduce_motion(true));
+    let closed = marker(cx, handle);
+
+    click_raw(cx, handle, header_at(0));
+    draw(cx, handle);
+    let opened = marker(cx, handle) - closed;
+    assert!(
+        (opened - 40.).abs() < 1.,
+        "with reduced motion the panel must arrive at once, got {opened}px"
     );
 }

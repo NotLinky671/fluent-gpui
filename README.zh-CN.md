@@ -28,7 +28,7 @@
 | `Dialog` / `AlertDialog` | 基础实现 | 自渲染 deferred 模态：Fluent scrim 与卡片（background overlay、x-large 圆角、shadow64），受控/非受控开关，打开移入焦点、关闭归还，Tab 约束在卡片内；`AlertDialog` 必须显式选择——无 Esc 与 scrim 关闭 |
 | `Sheet` / 侧边抽屉 | 基础实现 | 四向抽屉（默认右侧），滑入/滑出过渡遵循 reduced motion；复用 Dialog 的 `colorBackgroundOverlay` scrim 与焦点陷阱，打开移入焦点、退出动画结束后归还；受控/非受控开关，Esc 与 scrim 按下都请求关闭；固定尺寸、内容裁剪，无滚动与拖拽关闭 |
 | `Tabs` / `TabList` / `Tab` | 基础实现 | 横向/纵向标签条；选中/hover/禁用三态，指示条按上一帧记录的标签绘制边界滑动；方向键与 Home/End 移动并跳过禁用项，`role=tablist`/`tab`；聚焦时不加外框 |
-| `Accordion` / `AccordionItem` | 基础实现 | 默认一次只展开一块，`multiple` 可各自展开，`collapsible` 控制最后一块能否收起；标题 44px（`Small` 32px，`Large`/`ExtraLarge` 只放大字号），内边距 10/12，面板左右各留 12；图标直接换 `ChevronDown`/`ChevronRight` 而非旋转；每个可用标题是独立 Tab stop，方向键与 Home/End 移动焦点，焦点环只对键盘出现（2px 内描边）；见 [Accordion 专题](docs/subsystems/accordion.md) |
+| `Accordion` / `AccordionItem` | 基础实现 | 默认一次只展开一块，`multiple` 可各自展开，`collapsible` 控制最后一块能否收起；标题 44px（`Small` 32px，`Large`/`ExtraLarge` 只放大字号），内边距 10/12，面板左右各留 12；面板按 `motionTokens.durationNormal`（200 ms）+ `curveEasyEaseMax` 展开，高度取自自身内容，收起动画结束才卸载；图标直接换 `ChevronDown`/`ChevronRight` 而非旋转；每个可用标题是独立 Tab stop，方向键与 Home/End 移动焦点，焦点环只对键盘出现（2px 内描边）；见 [Accordion 专题](docs/subsystems/accordion.md) |
 | `TitleBar` | 基础实现 | Windows 原生命中、最大化/还原图形与 hover/pressed；macOS 原生红绿灯、Linux 按实际装饰绘制按钮；配套窗口配置与可本地化无障碍名称；标题前有 16px 图标槽（Fluent 字形、位图 logo 或空槽预留），系统窗口图标仅在 X11 生效；见[标题栏专题](docs/subsystems/titlebar.md) |
 
 ## 快速开始
@@ -122,13 +122,14 @@ GPUI 精确锁定在快照版本（`gpui-pre = 0.3.10`）；用 caret 版本会�
 - 字体模式只做本机字体可用性解析：`SegoeCompat` 依次查找 `Segoe UI` / `Selawik`，都没有时回退到 `.SystemUIFont`；仓库未内置这两款字体。因此 macOS 等未安装 Selawik 的环境切换 Font mode 可能没有任何像素变化，这是预期的回退结果，不是渲染缺陷
 - Gallery 的两条默认 `TabList` 各自持有一个持久 `FocusHandle` 并 `track_focus`，是实际的 Tab 停靠点；像素 fixture 里的 `fx-tabs` / `fx-tabs-vertical` 用 keyed 焦点句柄保证跨重绘稳定。未接 `track_focus` 时标签条没有属于自己的焦点句柄，不参与 Tab 顺序与键盘导航
 - `Sheet` 的抽屉尺寸是组件常量（默认 320px，可用 `Sheet::size` 覆盖），内容超出时被裁剪，没有滚动区或拖拽关闭；Esc 与 scrim 按下都只上报 `on_open_change(false)`，底层不区分两者；退出动画结束前焦点仍被约束在抽屉内，之后只在焦点仍在抽屉内时归还——调用方若在 `open(false)` 的同一帧卸载元素，就不会发生归还
-- `Avatar` 只渲染首字母，无图片与状态徽标
+- `Avatar`：presence 图形是手绘路径，因为内置图标集没有 presence 图标族；徽标下方上游用径向遮罩在图片上挖孔，这里退化为徽标自带的 1px 页面色外环。inactive 头像降到 80% 不透明度，但不施加上游的 0.875 缩放——本版 GPUI 快照没有元素变换。图片加载失败无法回退到首字母：GPUI 不提供图片加载回调。详见[验证记录](docs/validation/avatar-2026-11-17.md)
 - Checkbox / Radio / Switch 已接入鼠标 hover / pressed 状态及颜色过渡；完整键盘与指针取消行为尚未验证
 - `Popover` 的关闭路径已有行为测试：外部按下上报 `false`，面板本体与面板内交互子元素上的按下不上报，按下触发器只上报一次变化，受控调用方忽略请求时保持打开。提供 `track_focus` 时，打开会把焦点移入面板，关闭且焦点仍在面板内时归还；Esc 仅在焦点位于浮层内时生效。焦点进入的是面板容器，不自动进入第一个控件；窗口边缘采用限位而非上下自动翻转。面板容器不必标记为 Tab 停靠点；若调用方标记，它会加入控件循环
-- `Badge` 前景按对比度选取：每种外观取主题的一对静态深/浅标签 token 中与徽标背景对比更高的一个，因此在 light、dark 与 high-contrast 下文字都可辨。映射仍取自 token 且有 spec 断言覆盖；受影响外观的原生窗口视觉检查尚待进行。见[修复记录](docs/validation/badge-contrast-2026-11-03.md)
+- `Badge` 的 filled 前景仍按对比度选取：每种颜色取主题的一对静态深/浅标签 token 中与徽标背景对比更高的一个，light、dark 与 high-contrast 下文字都可辨（旧记录见[修复记录](docs/validation/badge-contrast-2026-11-03.md)）。ghost / outline 不照抄上游固定的 `palette*Foreground3`：该 token 在 `web_light` 的黄色上对页面底色只有 1.30，改用该色 `Foreground1` 与 `Foreground3` 中对比更高者，四外观 × 八颜色 × 三主题实测全部 ≥ 4.5；subtle 的 outline 边框改用 `neutralStroke2`，因为上游没有为该档指定边框，`currentColor` 过重。CounterBadge 复用 `Badge` 的渲染函数，零计数渲染零尺寸元素而非隐藏样式。四项偏差与实测数字见[验证记录](docs/validation/badge-fluent2-2026-11-17.md)
 - `Textarea` 在本版 GPUI 快照中不处理鼠标滚轮；长正文可用光标/键盘滚动，滚动条会随光标出现
 - `ContextMenu` 锚定的是按下位置而不是触发器：按下时写入指针，定位器在同一帧读取，因此面板不会先用旧锚点画一帧。可点击区域不交给 `Popover` 当触发器——那样整个区域都会被算成“按在触发器上”，外部按下永远关不掉。面板越出窗口时翻转而不是滑动。
 - `MenuDropdown` 把 `Menu` 组合进 `Popover`，因此菜单继承锚定定位与关闭语义。方向键、Home/End、Enter/Space 与跳过禁用行均已可用；鼠标移动时写入的当前行与键盘一致，静止指针下的布局变化不会改选。子菜单支持任意层：每层各有当前行，最深层的当前行才是键盘激活目标，打开更深层的那一行用独立的 path hint 样式；→ 或 Enter 只在行确实带子菜单时打开，←/Esc 退一层，Tab 关闭整条链；悬停 300ms 自动打开，移到别的行、标题/分隔线/禁用行、离开整条链或键盘接管都会取消；右侧放不下时首帧即翻到行左侧。点击子面板属于菜单链内部（由实际发布的面板边界判断并遮挡命中），不会误关根菜单或穿透到背后控件；点击整条链外仍请求关闭。typeahead 前缀按完整层路径与会话归属，换分支、离开再返回或重新打开都不会继承。item 激活后菜单不会自动关闭，调用方必须在动作中显式关闭。真实原生窗口中的子面板命中、DPI 与长内容仍未人工验证，且本版 GPUI 未提供 accesskit 的禁用状态。`MenuTrigger` 在非受控时自己拥有开合状态，调用方没给焦点句柄时会为菜单建一个自有的 `FocusHandle`，所以把触发器直接放到页面上也能用键盘操作；点击取反的是屏幕上的开合状态，受控调用方拒绝请求后再次点击仍会重新请求，不会与画面分叉。关闭时由 Popover 交接焦点：Tab/Shift+Tab 前进或后退到相邻控件，Esc 回到触发器，点击其他控件则保留该控件的焦点。`MenuGroup` 在构建期展开成标题 + 行，标题永远不是键盘停点。`MenuItem::secondary` 生成 48px 的两行行高，`MenuItemCheckbox`/`MenuItemRadio` 是同一套勾选/单选行的类型包装。菜单把高度限制在视口内（`spec::menu::max_height`），逐层滚动行区域，在当前行变化时以及键盘显式请求时跟随（滚轮把当前行滚走后，再按一次同一方向键会把它找回来），普通重绘不会拉回滚动位置；**只有行区域滚动**，因为整块面板滚动会把绘制在面板之外的子菜单面板裁掉。放在页面滚动容器里的菜单、`aria-haspopup`/`aria-expanded`（本版 accesskit 没有）与原生窗口中的滚动仍未验证
+- Accordion 不假定面板高度：收起状态的容器里先让内容预排一次，把自然高度写进 keyed state，再让 200 ms 的动效从 0 走到这个值。所以首帧不会闪到某个猜出来的高度，内容也会一直留到收起动画结束
 - `Spinner` 与不定态 `ProgressBar` 每帧从时钟读相位，并在仍需运动时请求下一帧；GPUI 的 `with_animation` 包装进度从不前进，这正是两者此前只画一帧、实际静止的原因。弧线形状、1.5s 周期与颜色来自上游样式表，但不定态进度条的 2s 周期仍是近似值，也没有实测官方录屏。基线只记录 reduced-motion 帧：图库截图统一带 `FLUENT_GALLERY_REDUCE_MOTION=1`，因为循环动画永远等不到截图要求的三帧一致
 - `Button::tooltip` 的翻转由 gpui-base overlay 提供，悬停与翻转位置尚待人工验证；通用 `tooltip(text)` 助手使用 GPUI 原生定位，不提供相同锚定保证。测试只覆盖：根是否发布 service、实体身份是否跨重绘稳定、无根时调用方拿到 `None`
 - 不支持 RTL 布局、`letter_spacing`、CSS `outline`

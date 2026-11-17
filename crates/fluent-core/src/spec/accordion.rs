@@ -16,15 +16,38 @@
 //! - the focus indicator is a 2px `var(--colorStrokeFocus2)` rectangle at
 //!   `var(--borderRadiusMedium)`.
 //!
-//! Two things cannot be reproduced in this GPUI snapshot and are recorded in
+//! The expanding panel comes from `Collapse`, which is what
+//! `AccordionPanel` renders through `collapseMotion` with `visible: open` and
+//! `unmountOnExit: true`. `@fluentui/react-motion-components-preview@0.15.10`
+//! defaults to `duration = motionTokens.durationNormal` (200 ms),
+//! `easing = motionTokens.curveEasyEaseMax`, `staggerDelay = 0` and
+//! `animateOpacity: true`, so the height and the opacity move on one clock and
+//! one curve.
+//!
+//! One thing cannot be reproduced in this GPUI snapshot and is recorded in
 //! `docs/validation/accordion-2026-11-17.md`: there is no element transform, so
-//! the chevron is swapped rather than rotated, and there is no height transition,
-//! so a panel appears and disappears without the 200ms expand.
+//! the chevron is swapped rather than rotated.
+
+use std::time::Duration;
 
 use fluent_theme::FluentTheme;
+use fluent_tokens::CubicBezier;
 use gpui::Hsla;
 
 use crate::gpui_compat::{Pixels, px};
+
+/// `motionTokens.durationNormal`: a collapsing panel takes 200 ms both ways.
+pub const PANEL_MOTION: Duration = Duration::from_millis(200);
+
+/// The size and the opacity of a collapsing panel at `progress` (0..=1).
+///
+/// Both ride `curveEasyEaseMax` because `staggerDelay` is zero, so the panel is
+/// half revealed in both senses at the same moment. Returning them together
+/// keeps the two in lockstep: a caller cannot animate one without the other.
+pub fn panel_motion(progress: f32, ease: CubicBezier) -> (f32, f32) {
+    let eased = ease.sample(progress.clamp(0., 1.));
+    (eased, eased)
+}
 
 /// The header size ramp, mirroring Fluent's `size` prop.
 ///
@@ -297,5 +320,56 @@ mod tests {
     fn a_default_only_keeps_one_panel_unless_multiple() {
         assert_eq!(normalize_default(&[3, 1], false), vec![3]);
         assert_eq!(normalize_default(&[3, 1, 3], true), vec![1, 3]);
+    }
+
+    #[test]
+    fn a_panel_runs_for_the_normal_motion_duration() {
+        // `motionTokens.durationNormal`, which this token set does not carry.
+        assert_eq!(PANEL_MOTION, Duration::from_millis(200));
+    }
+
+    #[test]
+    fn a_panel_starts_and_ends_at_the_resting_frames() {
+        let ease = theme().tokens().curve.easy_ease_max;
+        // The curve is sampled by bisection, so the ends are exact to within a
+        // rounding error rather than bit-exact.
+        let near =
+            |a: (f32, f32), b: (f32, f32)| (a.0 - b.0).abs() < 1e-3 && (a.1 - b.1).abs() < 1e-3;
+        assert!(near(panel_motion(0.0, ease), (0.0, 0.0)));
+        assert!(near(panel_motion(1.0, ease), (1.0, 1.0)));
+        // Out-of-range progress is clamped rather than extrapolated.
+        assert!(near(panel_motion(-1.0, ease), (0.0, 0.0)));
+        assert!(near(panel_motion(2.0, ease), (1.0, 1.0)));
+    }
+
+    #[test]
+    fn a_panel_eases_on_curve_easy_ease_max() {
+        let ease = theme().tokens().curve.easy_ease_max;
+        // cubic-bezier(0.8, 0, 0.2, 1) is symmetric, so the midpoint is 0.5,
+        // while the first quarter lags behind linear (the curve starts slowly).
+        let (half_height, half_opacity) = panel_motion(0.5, ease);
+        assert!((half_height - 0.5).abs() < 1e-3, "midpoint: {half_height}");
+        assert_eq!(half_height, half_opacity);
+        assert!(panel_motion(0.25, ease).0 < 0.25);
+        // The curve this must not be: the gentler sibling is close to linear at
+        // the same point, and would make the panel arrive much earlier.
+        let gentle = panel_motion(0.25, theme().tokens().curve.easy_ease).0;
+        assert!(
+            panel_motion(0.25, ease).0 < gentle,
+            "curveEasyEaseMax lags curveEasyEase at the quarter mark: {} vs {gentle}",
+            panel_motion(0.25, ease).0
+        );
+    }
+
+    #[test]
+    fn a_panel_never_shrinks_while_it_opens() {
+        let ease = theme().tokens().curve.easy_ease_max;
+        let mut previous = 0.0;
+        for step in 0..=40 {
+            let (height, opacity) = panel_motion(step as f32 / 40.0, ease);
+            assert!(height >= previous, "progress must not go backwards");
+            assert_eq!(height, opacity, "size and opacity stay in lockstep");
+            previous = height;
+        }
     }
 }
